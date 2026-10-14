@@ -1,65 +1,50 @@
-# Performance Report — Planing v1.1.4 startup hardening
+# Performance Report — Planning v1.1.11
 
-Generated: 2026-10-07
+Generated: 2026-10-10
 
 ## Verification
 
 | Check | Result |
 |---|---:|
-| Regression suite | **PASS — 191 passed, 5 skipped** |
+| Full test suite with virtual display | **PASS — 226 passed** |
 | Python compile check | **PASS** |
-| GUI startup build benchmark | **~0.48 s** in the Linux/Xvfb test environment |
-| Lazy-page smoke test | **PASS — 21 pages opened sequentially, 0 callback errors** |
+| Fresh-process GUI startup smoke test | **PASS** |
+| Lazy-page traversal in a running Tk event loop | **PASS — 21 distinct page labels reached, no captured page-build errors** |
+| Direct-import static checks for the five lazy pages | **PASS** |
+| PyInstaller binary build in this environment | **NOT RUN — PyInstaller is not installed and package download is unavailable offline** |
 
-## What was causing startup delay
+## SQLite changes
 
-The previous startup path constructed every major tab inside `_build_ui()`. That
-meant heavy parser/export dependency trees (Pandas, OpenPyXL, PDF tooling) were
-imported and several hidden tabs restored cached state even though the operator
-had not opened those pages yet. `Situazione` also restored its SQLite state during
-construction, which could make a large local database block the first paint.
+- New normalized snapshots use one compact `payload_json` field written through pandas' vectorized serializer. This avoids one Python `json.dumps` call and one SQLite insert per source row.
+- Identical uploads update only source metadata after comparing content fingerprints; they do not rewrite an existing compact payload. Changed data is replaced in one transaction.
+- Older `source_snapshot_row` snapshots migrate to the compact payload on first read, preserving column order and known datetime columns. Older `frame_cache` snapshots also migrate when first read through `source_manager`.
+- `source_manager` now memoizes a defensive copy of each frame by content fingerprint. Subsequent consumers reuse RAM instead of decoding the JSON payload again, while source path/mtime freshness checks remain active.
+- WAL mode is configured during DB initialization rather than on every short-lived connection; connections retain a 5-second busy timeout, `synchronous=NORMAL`, and foreign keys.
 
-## Changes in v1.1.4
+## Local synthetic benchmark
 
-- Heavy pages are now **lazy-built** when first selected: Create/Biglietti,
-  Ordine Kamal, Ordine MED, Situazione Settimanale, and Master Data.
-- Their heavy imports are also deferred until first real use.
-- `Situazione` SQLite startup restore now runs after first paint in a worker;
-  SQLite remains the source of truth and no Excel workbook is read for this
-  startup restore.
-- The existing Magazino/Prezzi cache restores remain asynchronous.
-- Bulk synchronization can materialize the heavy consumers it actually needs.
-- Existing business logic, exports, calculations, and shared-cache behavior are
-  preserved; the change is focused on UI lifecycle/startup scheduling.
+A 50,000-row, five-column DataFrame was written and read in the local Linux test environment:
 
-## Measured result
+| Operation | Measured time |
+|---|---:|
+| Save a new compact snapshot | 0.072 s |
+| First direct SQLite read + JSON decode | 0.110 s |
+| First source-manager load in a cold process (SQLite read + JSON decode) | 0.110 s |
+| Repeated source-manager load from RAM | 0.002 s |
+| Re-save identical data without payload rewrite | 0.033 s |
 
-The same local startup probe previously measured approximately **1.05 s** for
-`_build_ui()`. After the change it measured approximately **0.48 s**, a reduction
-of about **54%** before considering machine-specific Windows differences. The
-probe is a development benchmark, not a Windows performance guarantee.
+These are local synthetic measurements, not guarantees for Windows/production data. The first load in a fresh process must still decode the stored payload once.
 
-## Remaining performance opportunities
+## Runtime fixes retained from the 1.1.8 review
 
-1. Replace repeated per-row JSON reconstruction in large SQLite snapshots with
-   a more compact normalized representation or a compressed bulk payload where
-   appropriate.
-2. Move the remaining path-only caches (Articoli, Densita, Magazino, LOTTI,
-   Listini/Prezzi, Produzione) toward the same SQLite-first source lifecycle so
-   startup and source recovery have one consistent authority.
-3. Replace broad shared-refresh fan-out with source-specific invalidation events
-   (`dfm_changed`, `magazino_changed`, `prezzi_changed`, etc.).
-4. Profile real Windows startup on the production machine after packaging;
-   especially measure PyInstaller cold start separately from Python UI build time.
-5. Continue replacing DataFrame `iterrows()` in calculation hot paths with
-   vectorized operations/groupby/map or `itertuples()` where iteration is only
-   needed for rendering/export.
+- Lazy page factories use ordinary imports so PyInstaller can discover Create/Biglietti, Ordine Kamal, Ordine MED, Situazione Settimanale, and Master Data.
+- The scheduled PG-X email report initializes the Create page in the background only when enabled and a recipient exists.
+- Snapshot metadata restores datetime columns required by `compute_situation`; legacy row snapshots also receive a compatibility migration.
+- A snapshot is not served as current when a registered existing source file has changed path/mtime; when that source file is gone, the SQLite snapshot remains usable.
+- Price lookup caching keys on the Listini content fingerprint plus category-source fingerprint, so price edits with unchanged row/column counts invalidate the cache.
+- DFM is read once per upload and saves each supported prefix plus the complete Article+Color pair set used by `Ordine MED`'s Check Articolo.
+- Startup does not show a modal for absent Situazione files.
 
-## Acceptance criteria
+## Validation limits
 
-- First window is painted without constructing every heavy page. **Implemented.**
-- Heavy pages still construct successfully when selected. **Implemented.**
-- SQLite restore does not block first paint. **Implemented.**
-- Existing regression suite remains green. **Implemented.**
-- No Excel source is required merely to restore the SQLite-backed Situazione
-  state after restart. **Implemented.**
+The repository was tested on Linux with a virtual display and pandas 2.2.3. A binary PyInstaller build could not be repeated here because PyInstaller is unavailable and network installation is disabled. The AST regression test confirms the lazy modules are import-reachable from normal import statements, but Windows/PyInstaller packaging still needs CI or a Windows build-machine verification.

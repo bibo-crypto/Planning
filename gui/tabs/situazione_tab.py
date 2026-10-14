@@ -181,19 +181,19 @@ class SituazioneTab(SituationSourcesMixin, SituationRefreshMixin, ttk.Frame):
         def worker():
             try:
                 db.init_db()
-                cached_copertura = db.load_frame_cache("copertura")
+                # Source snapshots (including Copertura) are restored once by
+                # _auto_restore_saved_files after this operational-state restore.
+                # Loading Copertura here too caused the same large snapshot to
+                # be decoded twice on every cold start.
                 states = db.get_all_states()
                 result = pd.DataFrame(states.values())
                 error = None
             except Exception as exc:  # noqa: BLE001
-                cached_copertura, result, error = None, pd.DataFrame(), exc
+                result, error = pd.DataFrame(), exc
 
             def apply_result():
                 if not self.winfo_exists():
                     return
-                if isinstance(cached_copertura, pd.DataFrame) and not cached_copertura.empty:
-                    self.loaded_frames["copertura"] = cached_copertura
-                    self._copertura_revision += 1
                 if error:
                     logger.warning("Situazione: SQLite startup restore failed: %s", error)
                     return
@@ -220,7 +220,7 @@ class SituazioneTab(SituationSourcesMixin, SituationRefreshMixin, ttk.Frame):
 
             self.after(0, apply_result)
 
-        threading.Thread(target=worker, name="planing-situazione-sqlite-restore", daemon=True).start()
+        threading.Thread(target=worker, name="planning-situazione-sqlite-restore", daemon=True).start()
 
     def on_shown(self) -> None:
         """Restore shared Excel sources when the Situation page is opened."""
@@ -275,7 +275,7 @@ class SituazioneTab(SituationSourcesMixin, SituationRefreshMixin, ttk.Frame):
         self.source_rows = {}
         for index, key in enumerate(SOURCE_ORDER):
             label, _ = data_loaders.LOADERS[key]
-            row = SourceRow(panel, key, label, self._handle_upload)
+            row = SourceRow(panel, key, label, self._queue_handle_upload)
             row.grid(row=0, column=index, padx=2, pady=1, sticky="ew")
             self.source_rows[key] = row
         for column in range(len(SOURCE_ORDER)):
@@ -288,12 +288,12 @@ class SituazioneTab(SituationSourcesMixin, SituationRefreshMixin, ttk.Frame):
         codes_panel.columnconfigure(1, weight=1, uniform="optional_sources")
 
         codes_row = SourceRow(codes_panel, "codes", "Yarn codes (Articoli) - optional",
-                               self._handle_codes_upload)
+                               self._queue_codes_upload)
         codes_row.grid(row=0, column=0, padx=3, pady=1, sticky="ew")
         self.codes_row = codes_row
 
         listini_row = SourceRow(codes_panel, "listini", "Listini (Prezzi) - optional",
-                                 self._handle_listini_upload)
+                                 self._queue_listini_upload)
         listini_row.grid(row=0, column=1, padx=2, pady=1, sticky="ew")
         self.listini_row = listini_row
 

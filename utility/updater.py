@@ -16,8 +16,8 @@ from urllib.request import Request, urlopen
 import zipfile
 
 
-DEFAULT_APP_VERSION = "1.1.4"
-GITHUB_REPOSITORY = "bibo-crypto/Planing"
+DEFAULT_APP_VERSION = "1.1.11"
+GITHUB_REPOSITORY = "bibo-crypto/Planning"
 RELEASES_API_URL = f"https://api.github.com/repos/{GITHUB_REPOSITORY}/releases/latest"
 RELEASES_PAGE_URL = f"https://github.com/{GITHUB_REPOSITORY}/releases"
 
@@ -105,7 +105,7 @@ def fetch_latest_release(timeout: float = 6.0) -> ReleaseInfo | None:
     """Fetch the latest published GitHub release, returning None on failure."""
     request = Request(
         RELEASES_API_URL,
-        headers={"Accept": "application/vnd.github+json", "User-Agent": "Planing-Updater"},
+        headers={"Accept": "application/vnd.github+json", "User-Agent": "Planning-Updater"},
     )
     try:
         with urlopen(request, timeout=timeout) as response:
@@ -140,7 +140,7 @@ def check_for_updates_async(callback: Callable[[ReleaseInfo | None], None], logg
             if logger:
                 logger.exception("Update check failed")
 
-    threading.Thread(target=worker, name="planing-update-check", daemon=True).start()
+    threading.Thread(target=worker, name="planning-update-check", daemon=True).start()
 
 
 def download_installer(release: ReleaseInfo, progress: Callable[[int], None] | None = None) -> Path:
@@ -148,10 +148,10 @@ def download_installer(release: ReleaseInfo, progress: Callable[[int], None] | N
     if not release.installer_url:
         raise RuntimeError("This release has no Windows installer attached yet.")
     suffix = ".zip"
-    fd, raw_path = tempfile.mkstemp(prefix="Planing_Update_", suffix=suffix)
+    fd, raw_path = tempfile.mkstemp(prefix="Planning_Update_", suffix=suffix)
     os.close(fd)
     destination = Path(raw_path)
-    request = Request(release.installer_url, headers={"User-Agent": "Planing-Updater"})
+    request = Request(release.installer_url, headers={"User-Agent": "Planning-Updater"})
     try:
         with urlopen(request, timeout=30) as response, destination.open("wb") as output:
             total = int(response.headers.get("Content-Length", "0") or 0)
@@ -210,7 +210,7 @@ def _needs_elevation(install_dir: Path) -> bool:
     Administrator rights to modify. Probed with a real write, not a guess
     from the path alone, so a per-user install location (%LOCALAPPDATA%)
     never triggers an unnecessary UAC prompt."""
-    probe = install_dir / f".planing_write_test_{os.getpid()}.tmp"
+    probe = install_dir / f".planning_write_test_{os.getpid()}.tmp"
     try:
         probe.write_text("x", encoding="utf-8")
         probe.unlink(missing_ok=True)
@@ -227,7 +227,7 @@ def _run_update_script(script_path: Path, creation_flags: int, elevated: bool) -
             close_fds=True,
         )
         return
-    # install_dir (typically C:\Program Files\Planing) needs Administrator
+    # install_dir (typically C:\Program Files\Planning) needs Administrator
     # rights to write to, same as any other app installed there -- this is
     # not optional, so request elevation via the UAC prompt (the "runas"
     # verb) rather than letting every Copy-Item in the script fail with
@@ -238,7 +238,7 @@ def _run_update_script(script_path: Path, creation_flags: int, elevated: bool) -
     result = ctypes.windll.shell32.ShellExecuteW(None, "runas", "powershell.exe", args, None, 0)
     if result <= 32:  # ShellExecuteW's own convention: <=32 means it failed to even launch
         raise RuntimeError(
-            "This update needs Administrator approval to install (Planing is installed under "
+            "This update needs Administrator approval to install (Planning is installed under "
             "Program Files). Please approve the Windows prompt, or ask an admin to run the update."
         )
 
@@ -247,7 +247,7 @@ def install_update(zip_path: Path, install_dir: Path, new_version: str) -> None:
     """Stage a ZIP update and start a hidden process that replaces files later.
 
     The running EXE cannot replace itself. The generated PowerShell helper
-    waits for Planing to exit, backs up the current installation, copies
+    waits for Planning to exit, backs up the current installation, copies
     the new application files over it, starts the new EXE, and verifies it
     actually stays running -- if the new build crashes immediately on
     launch, or the file copy never succeeds, it automatically restores the
@@ -268,31 +268,31 @@ def install_update(zip_path: Path, install_dir: Path, new_version: str) -> None:
         raise RuntimeError("Automatic updates are available only in the installed Windows version.")
 
     elevated = _needs_elevation(install_dir)
-    stage_root = Path(tempfile.mkdtemp(prefix="Planing_Update_"))
+    stage_root = Path(tempfile.mkdtemp(prefix="Planning_Update_"))
     try:
         _safe_extract(zip_path, stage_root)
-        executables = sorted(stage_root.rglob("Planing.exe"), key=lambda path: len(path.parts))
+        executables = sorted(stage_root.rglob("Planning.exe"), key=lambda path: len(path.parts))
         if not executables:
-            raise RuntimeError("The update ZIP must contain Planing.exe.")
-        # Accept all common ZIP layouts: Planing.exe at the root, inside a
-        # Planing folder, or inside an archived dist/Planing folder.
+            raise RuntimeError("The update ZIP must contain Planning.exe.")
+        # Accept all common ZIP layouts: Planning.exe at the root, inside a
+        # Planning folder, or inside an archived dist/Planning folder.
         source_dir = executables[0].parent
 
-        script_path = stage_root.parent / f"Planing_Update_{os.getpid()}.ps1"
-        exe_path = install_dir / "Planing.exe"
+        script_path = stage_root.parent / f"Planning_Update_{os.getpid()}.ps1"
+        exe_path = install_dir / "Planning.exe"
         # A sibling of install_dir, not inside it, so clearing/restoring
         # install_dir during a rollback never touches the backup itself.
         # Overwritten fresh on every update -- always exactly one, most
         # recent known-good version to fall back to.
-        backup_dir = install_dir.parent / "Planing_Backup"
+        backup_dir = install_dir.parent / "Planning_Backup"
         script = f"""$ErrorActionPreference = 'Stop'
-$log = Join-Path $env:TEMP 'Planing_Update.log'
+$log = Join-Path $env:TEMP 'Planning_Update.log'
 # Give the old process time to fully exit and release its file locks, then
-# explicitly wait until no old Planing process remains before copying. The
+# explicitly wait until no old Planning process remains before copying. The
 # fixed delay alone was not sufficient on slower machines/antivirus scans.
 Start-Sleep -Seconds 5
 for ($check = 1; $check -le 30; $check++) {{
-    if (-not (Get-Process -Name 'Planing' -ErrorAction SilentlyContinue)) {{ break }}
+    if (-not (Get-Process -Name 'Planning','Planing' -ErrorAction SilentlyContinue)) {{ break }}
     Start-Sleep -Seconds 2
 }}
 $source = {_powershell_quote(source_dir)}
@@ -311,11 +311,11 @@ function Restore-Backup {{
         }}
     }} catch {{ $_ | Out-File -FilePath $log -Append }}
 }}
-function Start-Planing {{
-    # Planing.exe itself should never run as Administrator ongoing -- only
+function Start-Planning {{
+    # Planning.exe itself should never run as Administrator ongoing -- only
     # copying into Program Files needs that. When this whole script runs
     # elevated (see _needs_elevation/_run_update_script), a plain
-    # Start-Process would launch Planing.exe elevated too, and an elevated
+    # Start-Process would launch Planning.exe elevated too, and an elevated
     # GUI started from a background context is subject to Windows'
     # focus-stealing prevention: it runs but never comes to the front,
     # which looks exactly like "the app did not reopen". Shell.Application's
@@ -370,7 +370,7 @@ try {{
         Move-Item -LiteralPath $versionTemp -Destination $versionPath -Force
         $writtenVersion = (Get-Content -LiteralPath $versionPath -Raw).Trim().TrimStart('v','V')
         if ($writtenVersion -ne $versionValue.Trim().TrimStart('v','V')) {{ throw "version.txt verification failed: '$writtenVersion'" }}
-        if (-not (Start-Planing)) {{ throw "Planing.exe could not be started after update" }}
+        if (-not (Start-Planning)) {{ throw "Planning.exe could not be started after update" }}
         # Antivirus commonly intercepts a freshly-written, unsigned exe on
         # its first launch -- it can run its own scan/sandbox pass, kill
         # that first process, and start a *different* one afterwards, on
@@ -379,13 +379,13 @@ try {{
         # and a short fixed wait isn't enough either -- this has been
         # observed taking close to a minute in practice. So instead: poll
         # by process name (survives the PID changing under AV) for up to 3
-        # minutes, and succeed the moment Planing.exe is seen running even
+        # minutes, and succeed the moment Planning.exe is seen running even
         # once -- a genuine crash never shows up running at all, no matter
         # how long or how many times checked.
         $sawRunning = $false
         for ($check = 1; $check -le 36; $check++) {{
             Start-Sleep -Seconds 5
-            if (Get-Process -Name 'Planing' -ErrorAction SilentlyContinue) {{
+            if (Get-Process -Name 'Planning','Planing' -ErrorAction SilentlyContinue) {{
                 $sawRunning = $true
                 break
             }}
@@ -393,21 +393,21 @@ try {{
         if (-not $sawRunning) {{
             "New version never started running within 3 minutes -- rolling back to the previous version" | Out-File -FilePath $log -Append
             Restore-Backup
-            Start-Planing | Out-Null
+            Start-Planning | Out-Null
         }}
     }} else {{
         "Update copy never succeeded after 20 attempts -- rolling back to the previous version" | Out-File -FilePath $log -Append
         Restore-Backup
-        Start-Planing | Out-Null
+        Start-Planning | Out-Null
     }}
     }} catch {{
         $_ | Out-File -FilePath $log -Append
         # Whatever failed above, always try to leave *something* running --
-        # closing Planing to update and then leaving nothing open at all,
+        # closing Planning to update and then leaving nothing open at all,
         # not even the old version, is the one outcome worse than a failed
         # update.
         Restore-Backup
-        Start-Planing | Out-Null
+        Start-Planning | Out-Null
     }}
 Remove-Item -LiteralPath {_powershell_quote(zip_path)} -Force -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath {_powershell_quote(stage_root)} -Recurse -Force -ErrorAction SilentlyContinue
@@ -415,7 +415,7 @@ Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
 """
         script_path.write_text(script, encoding="utf-8")
         # CREATE_NO_WINDOW alone only hides the console -- it doesn't
-        # detach the process from anything. If Planing.exe is running
+        # detach the process from anything. If Planning.exe is running
         # inside a Windows Job Object (common under some launchers, remote
         # sessions, or security software), closing the parent can silently
         # kill this helper along with it before it ever gets to run,

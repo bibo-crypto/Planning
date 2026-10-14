@@ -19,7 +19,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from calculate.abbina_calculator import MACHINE_CODES, _smallest_fitting_machine
+from calculate.abbina_calculator import MACHINE_CODES, _smallest_fitting_machine, split_into_batches
+from calculate.bagno import sequence_bagno
 from parsers.dfm_lookup import find_articolo_by_titolo
 from parsers.kamal_parser import KamalOrderRow
 from pipelines.ordini_elvy import (
@@ -54,6 +55,7 @@ class OrdineKamalRow:
     bagno_proposto: str = ""
     macchina: int | None = None
     sender_msg_no: str = ""        # "رقم رسالة الخام" -- used to match Lotto in LOTTI
+    batch_no: int = 0              # machine batch of its colour group (0 = first)
     colore_name: str = ""          # "اللون" -- Kamal's own colour label, used as the
                                     # GRUPPO MACCHINA grouping key when COLOREDFM is blank
 
@@ -92,20 +94,46 @@ def _machine_group_key(row: OrdineKamalRow) -> tuple[str, str] | None:
 
 def assign_ordine_kamal_machines(rows: list[OrdineKamalRow]) -> None:
     """Assign GRUPPO MACCHINA consistently for workbook and ERP exports."""
-    totals: dict[tuple[str, str], float] = {}
+    # Rows of one colour are filled into machine batches in order: a batch never
+    # exceeds the largest machine, so a colour whose total is bigger than that
+    # is split over several machines instead of overfilling one.
+    members: dict[tuple[str, str], list[OrdineKamalRow]] = {}
     for row in rows:
         key = _machine_group_key(row)
-        if key is None:
-            continue
-        totals[key] = totals.get(key, 0.0) + (row.peso_kg or 0.0)
+        if key is not None:
+            members.setdefault(key, []).append(row)
 
-    for row in rows:
-        key = _machine_group_key(row)
-        if key is None:
-            continue
-        capacity = _smallest_fitting_machine(totals[key])
-        row.macchina = MACHINE_CODES.get(capacity)
-        row.abbina = f"Machine {capacity} Cones"
+    for group in members.values():
+        batch_ids = split_into_batches([r.peso_kg for r in group])
+        for batch in sorted(set(batch_ids)):
+            batch_rows = [r for r, b in zip(group, batch_ids) if b == batch]
+            capacity = _smallest_fitting_machine(sum(r.peso_kg or 0.0 for r in batch_rows))
+            for r in batch_rows:
+                r.macchina = MACHINE_CODES.get(capacity)
+                r.abbina = f"Machine {capacity} Cones"
+                r.batch_no = batch
+
+
+def assign_bagno_prepostato(rows: list[OrdineKamalRow], first_bagno: str | None) -> None:
+    """Fill BAGNO PREPOSTO from the operator's "First bagno" (e.g. "T1200").
+
+    Same principle as Ordine MED, with Kamal's own grouping: every row that
+    shares a COLOREDFM (or, when that is blank, the same Colore) is dyed in
+    ONE machine batch -- wherever it sits in the letter -- so that is one
+    bath.  Baths are numbered in order of first appearance; the first row of
+    a bath stays blank (the ERP numbers it) and every further row carries
+    the bath number.  A row with neither COLOREDFM nor Colore has no machine
+    batch, so it is a bath of its own (takes one number, stays blank).
+
+    Call it AFTER assign_ordine_kamal_machines(), so both use the same key.
+    An empty first_bagno clears the column; a malformed one raises ValueError.
+    """
+    values = sequence_bagno(
+        [None if _machine_group_key(r) is None else (_machine_group_key(r), r.batch_no) for r in rows],
+        first_bagno,
+    )
+    for row, value in zip(rows, values):
+        row.bagno_proposto = value
 
 
 def build_ordine_kamal_rows(rows: list[KamalOrderRow], dfm_c170_entries: list[dict]) -> list[OrdineKamalRow]:
@@ -114,7 +142,8 @@ def build_ordine_kamal_rows(rows: list[KamalOrderRow], dfm_c170_entries: list[di
     passed in rather than loaded here so the caller only loads it once per
     conversion run.
     """
-    today = datetime.now()
+    # Dates are written as real Excel dates -- midnight, no time of day.
+    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     data_consegna_dt = today + timedelta(days=CONSEGNA_LEAD_DAYS)
     data_riconsegna_dt = data_consegna_dt - timedelta(days=1)
 

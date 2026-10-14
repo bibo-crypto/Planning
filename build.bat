@@ -4,7 +4,7 @@ cd /d "%~dp0"
 
 echo.
 echo  ================================================
-echo    Planing  ^|  Build Script
+echo    Planning  ^|  Build Script
 echo  ================================================
 echo.
 
@@ -13,13 +13,13 @@ python --version >nul 2>&1
 if errorlevel 1 (
     echo  [ERROR] Python is not installed.
     echo          Install Python 3.10 or newer from: https://python.org
-    if not defined PLANING_NO_PAUSE pause
+    if not defined PLANNING_NO_PAUSE pause
     exit /b 1
 )
 python -c "import sys; raise SystemExit(0 if sys.version_info >= (3,10) else 1)"
 if errorlevel 1 (
     echo  [ERROR] Python 3.10 or newer is required.
-    if not defined PLANING_NO_PAUSE pause
+    if not defined PLANNING_NO_PAUSE pause
     exit /b 1
 )
 for /f "tokens=*" %%v in ('python --version 2^>^&1') do echo  [OK] %%v detected
@@ -39,7 +39,7 @@ if exist venv\Scripts\python.exe (
     python -m venv venv
     if errorlevel 1 (
         echo  [ERROR] Failed to create venv.
-        if not defined PLANING_NO_PAUSE pause
+        if not defined PLANNING_NO_PAUSE pause
         exit /b 1
     )
 )
@@ -51,7 +51,7 @@ echo  [2/5]  Activating virtual environment...
 call venv\Scripts\activate.bat
 if errorlevel 1 (
     echo  [ERROR] Could not activate venv.
-    if not defined PLANING_NO_PAUSE pause
+    if not defined PLANNING_NO_PAUSE pause
     exit /b 1
 )
 echo         Done.
@@ -62,7 +62,7 @@ echo  [3/5]  Syncing dependencies with requirements.txt...
 python -m pip install --upgrade pip --quiet
 if errorlevel 1 (
     echo  [ERROR] Could not upgrade pip.
-    if not defined PLANING_NO_PAUSE pause
+    if not defined PLANNING_NO_PAUSE pause
     exit /b 1
 )
 echo         Removing packages no longer needed...
@@ -71,7 +71,7 @@ echo         Installing/updating packages from requirements.txt...
 python -m pip install -r requirements.txt --quiet
 if errorlevel 1 (
     echo  [ERROR] pip install requirements.txt failed.
-    if not defined PLANING_NO_PAUSE pause
+    if not defined PLANNING_NO_PAUSE pause
     exit /b 1
 )
 echo         Done.
@@ -92,14 +92,22 @@ if errorlevel 1 (
     echo.
     echo  [ERROR] PyInstaller build FAILED.
     echo          Check the output above for details.
-    if not defined PLANING_NO_PAUSE pause
+    if not defined PLANNING_NO_PAUSE pause
     exit /b 1
 )
+
+
+:: -- Legacy launcher (self-update bridge) -------------------------------------
+:: Versions installed before the rename (Planing.exe) update themselves by
+:: looking for "Planing.exe" in the release ZIP and starting it afterwards.
+:: A copy of the launcher under the old name lets them update to this build.
+:: Safe to delete once every PC runs a Planning build.
+copy /y "dist\Planning\Planning.exe" "dist\Planning\Planing.exe" >nul
 
 echo.
 echo  ================================================
 echo    Build Complete!
-echo    Output folder: dist\Planing\
+echo    Output folder: dist\Planning\
 echo  ================================================
 echo.
 echo  Next step - create the installer:
@@ -108,4 +116,4 @@ echo    2. Open installer.iss with Inno Setup Compiler
 echo    3. Press Ctrl+F9 to compile
 echo    4. The setup file will appear in: installer_output\
 echo.
-if not defined PLANING_NO_PAUSE pause
+if not defined PLANNING_NO_PAUSE pause

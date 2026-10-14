@@ -29,6 +29,7 @@ for _name, _module_path in (
     ("KamalExcelExporter", "exporters.kamal_excel_exporter"),
     ("KamalParser", "parsers.kamal_parser"),
     ("assign_ordine_kamal_machines", "pipelines.ordine_kamal"),
+    ("assign_bagno_prepostato", "pipelines.ordine_kamal"),
     ("build_ordine_kamal_rows", "pipelines.ordine_kamal"),
     ("match_by_lotto", "pipelines.ordine_kamal"),
     ("export_filato_full", "pipelines.ordini_elvy"),
@@ -65,6 +66,11 @@ class KamalTab(ttk.Frame):
         self._kamal_filato_export_dir: Path | None = None
         self._kamal_update_erp_file = tk.BooleanVar(value=True)
         self._kamal_update_filato_file = tk.BooleanVar(value=True)
+        # "First bagno" (Bagno Preposato) -- same idea as the Ordine Med tab;
+        # one-shot, cleared after every conversion.
+        self._kamal_bagno_enabled = tk.BooleanVar(value=False)
+        self._kamal_bagno_start = tk.StringVar(value="")
+        self._first_bagno_snapshot: str | None = None
         self._shared_dfm_path = ""
         self._on_shared_cache_changed = on_shared_cache_changed
         self._prefs = load_settings()
@@ -110,8 +116,25 @@ class KamalTab(ttk.Frame):
         self._lbl_raw_yarn = ttk.Label(lotti_frame, text="No Magazino file selected", foreground="grey", anchor="w")
         self._lbl_raw_yarn.grid(row=1, column=1, sticky="ew", padx=4)
 
+        bagno_frame = ttk.LabelFrame(self, text="Bagno Preposato (KAMAL)", padding=6)
+        bagno_frame.grid(row=3, column=0, sticky="ew", padx=4, pady=(3, 2))
+        bagno_frame.columnconfigure(2, weight=1)
+        ttk.Label(bagno_frame, text="First bagno:").grid(row=0, column=0, padx=(0, 5), pady=2, sticky="w")
+        ttk.Entry(bagno_frame, textvariable=self._kamal_bagno_start, width=14).grid(
+            row=0, column=1, padx=4, pady=2, sticky="w"
+        )
+        ttk.Checkbutton(
+            bagno_frame, text="Use bagno sequence", variable=self._kamal_bagno_enabled,
+        ).grid(row=0, column=2, padx=8, pady=2, sticky="w")
+        ttk.Label(
+            bagno_frame,
+            text="Default: disabled. Example: T1200. One bath per colour (COLOREDFM, or Colore when blank) "
+                 "-- the same group that sets the machine: first row blank, the other rows carry the bath.",
+            foreground="grey", wraplength=620, justify="left",
+        ).grid(row=1, column=0, columnspan=3, sticky="w", pady=(2, 0))
+
         erp_frame = ttk.LabelFrame(self, text="Also Extract ERP Files", padding=6)
-        erp_frame.grid(row=3, column=0, sticky="ew", padx=4, pady=(3, 2))
+        erp_frame.grid(row=4, column=0, sticky="ew", padx=4, pady=(3, 2))
         erp_frame.columnconfigure(1, weight=1)
 
         ttk.Button(
@@ -140,9 +163,15 @@ class KamalTab(ttk.Frame):
             "write",
             lambda *_: self._save_prefs(kamal_update_filato_file=self._kamal_update_filato_file.get()),
         )
+        self._kamal_bagno_enabled.trace_add(
+            "write", lambda *_: self._save_prefs(kamal_bagno_enabled=self._kamal_bagno_enabled.get())
+        )
+        self._kamal_bagno_start.trace_add(
+            "write", lambda *_: self._save_prefs(kamal_bagno_start=self._kamal_bagno_start.get())
+        )
 
         action_frame = ttk.Frame(self, padding=(6, 4))
-        action_frame.grid(row=4, column=0, sticky="ew", padx=4, pady=2)
+        action_frame.grid(row=5, column=0, sticky="ew", padx=4, pady=2)
         self._btn_convert = ttk.Button(
             action_frame, text="▶  Convert", command=self._on_convert, style="Accent.TButton"
         )
@@ -228,6 +257,8 @@ class KamalTab(ttk.Frame):
         # on the next application launch.
         self._kamal_update_erp_file.set(self._prefs.get("kamal_update_erp_file", True))
         self._kamal_update_filato_file.set(self._prefs.get("kamal_update_filato_file", True))
+        self._kamal_bagno_enabled.set(bool(self._prefs.get("kamal_bagno_enabled", False)))
+        self._kamal_bagno_start.set(str(self._prefs.get("kamal_bagno_start", "") or ""))
 
         raw_yarn_str = self._prefs.get("kamal_raw_yarn_path")
         if raw_yarn_str and Path(raw_yarn_str).is_file():
@@ -318,6 +349,22 @@ class KamalTab(ttk.Frame):
             )
             return
 
+        # Snapshot the Tk variables here (they must not be read from the worker
+        # thread) and reject a bad "First bagno" before doing any work.
+        self._first_bagno_snapshot = None
+        if self._kamal_bagno_enabled.get():
+            from calculate.bagno import FIRST_BAGNO_FORMAT_ERROR, is_valid_first_bagno
+            first_bagno = self._kamal_bagno_start.get().strip()
+            if not first_bagno:
+                messagebox.showwarning(
+                    "First bagno", "Enter the First bagno (example: T1200) or untick \"Use bagno sequence\"."
+                )
+                return
+            if not is_valid_first_bagno(first_bagno):
+                messagebox.showwarning("First bagno", FIRST_BAGNO_FORMAT_ERROR)
+                return
+            self._first_bagno_snapshot = first_bagno
+
         self._btn_convert.config(state="disabled")
         self._lbl_status.config(text="Converting…", foreground="grey")
         thread = threading.Thread(target=self._run_conversion, daemon=True)
@@ -346,12 +393,20 @@ class KamalTab(ttk.Frame):
             )
 
         magazino_summary = None
-        codes_map = None
+        # Titolo lookup for the Filato x Tinturia sheet -- always available from
+        # the DFM entries, whichever way the stock itself was loaded.
+        codes_map = {e["articolo"]: e.get("titolo", "") for e in dfm_c170_entries if e.get("titolo")}
         try:
             magazino_df, magazino_errors = magazino_logic.load_magazino_snapshot("G170")
         except Exception:
             magazino_df, magazino_errors = None, []
-        if magazino_df is None and self._raw_yarn_path is not None:
+        if (
+            magazino_df is not None and not magazino_df.empty
+            and {"articolo", "partita", "mag_rocche", "mag_peso"}.issubset(magazino_df.columns)
+        ):
+            # SQLite already holds the per-Partita summary -- use it as is.
+            magazino_summary = magazino_df
+        elif self._raw_yarn_path is not None:
             self._set_status("Loading raw yarn stock (Magazino)…")
             try:
                 magazino_df, magazino_errors = magazino_logic.load_magazino(
@@ -366,14 +421,17 @@ class KamalTab(ttk.Frame):
                     magazino_summary = magazino_logic.summarize_by_partita(magazino_df)
             except Exception as exc:  # noqa: BLE001
                 errors.append(f"Error loading raw yarn file: {exc}")
-            codes_map = {e["articolo"]: e.get("titolo", "") for e in dfm_c170_entries if e.get("titolo")}
 
         lotti_summary = None
         try:
             lotti_df, lotti_errors = lotti_logic.load_lotti_snapshot(lotti_logic.RAW_ARTICOLO_PREFIXES)
         except Exception:
             lotti_df, lotti_errors = None, []
-        if lotti_df is None and self._lotti_path is not None:
+        if lotti_df is not None and not lotti_df.empty and {"partita", "lotto"}.issubset(lotti_df.columns):
+            # Lotto matching is Kamal's primary rule: the SQLite snapshot must
+            # feed it too, not only a freshly read Excel file.
+            lotti_summary = lotti_logic.summarize_by_partita(lotti_df)
+        elif self._lotti_path is not None:
             self._set_status("Loading LOTTI reference…")
             try:
                 lotti_df, lotti_errors = lotti_logic.load_lotti(str(self._lotti_path), articolo_prefix=lotti_logic.RAW_ARTICOLO_PREFIXES)
@@ -396,6 +454,7 @@ class KamalTab(ttk.Frame):
                     magazino_summary=magazino_summary,
                     codes_map=codes_map,
                     lotti_summary=lotti_summary,
+                    first_bagno=self._first_bagno_snapshot,
                 ).export()
             except Exception as exc:  # noqa: BLE001
                 errors.append(f"Error exporting: {exc}")
@@ -408,6 +467,7 @@ class KamalTab(ttk.Frame):
                     try:
                         ordini_rows = build_ordine_kamal_rows(all_rows, dfm_c170_entries)
                         assign_ordine_kamal_machines(ordini_rows)
+                        assign_bagno_prepostato(ordini_rows, self._first_bagno_snapshot)
                         if lotti_summary is not None and not lotti_summary.empty:
                             match_by_lotto(ordini_rows, lotti_summary)
                         if magazino_summary is not None and not magazino_summary.empty:
@@ -423,7 +483,7 @@ class KamalTab(ttk.Frame):
                 else:
                     filato_path = self._kamal_filato_export_dir / "Filato x Tinturia.xlsx"
                     try:
-                        matches = read_filato_tinturia_sheet(self._output_path)
+                        matches = read_filato_tinturia_sheet(self._output_path, missing_ok=True)
                         n2 = export_filato_full(filato_path, matches)
                         logger.info("Filato x Tinturia: extracted %s (%d rows)", filato_path.name, n2)
                     except Exception as exc:  # noqa: BLE001
@@ -433,6 +493,10 @@ class KamalTab(ttk.Frame):
 
     def _on_conversion_done(self, errors: list[str], row_count: int):
         self._btn_convert.config(state="normal")
+        # First bagno is a one-shot input: clear it after every conversion.
+        self._kamal_bagno_start.set("")
+        self._kamal_bagno_enabled.set(False)
+        self._first_bagno_snapshot = None
         if errors:
             self._lbl_status.config(text="Completed with errors", foreground="#b00020")
             messagebox.showerror("Errors", "\n".join(errors))

@@ -14,12 +14,18 @@ Business rules (from spec)
 Available machine capacities (ascending order — must stay sorted):
     6, 24, 32, 56, 72, 128, 192, 384, 672
 
-If the group total exceeds 672 (the largest machine), the largest machine is
-assigned and a warning is logged.  The caller is responsible for deciding
-whether to split oversized groups.
+8.  If the group total exceeds the largest machine (672), the group is SPLIT
+    into several batches (rows stay in order, a row is never cut): each batch
+    is filled up to the largest machine and then gets its own smallest
+    fitting machine.  Every batch is numbered in ``OrderRow.abbina_batch`` so
+    callers (First Bagno) can tell two same-label batches apart.  Only a
+    single row bigger than the largest machine still gets the largest
+    machine, with a warning.
 """
 
 from __future__ import annotations
+
+import re
 
 from parsers.pdf_parser import OrderRow
 from utility.utils import logger
@@ -53,6 +59,26 @@ def _smallest_fitting_machine(total_cones: float) -> int:
         total_cones, MACHINE_CAPACITIES[-1],
     )
     return MACHINE_CAPACITIES[-1]
+
+
+def split_into_batches(quantities) -> list[int]:
+    """Batch number (0, 1, ...) for every quantity, in order.
+
+    Sequential fill: a row joins the current batch while the batch total stays
+    within the largest machine; otherwise it starts the next batch.  Same
+    colour/total rules as one machine, just without ever overfilling it.
+    """
+    limit = MACHINE_CAPACITIES[-1]
+    batches: list[int] = []
+    batch, total = 0, 0.0
+    for q in quantities:
+        q = q or 0.0
+        if total > 0 and total + q > limit:
+            batch += 1
+            total = 0.0
+        batches.append(batch)
+        total += q
+    return batches
 
 
 # ---------------------------------------------------------------------------
@@ -104,13 +130,38 @@ class AbbinaCalculator:
             group_end = i  # exclusive slice index
 
             if only_if_missing and any(rows[j].abbina for j in range(group_start, group_end)):
+                given = next(rows[j].abbina for j in range(group_start, group_end) if rows[j].abbina)
+                m = re.search(r"(\d+)", given)
+                if m and total_cones > int(m.group(1)):
+                    logger.warning(
+                        "    Colour %r: PDF Abbina '%s' is smaller than the group total (%.0f cones) -- kept as given.",
+                        colour, given, total_cones,
+                    )
+                # Some rows of the run carry an Abbina and some do not (a machine
+                # line in the middle of one colour): the blank rows belong to the
+                # same machine, so they take the nearest label instead of being
+                # left without a machine.
+                last = ""
+                for j in range(group_start, group_end):
+                    if rows[j].abbina:
+                        last = rows[j].abbina
+                    elif last:
+                        rows[j].abbina = last
+                for j in range(group_start, group_end):
+                    if not rows[j].abbina:
+                        rows[j].abbina = given
                 continue
 
-            machine_capacity = _smallest_fitting_machine(total_cones)
-            label = f"Machine {machine_capacity} Cones"
-
-            for j in range(group_start, group_end):
-                rows[j].abbina = label
+            run = rows[group_start:group_end]
+            batch_ids = split_into_batches([r.quantity_cones for r in run])
+            for batch in sorted(set(batch_ids)):
+                members = [r for r, b in zip(run, batch_ids) if b == batch]
+                batch_total = sum(r.quantity_cones or 0.0 for r in members)
+                label = f"Machine {_smallest_fitting_machine(batch_total)} Cones"
+                for r in members:
+                    r.abbina = label
+                    r.abbina_batch = batch
+            label = f"{len(set(batch_ids))} batch(es)"
 
             logger.debug(
                 "    Abbina group colour=%r rows %d–%d  "

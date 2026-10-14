@@ -209,7 +209,8 @@ class MagazinoFilatoTab(ttk.Frame):
         row2 = ttk.Frame(panel)
         row2.pack(fill="x", padx=4, pady=4)
         self.lotti_status_var = tk.StringVar(value="No LOTTI file uploaded (optional)")
-        ttk.Button(row2, text="📦 Select LOTTI File…", command=self._on_upload_lotti).pack(side="left")
+        self._btn_lotti = ttk.Button(row2, text="📦 Select LOTTI File…", command=self._on_upload_lotti)
+        self._btn_lotti.pack(side="left")
         ttk.Label(row2, textvariable=self.lotti_status_var, foreground="#666666").pack(side="left", padx=8)
 
         row_search = ttk.Frame(panel)
@@ -306,39 +307,54 @@ class MagazinoFilatoTab(ttk.Frame):
         threading.Thread(target=worker, daemon=True).start()
 
     def _on_upload_lotti(self, path=None, cache_path=None):
+        """Import LOTTI off-thread so large workbooks do not freeze the GUI."""
+        if getattr(self, "_lotti_uploading", False):
+            return
         if path is None:
             path = filedialog.askopenfilename(filetypes=[("Excel files", "*.xlsx *.xls")])
         if not path:
             return
         display_path = cache_path or path
-        try:
-            df, errors = lotti_logic.load_lotti(path)
-        except Exception as exc:  # noqa: BLE001
-            errors = [f"An error occurred while reading the file: {exc}"]
-            df = None
+        self._lotti_uploading = True
+        if hasattr(self, "_btn_lotti"):
+            self._btn_lotti.configure(state="disabled")
+        if hasattr(self, "lotti_status_var"):
+            self.lotti_status_var.set("Loading LOTTI file…")
 
-        if errors or df is None or df.empty:
-            msg = "; ".join(errors) if errors else "The file is empty after filtering"
-            self.lotti_status_var.set(f"❌ {msg}")
-            if cache_path is None:
-                messagebox.showerror("Error", msg)
-            return
+        def worker():
+            try:
+                df, errors = lotti_logic.load_lotti(path)
+                if errors or df is None or df.empty:
+                    raise ValueError("; ".join(errors) if errors else "The file is empty after filtering")
+                summary = lotti_logic.summarize_by_partita(df)
+                from utility.source_manager import save as save_source_frame
+                save_source_frame("lotti_data", df, display_path)
+                save_source_frame("lotti_summary", summary, display_path)
+                save_lotti_cache(display_path)
+                error = None
+            except Exception as exc:
+                df, summary, error = None, None, exc
 
-        self.lotti_summary = lotti_logic.summarize_by_partita(df)
-        self._shared_lotti_path = display_path
-        save_lotti_cache(display_path)
-        try:
-            from utility.source_manager import save as save_source_frame
-            save_source_frame("lotti_data", df, display_path)
-            save_source_frame("lotti_summary", self.lotti_summary, display_path)
-        except Exception:
-            pass
-        if self._on_shared_cache_changed:
-            self._on_shared_cache_changed()
-        self.lotti_status_var.set(f"✅ {len(self.lotti_summary)} Partita/Lotto pairs - {display_path}")
-        logger.info("Magazino Filato: loaded %d Lotto entries from %s",
-                    len(self.lotti_summary), os.path.basename(path))
-        self._recompute()
+            def apply_result():
+                self._lotti_uploading = False
+                if hasattr(self, "_btn_lotti"):
+                    self._btn_lotti.configure(state="normal")
+                if error is not None:
+                    msg = str(error)
+                    self.lotti_status_var.set(f"❌ {msg}")
+                    if cache_path is None:
+                        messagebox.showerror("Error", msg)
+                    return
+                self.lotti_summary = summary
+                self._shared_lotti_path = display_path
+                if self._on_shared_cache_changed:
+                    self._on_shared_cache_changed()
+                self.lotti_status_var.set(f"✅ {len(summary)} Partita/Lotto pairs - {display_path}")
+                logger.info("Magazino Filato: loaded %d Lotto entries from %s", len(df), os.path.basename(path))
+                self._recompute()
+
+            self.after(0, apply_result)
+        threading.Thread(target=worker, daemon=True, name="planning-upload-lotti").start()
 
     def sync_shared_async(self):
         """Restore normalized Magazino data from SQLite; Excel is upload-only."""

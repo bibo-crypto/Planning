@@ -282,7 +282,7 @@ def export_dataframe_fast(df: pd.DataFrame, default_filename: str, parent: tk.Wi
         if parent is not None and parent.winfo_exists():
             parent.after(0, done)
 
-    threading.Thread(target=worker, name="planing-excel-export", daemon=True).start()
+    threading.Thread(target=worker, name="planning-excel-export", daemon=True).start()
 
 
 def _write_typed_excel_table(ws, df: pd.DataFrame) -> None:

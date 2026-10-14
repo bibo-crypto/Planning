@@ -6,7 +6,7 @@ set PYTHONIOENCODING=utf-8
 
 echo.
 echo  ================================================
-echo    Planing  ^|  Publish to GitHub
+echo    Planning  ^|  Publish to GitHub
 echo  ================================================
 echo.
 echo  Commits the changes in this folder and pushes them to GitHub.
@@ -23,7 +23,7 @@ if errorlevel 1 (
     if errorlevel 1 (
         echo  [ERROR] Python is not installed.
         echo          Install Python 3.10 or newer from: https://python.org
-        if not defined PLANING_NO_PAUSE pause
+        if not defined PLANNING_NO_PAUSE pause
         exit /b 1
     )
     set "PY=py -3"
@@ -31,7 +31,7 @@ if errorlevel 1 (
 %PY% -c "import sys; raise SystemExit(0 if sys.version_info >= (3,10) else 1)"
 if errorlevel 1 (
     echo  [ERROR] Python 3.10 or newer is required.
-    if not defined PLANING_NO_PAUSE pause
+    if not defined PLANNING_NO_PAUSE pause
     exit /b 1
 )
 
@@ -50,5 +50,5 @@ if "%RESULT%"=="0" (
     echo  ================================================
 )
 echo.
-if not defined PLANING_NO_PAUSE pause
+if not defined PLANNING_NO_PAUSE pause
 exit /b %RESULT%

@@ -34,7 +34,7 @@ def restore_backup(source: str | Path) -> int:
         raise ValueError("The selected file is not a valid Planning backup.")
     APP_DATA_DIR.mkdir(parents=True, exist_ok=True)
     restored = 0
-    with tempfile.TemporaryDirectory(prefix="planing-restore-") as temp:
+    with tempfile.TemporaryDirectory(prefix="planning-restore-") as temp:
         temp_root = Path(temp)
         with zipfile.ZipFile(source) as archive:
             for member in archive.infolist():

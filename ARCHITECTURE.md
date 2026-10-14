@@ -173,9 +173,10 @@ same as Magazino's own export.
   Overview: matches files by name (falling back to content-sniffing for
   Data Ordine/Dispo-Bagno, which have no stable filename), routes each to
   the same handler its own tab's upload button uses.
-- `utility/situazione_db.py` — the one piece of actual persistence beyond
-  per-source path caches: SQLite-backed upload log + the shared
-  Articolo->TITOLO codes table.
+- `utility/situazione_db.py` — SQLite persistence for normalized source snapshots,
+  upload metadata, situation state, and the shared Articolo->TITOLO codes table.
+- `utility/source_manager.py` — shared snapshot lifecycle, freshness checks, and
+  process-local memoization so a source is not decoded from SQLite repeatedly.
 
 `Ordine MED` selects an output directory (rather than a file) and writes
 `Ordine_MED.xlsx`. Its ERP panel follows the Ordine Kamal pattern: separate
@@ -229,11 +230,11 @@ verified against real data -- if you're looking at this thinking "these
 should be one function," they were considered and kept apart on purpose.
 
 
-## Runtime data lifecycle (v1.1.3)
+## Runtime data lifecycle
 
 - Excel uploads are parsed by `parsers/` and business rules live in `calculate/`.
-- Small operational state is persisted in SQLite (`utility/situazione_db.py`).
-- File-location caches are lightweight JSON metadata under the per-user AppData directory.
+- Normalized runtime sources and operational state are persisted in SQLite (`utility/situazione_db.py`).
+- File-location caches are lightweight JSON metadata under the per-user AppData directory; they remember selected paths but are not the canonical data store.
 - DFM is SQLite-backed like the other normalized sources. A fresh DFM upload replaces the stored normalized snapshot and its customer-prefix lookups; restart restores the snapshot without requiring the workbook.
 - Listini category resolution follows: manual/reference category -> explicit Listini Customer/Marca when present -> article-prefix customer + Articoli Marca (only when Articoli has a Marca for the article; otherwise it stays unplaced rather than joining a bare `MED -` category) -> peer inference/review. Everything that feeds `CATEGORY` (reference map, manual overrides, the Articoli file) is part of `prezzi.category_sources_fingerprint()`, which every cache of categorised data must include in its key.
 - UI refresh notifications are debounced so a burst of shared-source changes produces one sync pass.
@@ -258,3 +259,27 @@ Uploaded/normalized source data is persisted as SQLite snapshots. On restart, th
 - **DFM is read once per upload** (`save_dfm_workbook`): lookups for every customer prefix plus every Articolo/Colore pair
   (`dfm:pairs`, used by Ordine MED's Check Articolo, including rows without CLDESCR and other customers).
 - **Startup never opens a modal**: Situazione refreshes at launch only when all six sources are available.
+
+
+## SQLite performance hardening (v1.1.10)
+
+- New snapshots use pandas' vectorized JSON serializer and one `payload_json` value per source instead of Python-serializing every row into `source_snapshot_row`. Legacy row-wise snapshots are restored with their column/date metadata, then migrated to the compact payload on first read.
+- Identical re-uploads update only source metadata when the compact snapshot is already current; they do not rewrite the payload. Content changes replace the snapshot inside a transaction.
+- `utility/source_manager.py` caches a defensive in-memory copy keyed by the SQLite content fingerprint. Callers still validate the registered source path and its modification time before serving the cache, so explicit uploads from another page cannot leave old data in use.
+- SQLite connection setup uses `busy_timeout`, `synchronous=NORMAL`, and foreign keys on each connection; WAL mode is set by database initialization rather than reissued for every short-lived read connection.
+- The reviewed runtime fixes from 1.1.8 remain in place: direct imports for lazy pages (PyInstaller), scheduled PG-X startup, date-dtype restoration, stale-source detection, and DFM Article+Color pair snapshots.
+
+## Merge of 1.1.9, 1.1.10 and the 1.1.8 review (v1.1.11)
+
+- **Background imports are back** (from 1.1.9; 1.1.10 had dropped them): Situazione sources, Articoli, Listini, the
+  Settimana page and Lotti parse and save to SQLite on a worker thread; the UI thread only publishes the result. A
+  source button is always re-enabled, even if publishing the result fails (`tests/test_background_uploads.py`).
+- **The refresh after an upload runs in the background** (`_refresh_after_upload_async`) once all six sources are loaded.
+  It behaves like the startup refresh (`preserve_comment_history=True`): stored Old Comm. values are kept; the manual
+  Refresh button remains the only thing that advances the comment history (with its confirmation).
+- **Data Elvy is a sub-page of Master Data** (`MasterDataTab(extra_pages=[...])`), built together with Master Data on its
+  first visit. Its state lives in the page itself and its data in `settings/elvy_mapping.json`, which the Purchase Orders
+  conversion reads directly, so nothing needs the page to exist.
+- **SQLite snapshots** (1.1.9 payload format + 1.1.10 migration/in-memory reuse + the column types and staleness guard of
+  the 1.1.8 review): one compact payload per source; dates restored as datetimes (ISO text, or epoch milliseconds from
+  older blobs); identical re-uploads write nothing; a snapshot older than its registered file is not served.

@@ -124,6 +124,35 @@ ROW_HEIGHT_WRAPPED = 45  # points for wrapped description rows
 # Exporter
 # ---------------------------------------------------------------------------
 
+def _as_integer(value):
+    """Blank -> None, numeric (int/float/"72"/"72,0") -> int.  A value that is
+    not numeric at all (e.g. a colour code like "A12") is returned unchanged so
+    it stays visible as text instead of crashing the whole export."""
+    if value in (None, ""):
+        return None
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, (int, float)):
+        return int(value)
+    text = str(value).strip().replace(",", ".")
+    try:
+        return int(float(text))
+    except ValueError:
+        return str(value)
+
+
+def _as_float(value):
+    """Same idea for decimal columns."""
+    if value in (None, ""):
+        return None
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value)
+    try:
+        return float(str(value).strip().replace(",", "."))
+    except ValueError:
+        return str(value)
+
+
 def write_header(
     ws: openpyxl.worksheet.worksheet.Worksheet,
     columns: list[tuple[str, str, str]],
@@ -171,26 +200,23 @@ def write_data(
                     )
 
             elif dtype == "integer":
-                if raw_value in (None, ""):
-                    cell.value = None
-                else:
-                    # Excel integer columns may receive values parsed from
-                    # PDF/Excel text, including a decimal-looking string.
-                    cell.value = int(float(str(raw_value).replace(",", ".")))
+                # Excel integer columns may receive values parsed from
+                # PDF/Excel text, including a decimal-looking string.
+                cell.value = _as_integer(raw_value)
                 cell.number_format = INTEGER_FORMAT
                 cell.alignment = Alignment(
                     horizontal="center", vertical="center"
                 )
 
             elif dtype == "number":
-                cell.value = float(raw_value) if raw_value is not None else None
+                cell.value = _as_float(raw_value)
                 cell.number_format = NUMBER_FORMAT
                 cell.alignment = Alignment(
                     horizontal="right", vertical="center"
                 )
 
             elif dtype == "general":
-                cell.value = float(raw_value) if raw_value not in (None, "") else None
+                cell.value = _as_float(raw_value)
                 cell.number_format = GENERAL_FORMAT
                 cell.alignment = Alignment(
                     horizontal="right", vertical="center"
@@ -281,11 +307,15 @@ class ExcelExporter(_LegacyMethodShims):
     """
 
     def __init__(self, rows: Sequence[OrderRow], output_path: Path,
-                 magazino_summary=None, codes_map: dict | None = None) -> None:
+                 magazino_summary=None, codes_map: dict | None = None,
+                 first_bagno: str | None = None) -> None:
         self.rows = rows
         self.output_path = output_path
         self.magazino_summary = magazino_summary
         self.codes_map = codes_map
+        # "First bagno" for the Ordini ELVY sheet's BAGNO PREPOSTO column
+        # (None / "" = leave it blank).  See calculate.bagno.
+        self.first_bagno = first_bagno
 
     # ------------------------------------------------------------------
     # Public API
@@ -305,7 +335,7 @@ class ExcelExporter(_LegacyMethodShims):
         self._apply_column_widths(ws, COLUMNS)
         self._freeze_and_filter(ws, COLUMNS)
 
-        ordini_rows = build_ordini_elvy_rows(list(self.rows))
+        ordini_rows = build_ordini_elvy_rows(list(self.rows), first_bagno=self.first_bagno)
 
         raw_yarn_matches = None
         if self.magazino_summary is not None and not self.magazino_summary.empty:

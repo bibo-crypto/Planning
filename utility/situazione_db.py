@@ -97,7 +97,8 @@ CREATE TABLE IF NOT EXISTS source_snapshot (
     row_count INTEGER NOT NULL DEFAULT 0,
     saved_at TEXT NOT NULL,
     data_fingerprint TEXT,
-    column_meta TEXT
+    column_meta TEXT,
+    payload_json TEXT
 );
 CREATE TABLE IF NOT EXISTS source_snapshot_row (
     source_name TEXT NOT NULL,
@@ -113,7 +114,7 @@ CREATE INDEX IF NOT EXISTS idx_source_snapshot_row_source ON source_snapshot_row
 def get_conn():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.execute("PRAGMA synchronous=NORMAL")
     conn.execute("PRAGMA foreign_keys=ON")
     return conn
@@ -121,6 +122,9 @@ def get_conn():
 
 def init_db():
     conn = get_conn()
+    # WAL is persistent database configuration; set once at initialization,
+    # not on each short-lived read connection (which can add lock/IO overhead).
+    conn.execute("PRAGMA journal_mode=WAL")
     conn.executescript(SCHEMA)
     conn.commit()
     try:
@@ -132,7 +136,12 @@ def init_db():
         conn.execute("ALTER TABLE source_snapshot ADD COLUMN column_meta TEXT")
         conn.commit()
     except sqlite3.OperationalError:
-        pass
+        pass  # column already exists
+    try:
+        conn.execute("ALTER TABLE source_snapshot ADD COLUMN payload_json TEXT")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass  # column already exists
     try:
         conn.execute("ALTER TABLE partita_state ADD COLUMN custom TEXT")
         conn.commit()
@@ -195,36 +204,34 @@ def get_all_uploads():
 
 
 def frame_fingerprint(frame):
-    """Stable content fingerprint for an uploaded/normalized DataFrame."""
+    """Stable content fingerprint without duplicating a potentially large frame."""
     import pandas as pd
     if frame is None:
         return ""
-    normalized = frame
     try:
-        normalized = frame.copy()
-        normalized.columns = [str(c) for c in normalized.columns]
-        # Hash values + column names + dtypes.  This compares the actual
-        # normalized data, not merely the source path or mtime.
-        value_hash = pd.util.hash_pandas_object(normalized, index=True).values.tobytes()
+        value_hash = pd.util.hash_pandas_object(frame, index=True).values.tobytes()
         meta = json.dumps(
-            {"columns": list(normalized.columns), "dtypes": [str(x) for x in normalized.dtypes]},
+            {"columns": [str(c) for c in frame.columns], "dtypes": [str(x) for x in frame.dtypes]},
             ensure_ascii=False, separators=(",", ":"),
         ).encode("utf-8")
         return hashlib.sha256(meta + value_hash).hexdigest()
     except Exception:
-        payload = normalized.to_json(orient="records", date_format="iso", default_handler=str)
+        payload = frame.to_json(orient="records", date_format="iso", force_ascii=False, default_handler=str)
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def snapshot_fingerprint(source_name):
     conn = get_conn()
-    row = conn.execute("SELECT data_fingerprint FROM source_snapshot WHERE source_name=?", (str(source_name),)).fetchone()
-    conn.close()
-    return row[0] if row and row[0] else ""
+    try:
+        row = conn.execute(
+            "SELECT data_fingerprint FROM source_snapshot WHERE source_name=?", (str(source_name),)
+        ).fetchone()
+        return row[0] if row and row[0] else ""
+    finally:
+        conn.close()
 
 
-# Columns that hold dates in the loaders' output. Used only to restore snapshots
-# written before dtypes were recorded (column_meta is NULL for those).
+# Columns that held dates in older snapshots written before dtype metadata existed.
 _LEGACY_DATETIME_COLUMNS = {"data", "consegna", "data_uscita", "data_qualita", "batch_start", "batchdt", "sheet_date"}
 
 
@@ -235,21 +242,62 @@ def _column_meta(frame):
     )
 
 
-def save_frame_cache(source_name, frame, source_path=None):
-    """Persist a normalized source frame in SQLite as the canonical local copy.
+def _apply_frame_metadata(frame, meta_json):
+    """Restore column order and datetime columns for both compact and legacy snapshots."""
+    import pandas as pd
+    meta = {}
+    if meta_json:
+        try:
+            meta = json.loads(meta_json) or {}
+        except (TypeError, ValueError):
+            meta = {}
+    columns = [c for c in meta.get("columns", [])]
+    dtypes = meta.get("dtypes", {}) if isinstance(meta.get("dtypes", {}), dict) else {}
+    if columns:
+        for column in columns:
+            if column not in frame.columns:
+                frame[column] = None
+        frame = frame[columns]
+    for column in frame.columns:
+        dtype = dtypes.get(str(column), "")
+        is_date = dtype.startswith("datetime64") if dtypes else str(column).casefold() in _LEGACY_DATETIME_COLUMNS
+        if is_date:
+            series = frame[column]
+            if pd.api.types.is_numeric_dtype(series):
+                # pandas' to_json writes datetimes as epoch MILLISECONDS unless date_format="iso"
+                # is given (older blobs, other tools). to_datetime would read bare numbers as
+                # nanoseconds and land in January 1970.
+                frame[column] = pd.to_datetime(series, unit="ms", errors="coerce")
+            else:
+                frame[column] = pd.to_datetime(series, errors="coerce")
+    return frame
 
-    Returns True when the stored data changed (new source or different
-    content) and False when the frame is identical to what was already saved.
-    In the identical case the rows are left alone (only the source path/time
-    are refreshed), so re-uploading the same file costs almost nothing;
-    otherwise the old rows are replaced as a whole inside one transaction.
+
+def _restore_frame(records, meta_json):
+    """Rebuild old row-per-JSON snapshots, restoring column order and dates."""
+    import pandas as pd
+    meta = {}
+    if meta_json:
+        try:
+            meta = json.loads(meta_json) or {}
+        except (TypeError, ValueError):
+            meta = {}
+    columns = [c for c in meta.get("columns", [])]
+    frame = pd.DataFrame(records, columns=columns or None) if columns else pd.DataFrame(records)
+    return _apply_frame_metadata(frame, meta_json)
+
+
+def save_frame_cache(source_name, frame, source_path=None):
+    """Persist a normalized source as one compact JSON payload in SQLite.
+
+    A stable fingerprint lets an identical upload update only file metadata. When
+    content changes, replacement of the payload and metadata is atomic. Older
+    row-per-JSON snapshots are migrated on the next save or read.
     """
     if frame is None:
         return False
     source_name = str(source_name)
     fingerprint = frame_fingerprint(frame)
-    previous = snapshot_fingerprint(source_name)
-    changed = fingerprint != previous
     mtime_ns = None
     if source_path:
         try:
@@ -259,37 +307,47 @@ def save_frame_cache(source_name, frame, source_path=None):
     saved_at = datetime.now().isoformat(timespec="seconds")
     conn = get_conn()
     try:
-        if not changed:
+        conn.execute("BEGIN IMMEDIATE")
+        previous = conn.execute(
+            "SELECT data_fingerprint, payload_json FROM source_snapshot WHERE source_name=?", (source_name,)
+        ).fetchone()
+        changed = not previous or (previous["data_fingerprint"] or "") != fingerprint
+        needs_migration = bool(previous and previous["payload_json"] is None)
+
+        if not changed and not needs_migration:
             conn.execute(
-                "UPDATE source_snapshot SET source_path=?, source_mtime_ns=?, saved_at=? WHERE source_name=?",
-                (str(source_path) if source_path else None, mtime_ns, saved_at, source_name),
+                "UPDATE source_snapshot SET source_path=?, source_mtime_ns=?, saved_at=?, row_count=? WHERE source_name=?",
+                (str(source_path) if source_path else None, mtime_ns, saved_at, int(len(frame)), source_name),
             )
             conn.commit()
             return False
-        conn.execute("DELETE FROM source_snapshot_row WHERE source_name=?", (source_name,))
-        conn.execute(
-            "INSERT INTO source_snapshot(source_name,schema_version,source_path,source_mtime_ns,row_count,saved_at,data_fingerprint,column_meta) "
-            "VALUES(?,?,?,?,?,?,?,?) "
-            "ON CONFLICT(source_name) DO UPDATE SET schema_version=excluded.schema_version, source_path=excluded.source_path, "
-            "source_mtime_ns=excluded.source_mtime_ns, row_count=excluded.row_count, saved_at=excluded.saved_at, "
-            "data_fingerprint=excluded.data_fingerprint, column_meta=excluded.column_meta",
-            (source_name, 2, str(source_path) if source_path else None, mtime_ns, int(len(frame)), saved_at,
-             fingerprint, _column_meta(frame)),
+
+        # Use pandas' vectorized serializer rather than Python json.dumps() for
+        # every row; this is much faster for large Listini/DFM/warehouse imports.
+        payload = frame.to_json(
+            orient="records", date_format="iso", force_ascii=False, double_precision=15,
         )
-        rows = [(source_name, i, json.dumps(row, ensure_ascii=False, default=str))
-                for i, row in enumerate(frame.to_dict(orient="records"))]
-        if rows:
-            conn.executemany("INSERT INTO source_snapshot_row(source_name,row_number,row_json) VALUES(?,?,?)", rows)
-        # source_snapshot_row is canonical; remove the legacy duplicate blob.
+        column_meta = _column_meta(frame)
+        conn.execute(
+            "INSERT INTO source_snapshot(source_name,schema_version,source_path,source_mtime_ns,row_count,saved_at,data_fingerprint,column_meta,payload_json) "
+            "VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(source_name) DO UPDATE SET "
+            "schema_version=excluded.schema_version, source_path=excluded.source_path, "
+            "source_mtime_ns=excluded.source_mtime_ns, row_count=excluded.row_count, "
+            "saved_at=excluded.saved_at, data_fingerprint=excluded.data_fingerprint, "
+            "column_meta=excluded.column_meta, payload_json=excluded.payload_json",
+            (source_name, 3, str(source_path) if source_path else None, mtime_ns, int(len(frame)),
+             saved_at, fingerprint, column_meta, payload),
+        )
+        # Compact payload is canonical after this write; remove duplicate legacy rows.
+        conn.execute("DELETE FROM source_snapshot_row WHERE source_name=?", (source_name,))
         conn.execute("DELETE FROM frame_cache WHERE source_name=?", (source_name,))
         conn.commit()
-        return True
+        return changed
     except Exception:
         conn.rollback()
         raise
     finally:
         conn.close()
-
 
 def snapshot_meta(source_name):
     """(source_path, source_mtime_ns) a snapshot was built from; {} if there is none."""
@@ -308,55 +366,77 @@ def replace_snapshot(source_name, frame, source_path=None):
     return save_frame_cache(source_name, frame, source_path=source_path)
 
 
-def _restore_frame(records, meta_json):
-    """Rebuild a DataFrame from snapshot rows, restoring the original column order and date columns."""
-    import pandas as pd
-    meta = {}
-    if meta_json:
-        try:
-            meta = json.loads(meta_json) or {}
-        except (TypeError, ValueError):
-            meta = {}
-    columns = [c for c in meta.get("columns", [])]
-    dtypes = meta.get("dtypes", {}) if isinstance(meta.get("dtypes", {}), dict) else {}
-    frame = pd.DataFrame(records, columns=columns or None) if columns else pd.DataFrame(records)
-    if columns:
-        for column in columns:
-            if column not in frame.columns:
-                frame[column] = None
-        frame = frame[columns]
-    for column in frame.columns:
-        dtype = dtypes.get(str(column), "")
-        is_date = dtype.startswith("datetime64") if dtypes else str(column).casefold() in _LEGACY_DATETIME_COLUMNS
-        if is_date:
-            # Rows hold dates as text ("2026-09-01 00:00:00" or "NaT"); the
-            # Situazione maths needs real datetimes (.dt accessors, subtraction).
-            frame[column] = pd.to_datetime(frame[column], errors="coerce")
-    return frame
-
-
 def load_frame_cache(source_name):
-    """Return a cached pandas DataFrame, or None when no snapshot exists."""
+    """Load one normalized source, using compact JSON and migrating old snapshots lazily."""
     import pandas as pd
-    conn = get_conn()
     source_name = str(source_name)
-    snapshot = conn.execute("SELECT schema_version, column_meta FROM source_snapshot WHERE source_name=?", (source_name,)).fetchone()
-    if snapshot:
-        rows = conn.execute("SELECT row_json FROM source_snapshot_row WHERE source_name=? ORDER BY row_number", (source_name,)).fetchall()
-        conn.close()
+    conn = get_conn()
+    try:
+        snapshot = conn.execute(
+            "SELECT schema_version, column_meta, payload_json FROM source_snapshot WHERE source_name=?",
+            (source_name,),
+        ).fetchone()
+        if snapshot:
+            meta_json = snapshot["column_meta"]
+            payload = snapshot["payload_json"]
+            if payload is not None:
+                try:
+                    frame = pd.read_json(StringIO(payload), orient="records", convert_dates=False, dtype=False)
+                    frame = _apply_frame_metadata(frame, meta_json)
+                    # Migrate payloads written before column metadata was added.
+                    # Legacy date names are restored above and then recorded so
+                    # future reads do not need heuristics.
+                    if not meta_json:
+                        conn.execute(
+                            "UPDATE source_snapshot SET column_meta=?, schema_version=3 WHERE source_name=?",
+                            (_column_meta(frame), source_name),
+                        )
+                        conn.commit()
+                    return frame
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    return None
+
+            # Legacy version stored one JSON document per row. Decode once, then
+            # persist the vectorized representation so later launches are fast.
+            rows = conn.execute(
+                "SELECT row_json FROM source_snapshot_row WHERE source_name=? ORDER BY row_number",
+                (source_name,),
+            ).fetchall()
+            try:
+                frame = _restore_frame([json.loads(row["row_json"]) for row in rows], meta_json)
+                payload = frame.to_json(
+                    orient="records", date_format="iso", force_ascii=False, double_precision=15,
+                )
+                conn.execute("BEGIN IMMEDIATE")
+                current = conn.execute(
+                    "SELECT payload_json FROM source_snapshot WHERE source_name=?", (source_name,)
+                ).fetchone()
+                if current and current["payload_json"] is None:
+                    conn.execute(
+                        "UPDATE source_snapshot SET payload_json=?, column_meta=?, schema_version=3 WHERE source_name=?",
+                        (payload, _column_meta(frame), source_name),
+                    )
+                    conn.execute("DELETE FROM source_snapshot_row WHERE source_name=?", (source_name,))
+                    conn.commit()
+                else:
+                    conn.rollback()
+                return frame
+            except (TypeError, ValueError, json.JSONDecodeError):
+                return None
+
+        row = conn.execute("SELECT data_json FROM frame_cache WHERE source_name=?", (source_name,)).fetchone()
+        if not row:
+            return None
         try:
-            return _restore_frame([json.loads(row["row_json"]) for row in rows], snapshot["column_meta"])
+            legacy_frame = pd.read_json(
+                StringIO(row["data_json"]), orient="records",
+                convert_dates=sorted(_LEGACY_DATETIME_COLUMNS), dtype=False,
+            )
+            return _apply_frame_metadata(legacy_frame, None)
         except (TypeError, ValueError, json.JSONDecodeError):
             return None
-    row = conn.execute("SELECT data_json FROM frame_cache WHERE source_name=?", (source_name,)).fetchone()
-    conn.close()
-    if not row:
-        return None
-    try:
-        return pd.read_json(StringIO(row["data_json"]), orient="records")
-    except (TypeError, ValueError):
-        return None
-
+    finally:
+        conn.close()
 
 def save_codes(df):
     """df must have columns: articolo_filato, titolo"""

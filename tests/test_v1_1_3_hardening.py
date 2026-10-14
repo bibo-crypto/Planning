@@ -37,7 +37,7 @@ def test_dfm_cache_is_sqlite_first_and_survives_restart(tmp_path, monkeypatch):
     assert dfm_lookup.load_dfm_cache()["entries"] == [{"articolo": "C1301"}]
 
 
-def test_frame_cache_uses_row_snapshot_without_duplicate_blob(monkeypatch, tmp_path):
+def test_frame_cache_uses_compact_payload_without_duplicate_rows_or_legacy_blob(monkeypatch, tmp_path):
     db = tmp_path / "situation.sqlite3"
     monkeypatch.setattr(situazione_db, "DB_PATH", str(db))
     situazione_db.init_db()
@@ -47,8 +47,10 @@ def test_frame_cache_uses_row_snapshot_without_duplicate_blob(monkeypatch, tmp_p
     assert restored.to_dict("records") == frame.to_dict("records")
     conn = situazione_db.get_conn()
     try:
+        snapshot = conn.execute("SELECT payload_json, column_meta FROM source_snapshot WHERE source_name='test_source'").fetchone()
+        assert snapshot[0] is not None and snapshot[1] is not None
         assert conn.execute("SELECT COUNT(*) FROM frame_cache WHERE source_name='test_source'").fetchone()[0] == 0
-        assert conn.execute("SELECT COUNT(*) FROM source_snapshot_row WHERE source_name='test_source'").fetchone()[0] == 2
+        assert conn.execute("SELECT COUNT(*) FROM source_snapshot_row WHERE source_name='test_source'").fetchone()[0] == 0
     finally:
         conn.close()
 

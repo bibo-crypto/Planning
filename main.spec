@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-# PyInstaller spec file for Planing
+# PyInstaller spec file for Planning
 # Run via build.bat — do NOT run manually without activating the venv first.
 
 from PyInstaller.utils.hooks import collect_all
@@ -142,7 +142,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='Planing',
+    name='Planning',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -164,5 +164,5 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='Planing',
+    name='Planning',
 )

@@ -1,5 +1,5 @@
 """
-main.py — Entry point for Planing (the Delta Dyeing PDF-to-Excel Converter).
+main.py — Entry point for Planning (the Delta Dyeing PDF-to-Excel Converter).
 
 Run with:
     python main.py
@@ -16,7 +16,7 @@ def _write_startup_error() -> Path | None:
     """Persist a frozen/source startup traceback where the user can retrieve it."""
     try:
         if getattr(os.sys, "frozen", False):
-            base = Path(os.environ.get("LOCALAPPDATA") or Path.home()) / "Planing"
+            base = Path(os.environ.get("LOCALAPPDATA") or Path.home()) / "Planning"
         else:
             base = Path(__file__).resolve().parent / "logs"
         base.mkdir(parents=True, exist_ok=True)
@@ -44,7 +44,7 @@ if __name__ == "__main__":
 
             location = f"\n\nسجل الخطأ: {error_path}" if error_path else ""
             messagebox.showerror(
-                "Planing - Startup error",
+                "Planning - Startup error",
                 "تعذر تشغيل البرنامج. راجع سجل الخطأ للحصول على التفاصيل." + location,
             )
         except Exception:

@@ -109,30 +109,43 @@ class SettimanaTab(ttk.Frame):
 
     # ------------------------------------------------------------- uploads
     def _handle_upload(self, key, path):
-        # Settimana needs the FULL Produzione columns (machine/peso/codice/date),
-        # not Situazione's narrow "data_prod" subset -- use load_produzione for that slot.
-        loader_fn = data_loaders.load_produzione if key == "data_prod" else data_loaders.load_dfm
-        try:
-            df, errors = loader_fn(path)
-        except Exception as exc:  # noqa: BLE001
-            errors = [f"An error occurred while reading the file: {exc}"]
-            df = None
-
-        if errors or df is None or df.empty:
-            msg = "; ".join(errors) if errors else "The file is empty after filtering"
-            self.source_rows[key].set_status(False, f"❌ {msg}")
-            self.loaded_frames.pop(key, None)
+        """Load weekly DFM/Produzione in a worker; keep Tk updates on main thread."""
+        if not hasattr(self, "_uploading_sources"):
+            self._uploading_sources = set()
+        if key in self._uploading_sources:
             return
+        self._uploading_sources.add(key)
+        self.source_rows[key].set_status(True, "⏳ Importing…")
+        loader_fn = data_loaders.load_produzione if key == "data_prod" else data_loaders.load_dfm
 
-        self.loaded_frames[key] = df
-        self.source_rows[key].set_status(True, f"✅ {len(df)} rows")
-        logger.info("Situazione Settimana: %s uploaded — %d rows (%s)", key, len(df), os.path.basename(path))
+        def worker():
+            try:
+                df, errors = loader_fn(path)
+                if errors or df is None or df.empty:
+                    raise ValueError("; ".join(errors) if errors else "The file is empty after filtering")
+                error = None
+            except Exception as exc:  # noqa: BLE001
+                df, error = None, exc
 
-        if key == "dfm":
-            self._save_shared_dfm(path)
-        if key == "data_prod":
-            self._save_shared_prod(path)
-        self._auto_calculate_if_ready()
+            def apply_result():
+                self._uploading_sources.discard(key)
+                if error is not None:
+                    self.source_rows[key].set_status(False, f"❌ {error}")
+                    self.loaded_frames.pop(key, None)
+                    return
+                self.loaded_frames[key] = df
+                self.source_rows[key].set_status(True, f"✅ {len(df)} rows")
+                logger.info("Situazione Settimana: %s uploaded — %d rows (%s)", key, len(df), os.path.basename(path))
+                if key == "dfm":
+                    threading.Thread(target=self._save_shared_dfm, args=(path,), daemon=True,
+                                     name="planning-weekly-dfm-index").start()
+                elif key == "data_prod":
+                    threading.Thread(target=self._save_shared_prod, args=(path,), daemon=True,
+                                     name="planning-weekly-prod-cache").start()
+                self._auto_calculate_if_ready()
+
+            self.after(0, apply_result)
+        threading.Thread(target=worker, daemon=True, name=f"planning-weekly-upload-{key}").start()
 
     # ---------------------------------------------------- shared DFM / Prod
     def _refresh_source_labels_from_cache(self):

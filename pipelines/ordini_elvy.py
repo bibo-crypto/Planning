@@ -18,7 +18,11 @@ LAV. SUCC            — always 900161 (number).
 DATA RICONSEGNA      — CONSEGNA - 1 day (real date).
 MAG. GREGGIO         — always 900923 (number).
 SIGLA DISPOSIZIONE   — always "D".
-BAGNO PREPOSTO       — always blank.
+BAGNO PREPOSTO       — blank unless the operator typed a "First bagno" (e.g.
+                        T1200); then it follows calculate.bagno: one bath per
+                        run of consecutive same-colour rows (the same group
+                        Abbina / GRUPPO MACCHINA is worked out from), first
+                        row blank, following rows carry the bath number.
 GRUPPO MACCHINA      — the physical machine number for the row's Abbina
                         cone count (see abbina_calculator.MACHINE_CODES),
                         as a number.
@@ -34,6 +38,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from calculate.abbina_calculator import MACHINE_CODES
+from calculate.bagno import sequence_bagno
 from parsers.pdf_parser import OrderRow
 from utility.master_data import finished_articolo_for, raw_articolo_for
 from utility.utils import clean_text
@@ -69,6 +74,9 @@ class OrdiniElvyRow:
     bagno_proposto: str = ""
     macchina: int | None = None
     reference_to: str = ""
+    # Not an ERP column: identifies the machine batch (consecutive same-colour
+    # run) this row belongs to -- the input of the First Bagno sequence.
+    bagno_group: tuple | None = None
 
 
 def _to_c_code(articolo_delta: str) -> str:
@@ -101,15 +109,40 @@ def _machine_code_for_abbina(abbina: str) -> int | None:
     return MACHINE_CODES.get(int(m.group(1)))
 
 
-def build_ordini_elvy_rows(rows: list[OrderRow]) -> list[OrdiniElvyRow]:
+def _elvy_bagno_group_keys(rows: list[OrderRow]) -> list[tuple]:
+    """One key per row: consecutive rows of the same PO, Colour and Abbina form
+    one machine batch.  Mirrors AbbinaCalculator (same-colour runs, per PDF) --
+    a different PO never joins a run, and an Abbina typed on the PDF that
+    differs inside a run still splits it, so the key can never disagree with
+    GRUPPO MACCHINA."""
+    keys: list[tuple] = []
+    run = -1
+    previous: tuple | None = None
+    for r in rows:
+        signature = (clean_text(r.pod_no), r.colour, clean_text(r.abbina), getattr(r, "abbina_batch", 0))
+        if signature != previous:
+            run += 1
+            previous = signature
+        keys.append(("elvy", run))
+    return keys
+
+
+def build_ordini_elvy_rows(rows: list[OrderRow], first_bagno: str | None = None) -> list[OrdiniElvyRow]:
     """Build one OrdiniElvyRow per OrderRow, using today's date as the basis
-    for CONSEGNA / DATA RICONSEGNA."""
-    today = datetime.now()
+    for CONSEGNA / DATA RICONSEGNA.
+
+    first_bagno: optional "First bagno" (e.g. "T1200").  When given, BAGNO
+    PREPOSTO is filled per calculate.bagno; raises ValueError if malformed.
+    """
+    # Dates are written as real Excel dates -- midnight, no time of day.
+    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     data_consegna_dt = today + timedelta(days=CONSEGNA_LEAD_DAYS)
     data_riconsegna_dt = data_consegna_dt - timedelta(days=1)
 
+    bagno_values = sequence_bagno(_elvy_bagno_group_keys(rows), first_bagno)
+
     out: list[OrdiniElvyRow] = []
-    for r in rows:
+    for r, bagno in zip(rows, bagno_values):
         year = _extract_year(r.po_date)
         commento = f"PG-X-PO-{clean_text(r.pod_no)}-{year}" if year else f"PG-X-PO-{clean_text(r.pod_no)}"
         reference_to = clean_text(r.reference_to)
@@ -123,9 +156,13 @@ def build_ordini_elvy_rows(rows: list[OrderRow]) -> list[OrdiniElvyRow]:
             data_consegna=data_consegna_dt,
             commento=commento,
             data_riconsegna=data_riconsegna_dt,
+            bagno_proposto=bagno,
             macchina=_machine_code_for_abbina(r.abbina),
             reference_to=reference_to,
         ))
+    # Keep the group key on the row too, for callers that want to inspect it.
+    for row, key in zip(out, _elvy_bagno_group_keys(rows)):
+        row.bagno_group = key
     return out
 
 
@@ -224,13 +261,21 @@ _FILATO_HEADER_TO_ATTR = {
 }
 
 
-def read_filato_tinturia_sheet(source_path: Path) -> list[RawYarnMatch]:
-    """Read an existing 'Filato x Tinturia' sheet back into RawYarnMatch rows."""
+def read_filato_tinturia_sheet(source_path: Path, missing_ok: bool = False) -> list[RawYarnMatch]:
+    """Read an existing 'Filato x Tinturia' sheet back into RawYarnMatch rows.
+
+    missing_ok: the workbook only gets that sheet when raw-yarn stock was
+    matched.  With no stock (or nothing matched) there is simply no sheet --
+    callers that extract the Filato file pass missing_ok=True and get an empty
+    list, which writes a header-only file (clearing stale rows from a previous
+    order) instead of failing the whole conversion."""
     import openpyxl  # local import: this module doesn't need openpyxl otherwise
 
     wb = openpyxl.load_workbook(source_path, data_only=True)
     try:
         if "Filato x Tinturia" not in wb.sheetnames:
+            if missing_ok:
+                return []
             raise ValueError(f"{source_path.name} has no \"Filato x Tinturia\" sheet.")
         ws = wb["Filato x Tinturia"]
 

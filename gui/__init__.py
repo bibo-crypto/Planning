@@ -1,4 +1,4 @@
-"""User-interface package for Planing (the Delta Dyeing application)."""
+"""User-interface package for Planning (the Delta Dyeing application)."""
 
 from .gui import ConverterApp
 

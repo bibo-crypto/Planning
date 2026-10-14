@@ -23,17 +23,24 @@ class MasterDataTab(ttk.Frame):
         ("suggestion", "Suggested category", 200), ("evidence", "Matches", 70),
     )
 
-    def __init__(self, parent, on_data_changed=None, prezzi_tab=None):
+    def __init__(self, parent, on_data_changed=None, prezzi_tab=None, extra_pages=None):
+        """*extra_pages*: [(tab label, builder(page_frame))] -- pages that other parts of the
+        application keep under Master Data (for example "Data Elvy", the Elvy->Delta article
+        mapping). Each builder fills the empty page frame it is given."""
         super().__init__(parent)
         self._data = master_data.load()
         self._on_data_changed = on_data_changed or (lambda: None)
         self._prezzi_tab = prezzi_tab
+        self._extra_pages = list(extra_pages or [])
         self._trees = {}
+        self.book = None
+        self.extra_page_frames = {}
         self._build()
 
     def _build(self):
         self.columnconfigure(0, weight=1); self.rowconfigure(0, weight=1)
         book = ttk.Notebook(self); book.grid(row=0, column=0, sticky="nsew", padx=8, pady=8)
+        self.book = book
         for label, (key, columns) in self.SCHEMAS.items():
             frame = ttk.Frame(book, padding=8); frame.columnconfigure(0, weight=1); frame.rowconfigure(0, weight=1)
             tree = ttk.Treeview(frame, columns=columns, show="headings", selectmode="browse")
@@ -49,6 +56,16 @@ class MasterDataTab(ttk.Frame):
             ttk.Button(frame, text="Delete", command=lambda k=key: self._delete(k)).grid(row=1, column=2, sticky="e", pady=(8, 0))
             book.add(frame, text=label); self._trees[key] = tree
             self._refresh(key)
+        for label, builder in self._extra_pages:
+            page = ttk.Frame(book)
+            book.add(page, text=label)
+            self.extra_page_frames[label] = page
+            try:
+                builder(page)
+            except Exception:  # noqa: BLE001 -- one broken page must not take the rest of Master Data with it
+                logger.exception("Master Data: couldn't build the %r page", label)
+                ttk.Label(page, text=f"The {label} page could not be loaded. See the log for details.",
+                          foreground="#b91c1c").pack(padx=16, pady=16, anchor="w")
         self._build_category_review(book)
         self.bind("<Map>", lambda _event: self._refresh_category_review())
 

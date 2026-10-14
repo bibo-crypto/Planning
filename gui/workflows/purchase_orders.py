@@ -70,9 +70,27 @@ class PurchaseOrderWorkflowMixin:
         )
         self._po_lbl_raw_yarn.grid(row=0, column=1, sticky="ew", padx=4)
 
+        # ── Bagno Preposato (First bagno) ────────────────────────────
+        bagno_frame = ttk.LabelFrame(parent, text="Bagno Preposato (ELVY)", padding=6)
+        bagno_frame.grid(row=3, column=0, sticky="ew", padx=4, pady=(3, 2))
+        bagno_frame.columnconfigure(2, weight=1)
+        ttk.Label(bagno_frame, text="First bagno:").grid(row=0, column=0, padx=(0, 5), pady=2, sticky="w")
+        ttk.Entry(bagno_frame, textvariable=self._po_bagno_start, width=14).grid(
+            row=0, column=1, padx=4, pady=2, sticky="w"
+        )
+        ttk.Checkbutton(
+            bagno_frame, text="Use bagno sequence", variable=self._po_bagno_enabled,
+        ).grid(row=0, column=2, padx=8, pady=2, sticky="w")
+        ttk.Label(
+            bagno_frame,
+            text="Default: disabled. Example: T1200. One bath per run of same-colour rows "
+                 "(the same group that sets the machine): first row blank, the other rows carry the bath.",
+            foreground="grey", wraplength=620, justify="left",
+        ).grid(row=1, column=0, columnspan=3, sticky="w", pady=(2, 0))
+
         # ── Extract "EXCEL PER ORDINE VENDITA EGITTO" + "Filato x Tinturia" ──
         erp_frame = ttk.LabelFrame(parent, text="Also Extract ERP Files", padding=6)
-        erp_frame.grid(row=3, column=0, sticky="ew", padx=4, pady=(3, 2))
+        erp_frame.grid(row=4, column=0, sticky="ew", padx=4, pady=(3, 2))
         erp_frame.columnconfigure(1, weight=1)
 
         ttk.Button(
@@ -102,7 +120,7 @@ class PurchaseOrderWorkflowMixin:
 
         # ── Options + Convert ────────────────────────────────────────
         opt_frame = ttk.Frame(parent, padding=(6, 3))
-        opt_frame.grid(row=4, column=0, sticky="ew", padx=4, pady=1)
+        opt_frame.grid(row=5, column=0, sticky="ew", padx=4, pady=1)
         opt_frame.columnconfigure(0, weight=1)
 
         self._po_btn_convert = ttk.Button(
@@ -116,7 +134,7 @@ class PurchaseOrderWorkflowMixin:
 
         # ── Progress + status ────────────────────────────────────────
         prog_frame = ttk.Frame(parent, padding=(4, 2))
-        prog_frame.grid(row=5, column=0, sticky="ew", padx=4, pady=1)
+        prog_frame.grid(row=6, column=0, sticky="ew", padx=4, pady=1)
         prog_frame.columnconfigure(0, weight=1)
 
         self._po_progress = ttk.Progressbar(prog_frame, mode="determinate", length=200)
@@ -209,6 +227,21 @@ class PurchaseOrderWorkflowMixin:
             )
             return
 
+        # Snapshot the Tk variables here: they must not be read from the
+        # worker thread.  A bad "First bagno" is reported before any work.
+        first_bagno: str | None = None
+        if self._po_bagno_enabled.get():
+            from calculate.bagno import FIRST_BAGNO_FORMAT_ERROR, is_valid_first_bagno
+            first_bagno = self._po_bagno_start.get().strip()
+            if not first_bagno:
+                messagebox.showwarning(
+                    "First bagno", "Enter the First bagno (example: T1200) or untick \"Use bagno sequence\"."
+                )
+                return
+            if not is_valid_first_bagno(first_bagno):
+                messagebox.showwarning("First bagno", FIRST_BAGNO_FORMAT_ERROR)
+                return
+
         self._set_po_ui_enabled(False)
         self._po_progress["value"] = 0
         self._po_progress["maximum"] = len(pdf_list)
@@ -224,6 +257,7 @@ class PurchaseOrderWorkflowMixin:
                 self._po_erp_export_dir,
                 self._po_filato_export_dir,
                 self._po_raw_yarn_path,
+                first_bagno,
             ),
             daemon=True,
         )
@@ -238,6 +272,7 @@ class PurchaseOrderWorkflowMixin:
         erp_export_dir: Path | None,
         filato_export_dir: Path | None,
         raw_yarn_path: Path | None = None,
+        first_bagno: str | None = None,
     ) -> None:
         """Run the Purchase Order conversion and optional ERP extracts."""
         from calculate.abbina_calculator import AbbinaCalculator
@@ -271,7 +306,23 @@ class PurchaseOrderWorkflowMixin:
 
         magazino_summary = None
         codes_map = None
-        if raw_yarn_path is not None:
+        # SQLite is the canonical store: the stock saved on upload is used
+        # first, so matching still works after a restart or when the original
+        # Excel was moved/deleted.  The Excel file is only the fallback.
+        try:
+            from utility.source_manager import load as load_source
+            snapshot = load_source("magazino_summary")
+            if (
+                snapshot is not None and not snapshot.empty
+                and {"articolo", "partita", "mag_rocche", "mag_peso"}.issubset(snapshot.columns)
+            ):
+                snapshot = snapshot[snapshot["articolo"].astype(str).str.startswith(("G130", "G170"))]
+                if not snapshot.empty:
+                    magazino_summary = snapshot.reset_index(drop=True)
+                    logger.info("Raw yarn stock loaded from SQLite: %d batches", len(magazino_summary))
+        except Exception:  # noqa: BLE001
+            magazino_summary = None
+        if magazino_summary is None and raw_yarn_path is not None:
             try:
                 from calculate import magazino as magazino_logic
                 magazino_df, magazino_errors = magazino_logic.load_magazino(str(raw_yarn_path))
@@ -287,14 +338,11 @@ class PurchaseOrderWorkflowMixin:
                 msg = f"Error loading raw yarn file: {exc}"
                 logger.error(msg)
                 errors.append(msg)
-            try:
-                # Titolo lookup for the Filato x Tinturia sheet comes from the
-                # DFM reference already loaded on the Data Elvy tab (parsed
-                # from DESCRIZARTICOLOLI), keyed by Articolo -- no separate
-                # upload needed.
-                codes_map = {e["articolo"]: e.get("titolo", "") for e in dfm_entries if e.get("titolo")}
-            except Exception:  # noqa: BLE001
-                codes_map = None
+        if magazino_summary is not None:
+            # Titolo lookup for the Filato x Tinturia sheet comes from the DFM
+            # reference already loaded on the Data Elvy tab (parsed from
+            # DESCRIZARTICOLOLI), keyed by Articolo -- no separate upload.
+            codes_map = {e["articolo"]: e.get("titolo", "") for e in dfm_entries if e.get("titolo")}
 
         for idx, pdf_path in enumerate(pdf_list, start=1):
             self._set_po_status(f"Processing {idx}/{total}: {pdf_path.name} …")
@@ -320,7 +368,7 @@ class PurchaseOrderWorkflowMixin:
 
                 if one_per_file:
                     out_path = make_output_path(pdf_path, output_dir)
-                    ExcelExporter(rows, out_path, magazino_summary, codes_map).export()
+                    ExcelExporter(rows, out_path, magazino_summary, codes_map, first_bagno=first_bagno).export()
                     last_export_path = out_path
                     logger.info("Saved: %s", out_path.name)
                 else:
@@ -337,7 +385,7 @@ class PurchaseOrderWorkflowMixin:
         if not one_per_file and merged_rows:
             try:
                 out_path = output_dir / "Ordine_Elvy.xlsx"
-                ExcelExporter(merged_rows, out_path, magazino_summary, codes_map).export()
+                ExcelExporter(merged_rows, out_path, magazino_summary, codes_map, first_bagno=first_bagno).export()
                 last_export_path = out_path
                 logger.info("Merged export saved: %s", out_path.name)
             except Exception as exc:  # noqa: BLE001
@@ -358,7 +406,7 @@ class PurchaseOrderWorkflowMixin:
             else:
                 ordini_path = erp_export_dir / "EXCEL PER ORDINE VENDITA EGITTO.xlsx"
                 try:
-                    ordini_rows = build_ordini_elvy_rows(all_rows)
+                    ordini_rows = build_ordini_elvy_rows(all_rows, first_bagno=first_bagno)
                     if magazino_summary is not None and not magazino_summary.empty:
                         match_raw_yarn(ordini_rows, magazino_summary, codes_map)
                     n = export_ordini_full(ordini_path, ordini_rows)
@@ -376,7 +424,7 @@ class PurchaseOrderWorkflowMixin:
             elif last_export_path is not None:
                 filato_path = filato_export_dir / "Filato x Tinturia.xlsx"
                 try:
-                    matches = read_filato_tinturia_sheet(last_export_path)
+                    matches = read_filato_tinturia_sheet(last_export_path, missing_ok=True)
                     n2 = export_filato_full(filato_path, matches)
                     logger.info("Extracted Filato x Tinturia file: %s (%d rows)", filato_path.name, n2)
                 except Exception as exc:  # noqa: BLE001
@@ -386,8 +434,14 @@ class PurchaseOrderWorkflowMixin:
 
         self._po_last_export_path = last_export_path
         self.after(0, self._on_po_conversion_done, errors, total)
+    def _reset_po_bagno_controls(self) -> None:
+        """First bagno is a one-shot input: clear it after every conversion."""
+        self._po_bagno_start.set("")
+        self._po_bagno_enabled.set(False)
+
     def _on_po_conversion_done(self, errors: list[str], total: int) -> None:
         self._set_po_ui_enabled(True)
+        self._reset_po_bagno_controls()
         if self._po_last_export_path and self._po_last_export_path.is_file():
             self._save_prefs(po_last_export_path=str(self._po_last_export_path))
 

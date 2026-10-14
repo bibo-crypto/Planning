@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 import re
 import sys
 from pathlib import Path
@@ -15,6 +16,26 @@ from typing import Any
 # ---------------------------------------------------------------------------
 # Writable data directory
 # ---------------------------------------------------------------------------
+
+def _migrate_legacy_dir(old_dir: Path, new_dir: Path) -> None:
+    """Carry settings/logs/cache from a previous app-data folder name over."""
+    try:
+        if not old_dir.is_dir() or old_dir == new_dir:
+            return
+        if not new_dir.exists():
+            old_dir.rename(new_dir)
+            return
+        for child in list(old_dir.iterdir()):
+            target = new_dir / child.name
+            if not target.exists():
+                shutil.move(str(child), str(target))
+        try:
+            old_dir.rmdir()  # only succeeds when nothing is left
+        except OSError:
+            pass
+    except OSError:
+        pass
+
 
 def _get_app_data_dir() -> Path:
     """
@@ -35,17 +56,14 @@ def _get_app_data_dir() -> Path:
     """
     if getattr(sys, "frozen", False):
         base = os.environ.get("LOCALAPPDATA") or str(Path.home())
-        new_dir = Path(base) / "Planing"
-        old_dir = Path(base) / "Delta Dyeing PO Converter"
-        # One-time migration: the app used to be named "Delta Dyeing PO
-        # Converter" -- if a user upgrades to a build named "Planing" and
-        # the new folder doesn't exist yet, carry the old settings/logs/
-        # cache over instead of silently starting fresh.
-        if not new_dir.exists() and old_dir.exists():
-            try:
-                old_dir.rename(new_dir)
-            except OSError:
-                pass
+        new_dir = Path(base) / "Planning"
+        # One-time migration from the app's earlier names: "Planing" (the
+        # misspelt one) and, before that, "Delta Dyeing PO Converter".  The
+        # old folder is renamed when the new one does not exist yet; when it
+        # does (e.g. a startup-error log was written there first) only the
+        # entries that are missing are moved over -- nothing is overwritten.
+        for old_dir in (Path(base) / "Planing", Path(base) / "Delta Dyeing PO Converter"):
+            _migrate_legacy_dir(old_dir, new_dir)
         return new_dir
     # utils.py lives one level under the project root now (utility/utils.py),
     # so go up one extra parent to keep dev-mode logs/settings/situazione in

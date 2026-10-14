@@ -31,7 +31,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Callable
 
-logger = logging.getLogger("planing.git")
+logger = logging.getLogger("planning.git")
 
 COMMIT_TYPES = ("feat", "fix", "refactor", "perf", "docs", "test", "build", "ci", "chore", "update")
 
@@ -436,7 +436,7 @@ def build_commit_message(changes: list[Change], version: str | None = None) -> C
 # ---------------------------------------------------------------------------
 
 def _write_temp(data: bytes) -> str:
-    handle, name = tempfile.mkstemp(prefix="planing-git-", suffix=".tmp")
+    handle, name = tempfile.mkstemp(prefix="planning-git-", suffix=".tmp")
     with os.fdopen(handle, "wb") as fh:
         fh.write(data)
     return name

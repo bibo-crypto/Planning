@@ -1,18 +1,18 @@
 ; ============================================================
-;  Inno Setup 6 Script — Planing
+;  Inno Setup 6 Script — Planning
 ;  https://jrsoftware.org/isdl.php
 ;
 ;  HOW TO USE:
-;    1. Run build.bat first to generate dist\Planing\
+;    1. Run build.bat first to generate dist\Planning\
 ;    2. Open this file in Inno Setup Compiler (Ctrl+F9 to build)
 ;    3. Installer will appear in: installer_output\
 ; ============================================================
 
-#define AppName      "Planing"
+#define AppName      "Planning"
 #define AppVersion   "1.0.2"
 #define AppPublisher "Delta Dyeing S.A.E."
-#define AppExeName   "Planing.exe"
-#define SourceDir    "dist\Planing"
+#define AppExeName   "Planning.exe"
+#define SourceDir    "dist\Planning"
 #define OutputDir    "installer_output"
 
 [Setup]
@@ -32,7 +32,7 @@ DefaultGroupName={#AppName}
 
 ; Output
 OutputDir={#OutputDir}
-OutputBaseFilename=Planing_Setup_v{#AppVersion}
+OutputBaseFilename=Planning_Setup_v{#AppVersion}
 
 ; Compression
 Compression=lzma2/ultra64
@@ -67,6 +67,15 @@ Name: "desktopicon"; \
 Source: "{#SourceDir}\*"; \
     DestDir: "{app}"; \
     Flags: ignoreversion recursesubdirs createallsubdirs
+
+[InstallDelete]
+; The app used to be called "Planing" (misspelt).  Same AppId, so installing
+; over an old copy upgrades it -- replace the old shortcuts with the new ones.
+; (dist\Planning\Planing.exe, the legacy launcher copy made by build.bat, is
+; kept on purpose so older versions can still self-update.)
+Type: files; Name: "{group}\Planing.lnk"
+Type: files; Name: "{commondesktop}\Planing.lnk"
+Type: files; Name: "{userdesktop}\Planing.lnk"
 
 [Icons]
 ; Start Menu

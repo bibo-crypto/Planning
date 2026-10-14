@@ -39,6 +39,8 @@ class OrdineMedTab(ttk.Frame):
         self.filato_folder: Path | None = None
         self.erp_enabled = tk.BooleanVar(value=True)
         self.filato_enabled = tk.BooleanVar(value=True)
+        self.bagno_enabled = tk.BooleanVar(value=False)
+        self.bagno_start_var = tk.StringVar(value="")
         self.magazino_path: Path | None = None
         self.densita_path: Path | None = None
         self._build_ui()
@@ -75,8 +77,22 @@ class OrdineMedTab(ttk.Frame):
         self._lbl_densita = ttk.Label(yarn_frame, text="No Densita Query file selected", foreground="grey", anchor="w")
         self._lbl_densita.grid(row=1, column=1, sticky="ew", padx=4)
 
+        bagno_frame = ttk.LabelFrame(self, text="Bagno Preposato (MED)", padding=6)
+        bagno_frame.grid(row=3, column=0, sticky="ew", padx=4, pady=(3, 2))
+        bagno_frame.columnconfigure(2, weight=1)
+        ttk.Label(bagno_frame, text="First bagno:").grid(row=0, column=0, padx=(0, 5), pady=2, sticky="w")
+        ttk.Entry(bagno_frame, textvariable=self.bagno_start_var, width=14).grid(row=0, column=1, padx=4, pady=2, sticky="w")
+        ttk.Checkbutton(
+            bagno_frame, text="Use bagno sequence", variable=self.bagno_enabled,
+        ).grid(row=0, column=2, padx=8, pady=2, sticky="w")
+        ttk.Label(
+            bagno_frame,
+            text="Default: disabled. Example: T1200. Only repeated colour/machine/ABBIN groups keep the bath on split rows.",
+            foreground="grey",
+        ).grid(row=1, column=0, columnspan=3, sticky="w", pady=(2, 0))
+
         erp_frame = ttk.LabelFrame(self, text="Also Extract ERP Files", padding=6)
-        erp_frame.grid(row=3, column=0, sticky="ew", padx=4, pady=(3, 2))
+        erp_frame.grid(row=4, column=0, sticky="ew", padx=4, pady=(3, 2))
         erp_frame.columnconfigure(1, weight=1)
         ttk.Button(
             erp_frame, text="📁 Select ERP Files Folder…", command=self._on_select_erp_folder, width=22
@@ -96,9 +112,11 @@ class OrdineMedTab(ttk.Frame):
         self._lbl_filato.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(0, 2))
         self.erp_enabled.trace_add("write", lambda *_: self._save_prefs(ordine_med_erp_enabled=self.erp_enabled.get()))
         self.filato_enabled.trace_add("write", lambda *_: self._save_prefs(ordine_med_filato_enabled=self.filato_enabled.get()))
+        self.bagno_enabled.trace_add("write", lambda *_: self._save_prefs(ordine_med_bagno_enabled=self.bagno_enabled.get()))
+        self.bagno_start_var.trace_add("write", lambda *_: self._save_prefs(ordine_med_bagno_start=self.bagno_start_var.get()))
 
         action_frame = ttk.Frame(self, padding=(6, 4))
-        action_frame.grid(row=4, column=0, sticky="ew", padx=4, pady=2)
+        action_frame.grid(row=5, column=0, sticky="ew", padx=4, pady=2)
         self._btn_convert = ttk.Button(
             action_frame, text="▶  Convert", command=self._on_convert, style="Accent.TButton"
         )
@@ -188,6 +206,8 @@ class OrdineMedTab(ttk.Frame):
             self._lbl_filato.config(text=filato_str, foreground="black")
         self.erp_enabled.set(bool(self._prefs.get("ordine_med_erp_enabled", True)))
         self.filato_enabled.set(bool(self._prefs.get("ordine_med_filato_enabled", True)))
+        self.bagno_enabled.set(bool(self._prefs.get("ordine_med_bagno_enabled", False)))
+        self.bagno_start_var.set(str(self._prefs.get("ordine_med_bagno_start", "")))
 
         ordine = source_path("data_ordine")
         if ordine and ordine.is_file():
@@ -216,11 +236,20 @@ class OrdineMedTab(ttk.Frame):
         color = "#b00020" if msg.startswith("Error") else ("grey" if "..." in msg else "green")
         self.after(0, lambda: self._lbl_status.config(text=msg, foreground=color))
 
+    def _reset_bagno_controls(self):
+        """Clear one-shot MED sequencing input after a conversion attempt."""
+        self.bagno_start_var.set("")
+        self.bagno_enabled.set(False)
+
     def _on_convert(self):
         if not self.ordine_path or not self.ordine_path.is_file():
             return messagebox.showwarning("Missing input", "Select an Ordine file.")
         if not self.output_path or not self.output_path.is_dir():
             return self._on_select_output() or messagebox.showwarning("Missing output", "Select an output folder.")
+        # Snapshot Tk variables before entering the worker; Tkinter variables
+        # must not be read from a background thread.
+        self._bagno_enabled_snapshot = bool(self.bagno_enabled.get())
+        self._bagno_start_snapshot = self.bagno_start_var.get().strip()
         self._btn_convert.config(state="disabled")
         self._set_status("Converting...")
         threading.Thread(target=self._worker, daemon=True).start()
@@ -235,6 +264,8 @@ class OrdineMedTab(ttk.Frame):
             )
             records = ordine_med.load_ordine(self.ordine_path)
             ordine_med.compute_mc_and_gruppo(records)
+            if getattr(self, "_bagno_enabled_snapshot", False):
+                ordine_med.assign_bagno_prepostato(records, self._bagno_start_snapshot)
 
             codes_map = load_articoli_marca_lookup() or load_articoli_titolo_map()
             ordine_med.compute_titolo(records, codes_map)
@@ -310,4 +341,4 @@ class OrdineMedTab(ttk.Frame):
             self._set_status(f"Error: {exc}")
             self.after(0, lambda exc=exc: messagebox.showerror("Conversion error", str(exc)))
         finally:
-            self.after(0, lambda: self._btn_convert.config(state="normal"))
+            self.after(0, lambda: (self._btn_convert.config(state="normal"), self._reset_bagno_controls()))

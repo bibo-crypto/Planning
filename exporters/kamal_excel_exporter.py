@@ -25,6 +25,7 @@ from exporters.excel_exporter import (
 from parsers.kamal_parser import KamalOrderRow
 from pipelines.ordine_kamal import (
     OrdineKamalRow,
+    assign_bagno_prepostato,
     assign_ordine_kamal_machines,
     build_ordine_kamal_rows,
     match_by_lotto,
@@ -67,13 +68,15 @@ class KamalExcelExporter:
     def __init__(self, rows: Sequence[KamalOrderRow], output_path: Path,
                  dfm_c170_entries: list[dict] | None = None,
                  magazino_summary=None, codes_map: dict | None = None,
-                 lotti_summary=None) -> None:
+                 lotti_summary=None, first_bagno: str | None = None) -> None:
         self.rows = rows
         self.output_path = output_path
         self.dfm_c170_entries = dfm_c170_entries or []
         self.magazino_summary = magazino_summary
         self.codes_map = codes_map
         self.lotti_summary = lotti_summary
+        # "First bagno" for BAGNO PREPOSTO (None / "" = leave blank).
+        self.first_bagno = first_bagno
 
     def export(self) -> None:
         logger.info("Exporting %d Kamal row(s) → %s", len(self.rows), self.output_path.name)
@@ -109,14 +112,14 @@ class KamalExcelExporter:
         ws2.sheet_view.rightToLeft = False
         # Use the same machine calculation for the workbook and ERP update.
         assign_ordine_kamal_machines(kamal_rows)
+        assign_bagno_prepostato(kamal_rows, self.first_bagno)
 
-        # Also set Abbina on the original parsed rows (first sheet)
-        for r in self.rows:
-            c = clean_text(getattr(r, "coloredfm", ""))
-            if not c:
-                continue
-            matching = next((row for row in kamal_rows if clean_text(row.coloredfm) == c), None)
-            r.abbina = matching.abbina if matching else ""
+        # Also set Abbina on the original parsed rows (first sheet).  kamal_rows
+        # is built 1:1, in order, from self.rows, so copy position by position:
+        # this also covers rows grouped by Colore (blank COLOREDFM), which a
+        # COLOREDFM lookup used to leave without an Abbina.
+        for parsed_row, derived_row in zip(self.rows, kamal_rows):
+            parsed_row.abbina = derived_row.abbina or ""
 
         # The raw sheet was written before the derived rows were calculated.
         # Update its Abbina cells after the machine assignment so the parsed

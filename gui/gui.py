@@ -123,7 +123,7 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
     Business logic is dispatched to background threads to keep the UI responsive.
     """
 
-    WINDOW_TITLE = f"Planing v{APP_VERSION}"
+    WINDOW_TITLE = f"Planning v{APP_VERSION}"
     WINDOW_MIN_W = 1000
     WINDOW_MIN_H = 760
 
@@ -176,6 +176,18 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
             lambda *_a: self._save_prefs(po_update_filato_file=self._po_update_filato_file.get()),
         )
         self._po_raw_yarn_path: Path | None = None
+        # "First bagno" (Bagno Preposato) for Ordine Elvy -- same idea as the
+        # Ordine Med tab; one-shot, cleared after every conversion.
+        self._po_bagno_enabled = tk.BooleanVar(value=False)
+        self._po_bagno_start = tk.StringVar(value="")
+        self._po_bagno_enabled.trace_add(
+            "write",
+            lambda *_a: self._save_prefs(po_bagno_enabled=self._po_bagno_enabled.get()),
+        )
+        self._po_bagno_start.trace_add(
+            "write",
+            lambda *_a: self._save_prefs(po_bagno_start=self._po_bagno_start.get()),
+        )
 
         # ── Bolla tab state ────────────────────────────────────────────
         self._bolla_pdf_path: Path | None = None
@@ -198,7 +210,7 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
         # mainloop starts makes Windows show an apparently frozen application.
         self._startup_label = ttk.Label(
             self,
-            text="Planing is opening...",
+            text="Planning is opening...",
             anchor="center",
             font=("Segoe UI", 14, "bold"),
         )
@@ -251,8 +263,8 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
         if not release.installer_url:
             return
         answer = messagebox.askyesno(
-            "Planing update available",
-            f"A new version of Planing is available.\n\n"
+            "Planning update available",
+            f"A new version of Planning is available.\n\n"
             f"Current version: {APP_VERSION}\nNew version: {release.version}\n\n"
             f"{notes}\n\nDownload and install it now?",
             parent=self,
@@ -265,11 +277,11 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
         update_window = tk.Toplevel(self)
         self._update_window = update_window
         keep_window_on_top(update_window)
-        update_window.title("Updating Planing")
+        update_window.title("Updating Planning")
         update_window.geometry("430x150")
         update_window.resizable(False, False)
         update_window.protocol("WM_DELETE_WINDOW", lambda: None)
-        ttk.Label(update_window, text="Downloading Planing update…", font=("Segoe UI", 10, "bold")).pack(
+        ttk.Label(update_window, text="Downloading Planning update…", font=("Segoe UI", 10, "bold")).pack(
             anchor="w", padx=18, pady=(18, 8)
         )
         self._update_status = ttk.Label(update_window, text="Downloaded: 0%")
@@ -288,7 +300,7 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
                 self.after(0, lambda exc=exc: self._update_failed(str(exc)))
 
         import threading
-        threading.Thread(target=worker, name="planing-update-download", daemon=True).start()
+        threading.Thread(target=worker, name="planning-update-download", daemon=True).start()
 
     def _update_download_progress(self, percent: int) -> None:
         if not getattr(self, "_update_window", None) or not self._update_window.winfo_exists():
@@ -300,7 +312,7 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
     def _update_failed(self, error: str) -> None:
         if getattr(self, "_update_window", None) and self._update_window.winfo_exists():
             self._update_window.destroy()
-        messagebox.showerror("Planing update", error, parent=self)
+        messagebox.showerror("Planning update", error, parent=self)
 
     def _finish_update(self, installer: Path) -> None:
         try:
@@ -324,7 +336,7 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
         except Exception as exc:  # noqa: BLE001
             if getattr(self, "_update_window", None) and self._update_window.winfo_exists():
                 self._update_window.destroy()
-            messagebox.showerror("Planing update", str(exc), parent=self)
+            messagebox.showerror("Planning update", str(exc), parent=self)
 
     # ------------------------------------------------------------------
     # Window / taskbar icon
@@ -442,14 +454,10 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
         style.map("Notification.TButton", background=[("active", "#991b1b")])
         self._refresh_notification_badge()
 
-        # ── All pages use one normal tab bar; Data Elvy is not persistent ──
-        startup_step("Loading Data Elvy...")
+        # ── All pages use one normal tab bar. Data Elvy (the Elvy -> Delta article
+        # mapping) lives inside Master Data and is built together with it. ──
         notebook = ttk.Notebook(self)
         notebook.grid(row=1, column=0, sticky="nsew", padx=12, pady=(4, 4))
-
-        elvy_tab = ttk.Frame(notebook)
-        notebook.add(elvy_tab, text="Data Elvy")
-        self._build_elvy_tab(elvy_tab)
 
         # ── Deferred heavy pages ───────────────────────────────────────
         # Heavy parser/export tabs are represented by lightweight frames at
@@ -493,6 +501,7 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
             return MasterDataTab(
                 parent, on_data_changed=self._refresh_notification_badge,
                 prezzi_tab=self._prezzi_tab,
+                extra_pages=[("Data Elvy", self._build_elvy_tab)],
             )
 
         def lazy_page(parent_book, text, builder):
@@ -1208,6 +1217,8 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
 
         self._po_update_erp_file.set(self._prefs.get("po_update_erp_file", True))
         self._po_update_filato_file.set(self._prefs.get("po_update_filato_file", True))
+        self._po_bagno_enabled.set(bool(self._prefs.get("po_bagno_enabled", False)))
+        self._po_bagno_start.set(str(self._prefs.get("po_bagno_start", "") or ""))
 
         if getattr(self, "_situazione_tab", None):
             self.after_idle(self._situazione_tab.sync_shared_async)

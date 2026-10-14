@@ -19,9 +19,65 @@ import openpyxl
 import utility.path_manager as path_manager
 from calculate.reports import compute_on_time_delivery
 from calculate.prezzi import detect_price_anomalies
+from pipelines.ordine_med import OrdineMedRow, assign_bagno_prepostato
 
 
 class PlanningRegressionTests(unittest.TestCase):
+    def test_med_bagno_sequence_keeps_only_split_rows(self):
+        def row(colour, abbin, machine):
+            return OrdineMedRow(
+                riga=1, code_org="C010032S", titolo="30/1", descr_col="Blue",
+                articolo="C010032S", colore=colour, rocc=24, abbin=abbin,
+                consegna_input=None, pt_grg="", pt_med="", polmoni="",
+                cliente_note="", nota_grg="", nota_col="", kg_note="",
+                fabb="", prezz_note="", gruppo_macchina=machine,
+            )
+
+        records = [
+            row("351", 0, 3306),
+            row("304", 1, 3302),
+            row("304", 1, 3302),
+            row("305", 0, 3310),
+        ]
+        assign_bagno_prepostato(records, "T1200")
+        self.assertEqual(
+            [r.bagno_reale for r in records],
+            ["T1200", "T1201", "T1201", "T1202"],
+        )
+        self.assertEqual([r.bagno_prepostato for r in records], ["", "", "T1201", ""])
+
+    def test_med_bagno_sequence_is_disabled_or_blank_for_non_groups(self):
+        records = []
+        for index in range(2):
+            records.append(OrdineMedRow(
+                riga=index + 1, code_org="C010032S", titolo="30/1", descr_col="Blue",
+                articolo="C010032S", colore="304", rocc=24, abbin=0,
+                consegna_input=None, pt_grg="", pt_med="", polmoni="",
+                cliente_note="", nota_grg="", nota_col="", kg_note="",
+                fabb="", prezz_note="", gruppo_macchina=3302,
+            ))
+        assign_bagno_prepostato(records, None)
+        self.assertEqual([r.bagno_prepostato for r in records], ["", ""])
+
+    def test_med_bagno_sequence_rejects_invalid_start(self):
+        with self.assertRaises(ValueError):
+            assign_bagno_prepostato([], "1200")
+
+    def test_med_bagno_number_counts_each_zero_row_before_abbin_groups(self):
+        def row(index, abbin):
+            return OrdineMedRow(
+                riga=index, code_org="C010032S", titolo="30/1", descr_col="Blue",
+                articolo="C010032S", colore=str(index), rocc=24, abbin=abbin,
+                consegna_input=None, pt_grg="", pt_med="", polmoni="",
+                cliente_note="", nota_grg="", nota_col="", kg_note="",
+                fabb="", prezz_note="", gruppo_macchina=3302,
+            )
+
+        records = [row(i, 0) for i in range(1, 20)]
+        records.extend([row(20, 1), row(21, 1), row(22, 2), row(23, 2), row(24, 3), row(25, 3)])
+        assign_bagno_prepostato(records, "S1200")
+        self.assertEqual([r.bagno_prepostato for r in records], [""] * 19 + ["", "S1219", "", "S1220", "", "S1221"])
+
     def test_empty_machine_group_has_no_capacity(self):
         self.assertEqual(_smallest_fitting_machine(0), 0)
         self.assertEqual(_smallest_fitting_machine(-1), 0)
@@ -1469,7 +1525,7 @@ class PlanningRegressionTests(unittest.TestCase):
             if "/.git/" in path or path.startswith("tests/") or path.startswith("tests\\"):
                 continue
             try:
-                tree = ast.parse(open(path, encoding="utf-8").read())
+                tree = ast.parse(Path(path).read_text(encoding="utf-8"))
             except SyntaxError:
                 continue
             for node in ast.walk(tree):
@@ -1532,7 +1588,7 @@ class PlanningRegressionTests(unittest.TestCase):
             temp_dir = Path(temp_dir)
             zip_path = temp_dir / "update.zip"
             with zipfile.ZipFile(zip_path, "w") as zf:
-                zf.writestr("Planing/Planing.exe", "fake exe bytes")
+                zf.writestr("Planning/Planning.exe", "fake exe bytes")
             install_dir = temp_dir / "install"
             install_dir.mkdir()
 
@@ -1550,7 +1606,7 @@ class PlanningRegressionTests(unittest.TestCase):
             self.assertIn("$backup", script)
             self.assertIn("Restore-Backup", script)
             self.assertIn("Copy-Item -LiteralPath $_.FullName -Destination $backup", script)  # backs up BEFORE overwriting
-            self.assertIn("Get-Process -Name 'Planing'", script)  # verifies the new build actually starts running
+            self.assertIn("Get-Process -Name 'Planning'", script)  # verifies the new build actually starts running
             self.assertIn("sawRunning", script)  # tolerates AV closing/relaunching under a different PID
             self.assertIn("rolling back to the previous version", script)
             # The rollback path must run for every real failure mode: a
@@ -1565,13 +1621,13 @@ class PlanningRegressionTests(unittest.TestCase):
         # catch: after the elevation fix made updates actually succeed
         # (see test_install_update_elevates_when_install_dir_unwritable),
         # the app stopped reopening on its own afterwards -- a plain
-        # Start-Process for Planing.exe, called from a script that may
-        # itself be running elevated, launches Planing.exe elevated too,
+        # Start-Process for Planning.exe, called from a script that may
+        # itself be running elevated, launches Planning.exe elevated too,
         # and Windows' focus-stealing prevention can leave that window
         # never visibly coming to the front. Every relaunch (success and
         # every rollback path) must go through the Shell.Application-based
         # de-elevated launch, and the one legitimate raw Start-Process left
-        # (Start-PlaningNormally's own fallback if COM is unavailable) must
+        # (Start-PlanningNormally's own fallback if COM is unavailable) must
         # not recurse into itself.
         import sys
         import zipfile
@@ -1582,7 +1638,7 @@ class PlanningRegressionTests(unittest.TestCase):
             temp_dir = Path(temp_dir)
             zip_path = temp_dir / "update.zip"
             with zipfile.ZipFile(zip_path, "w") as zf:
-                zf.writestr("Planing/Planing.exe", "fake exe bytes")
+                zf.writestr("Planning/Planning.exe", "fake exe bytes")
             install_dir = temp_dir / "install"
             install_dir.mkdir()
 
@@ -1596,16 +1652,16 @@ class PlanningRegressionTests(unittest.TestCase):
                 updater.install_update(zip_path, install_dir, "2.0.0")
 
             script = captured["script"]
-            self.assertIn("function Start-Planing", script)
-            self.assertNotIn("Start-PlaningNormally", script)
+            self.assertIn("function Start-Planning", script)
+            self.assertNotIn("Start-PlanningNormally", script)
             # De-elevated launch through the non-elevated explorer shell comes first...
             self.assertIn('New-Object -ComObject "Shell.Application"', script)
             self.assertIn("ShellExecute($exePath", script)
             # ...and every relaunch site (success + 3 rollback/failure paths) goes
             # through the wrapper: 1 definition + 4 call sites.
-            self.assertEqual(script.count("Start-Planing"), 5)
+            self.assertEqual(script.count("Start-Planning"), 5)
             # Raw Start-Process / cmd start for $exePath live only inside the wrapper's fallbacks.
-            wrapper_start = script.index("function Start-Planing")
+            wrapper_start = script.index("function Start-Planning")
             wrapper_end = script.index("\ntry {", wrapper_start)  # next top-level statement after the function
             for needle in ("Start-Process -FilePath $exePath", "Start-Process -FilePath 'cmd.exe'"):
                 if needle in script:
@@ -1613,7 +1669,7 @@ class PlanningRegressionTests(unittest.TestCase):
                     self.assertLess(script.index(needle), wrapper_end)
 
     def test_install_update_detaches_helper_from_any_job_object(self):
-        # Regression guard: if Planing.exe runs inside a Windows Job Object
+        # Regression guard: if Planning.exe runs inside a Windows Job Object
         # (some launchers/security software do this), closing the parent
         # can silently kill an undetached child the instant the parent
         # exits -- the update helper would never get to run at all, and
@@ -1630,7 +1686,7 @@ class PlanningRegressionTests(unittest.TestCase):
             temp_dir = Path(temp_dir)
             zip_path = temp_dir / "update.zip"
             with zipfile.ZipFile(zip_path, "w") as zf:
-                zf.writestr("Planing/Planing.exe", "fake exe bytes")
+                zf.writestr("Planning/Planning.exe", "fake exe bytes")
             install_dir = temp_dir / "install"
             install_dir.mkdir()
 
@@ -1658,7 +1714,7 @@ class PlanningRegressionTests(unittest.TestCase):
 
     def test_needs_elevation_detects_unwritable_install_dir(self):
         # Regression guard for the real-world failure this was built to
-        # catch: Planing installed under C:\Program Files needs
+        # catch: Planning installed under C:\Program Files needs
         # Administrator rights to write to, which the (non-admin) running
         # process does not have -- every Copy-Item in the update script,
         # including the rollback's own copy-back, failed with Access
@@ -1691,7 +1747,7 @@ class PlanningRegressionTests(unittest.TestCase):
             temp_dir = Path(temp_dir)
             zip_path = temp_dir / "update.zip"
             with zipfile.ZipFile(zip_path, "w") as zf:
-                zf.writestr("Planing/Planing.exe", "fake exe bytes")
+                zf.writestr("Planning/Planning.exe", "fake exe bytes")
             install_dir = temp_dir / "install"
             install_dir.mkdir()
 
@@ -1725,7 +1781,7 @@ class PlanningRegressionTests(unittest.TestCase):
 
         release = ReleaseInfo(
             version="2.0.0", tag_name="v2.0.0", title="v2.0.0", notes="", page_url="",
-            installer_url="https://example.com/Planing.zip", installer_name="Planing.zip",
+            installer_url="https://example.com/Planning.zip", installer_name="Planning.zip",
         )
         fake_response = MagicMock()
         fake_response.headers = {"Content-Length": "1000"}
@@ -1744,7 +1800,7 @@ class PlanningRegressionTests(unittest.TestCase):
 
         release = ReleaseInfo(
             version="2.0.0", tag_name="v2.0.0", title="v2.0.0", notes="", page_url="",
-            installer_url="https://example.com/Planing.zip", installer_name="Planing.zip",
+            installer_url="https://example.com/Planning.zip", installer_name="Planning.zip",
         )
         fake_response = MagicMock()
         fake_response.headers = {}

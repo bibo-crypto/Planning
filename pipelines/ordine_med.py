@@ -10,9 +10,7 @@ ORDINE_MED-MACRO.xlsm the user sent (see Section1.m: queries 'Ordine',
 'PT-GG', 'Filato') and verified field-by-field against its real sheets
 (ORDINE, Ordine da creare, Filato Disponibile, تحضير خيط خام).
 
-Not replicated (left as follow-ups, flagged rather than guessed at):
-- BAGNO PREPOSTO auto-numbering (a separate, self-contained sequencing
-  rule keyed off a starting Bagno letter+number that isn't available yet).
+Follow-up / compatibility notes:
 - The exact Prezzo lookup key the macro uses (Colore + a category "type"
   derived from an external Category Colori.xlsx this session doesn't have
   visibility into) -- Prezzo here reuses Biglietti's Articolo+Codice Listini
@@ -25,7 +23,7 @@ from utility.excel_io import safe_save_workbook
 
 import re
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -86,6 +84,8 @@ class OrdineMedRow:
     livello: Any = ""
     check_articolo: str = ""
     prezzo_plus2: Any = ""
+    bagno_reale: str = ""
+    bagno_prepostato: str = ""
     _roc_with_polmoni: int = 0
 
 
@@ -112,6 +112,34 @@ def _normalize_abbin(value: Any) -> Any:
         return value
 
 
+_DATE_FORMATS = ("%d/%m/%Y", "%d-%m-%Y", "%Y-%m-%d", "%d/%m/%y", "%d.%m.%Y", "%Y/%m/%d")
+
+
+def _to_date_value(value: Any) -> Any:
+    """CONSEGNA as a real date (midnight datetime) whenever it can be read as
+    one -- a text date such as "20/10/2026" or an Excel serial number used to
+    stay text, which broke DATA RICONSEGNA (text - 1 day) and wrote CONSEGNA
+    into the ERP sheet as text.  Blank -> None; anything unreadable is returned
+    unchanged so no information is lost."""
+    if value in (None, ""):
+        return None
+    if isinstance(value, datetime):
+        return value.replace(hour=0, minute=0, second=0, microsecond=0)
+    if isinstance(value, date):
+        return datetime(value.year, value.month, value.day)
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        if 20000 < float(value) < 80000:  # Excel serial date
+            return datetime(1899, 12, 30) + timedelta(days=float(value))
+        return value
+    text = _clean(value)
+    for fmt in _DATE_FORMATS:
+        try:
+            return datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+    return value
+
+
 def load_ordine(path: Path) -> list[OrdineMedRow]:
     wb = openpyxl.load_workbook(path, data_only=True, read_only=True)
     try:
@@ -134,7 +162,7 @@ def load_ordine(path: Path) -> list[OrdineMedRow]:
             colore=_clean(_get(row, "COLORE")),
             rocc=int(_number(_get(row, "ROCC")) or 0),
             abbin=_normalize_abbin(_get(row, "ABBIN")),
-            consegna_input=_get(row, "CONSEGNA"),
+            consegna_input=_to_date_value(_get(row, "CONSEGNA")),
             pt_grg=_clean(_get(row, "PT GRG")),
             pt_med=_clean(_get(row, "PT MED")),
             polmoni=_clean(_get(row, "POLMONI")),
@@ -169,6 +197,64 @@ def compute_mc_and_gruppo(records: list[OrdineMedRow]) -> None:
         for m in members:
             m.mc = total
             m.gruppo_macchina = gm
+
+
+def assign_bagno_prepostato(records: list[OrdineMedRow], starting_bagno: str | None) -> None:
+    """Assign a bath sequence, retaining only the scheduled row per group.
+
+    The bath counter follows the order rows exactly. Every ABBIN=0 row is
+    one independent bath position. Consecutive rows with the same non-zero
+    ABBIN form one shared bath group; their colour/machine values must not
+    collapse earlier ABBIN=0 positions, which is important for MED's ERP
+    numbering. The first row of a shared group is the real bath start and
+    remains blank in Bagno Preposato; following rows carry that bath value.
+    """
+    for record in records:
+        record.bagno_reale = ""
+        record.bagno_prepostato = ""
+    if not starting_bagno:
+        return
+
+    match = re.fullmatch(r"\s*([A-Za-z]+)\s*(\d+)\s*", str(starting_bagno))
+    if not match:
+        raise ValueError("Il primo bagno deve avere il formato, ad esempio, T1200.")
+    if not records:
+        return
+    prefix, number_text = match.groups()
+    next_number = int(number_text)
+
+    def has_abbin(value: Any) -> bool:
+        if value in (None, ""):
+            return False
+        try:
+            return float(value) != 0
+        except (TypeError, ValueError):
+            return bool(_clean(value))
+
+    index = 0
+    while index < len(records):
+        current = records[index]
+        abbin = current.abbin
+        end = index + 1
+        # ABBIN=0 is deliberately a single row. For non-zero ABBIN, only
+        # consecutive identical ABBIN values share the bath, preserving one
+        # counter step for every preceding order row/group.
+        if has_abbin(abbin):
+            while end < len(records) and records[end].abbin == abbin:
+                end += 1
+
+        bagno = f"{prefix}{next_number}"
+        for row in records[index:end]:
+            row.bagno_reale = bagno
+
+        # A pre-posted bath is meaningful only for a repeated non-zero ABBIN
+        # group. The first row is the bath's real starting row, therefore it
+        # remains blank in the ERP Bagno Preposato column.
+        if has_abbin(abbin) and end - index > 1:
+            for row in records[index + 1:end]:
+                row.bagno_prepostato = bagno
+        next_number += 1
+        index = end
 
 
 def compute_titolo(records: list[OrdineMedRow], marca_map: dict[str, str]) -> None:
@@ -479,7 +565,7 @@ def compute_filato_availability(
 FULL_ROW_HEADERS = [
     "Riga", "CLIENTE", "ARTICOLO", "COLORE", "Q.TA", "CONSEGNA", "COMMENTO",
     "LAVORANTE", "LAV. SUCC", "DATA RICONSEGNA", "MAG. GREGGIO",
-    "SIGLA DISPOSIZONE", "BAGNO PREPOSTO", "GRUPPO MACCHINA",
+    "SIGLA DISPOSIZIONE", "BAGNO PREPOSTO", "GRUPPO MACCHINA",
     "TITOLO", "DESCR COL", "LIVELLO", "ABBIN", "M/C", "PREZZO",
     "PT GRG", "PT MED", "POLMONI", "Cliente MED", "NOTA grg", "NOTA col",
 ]
@@ -507,10 +593,90 @@ FILATO_AVAILABILITY_HEADERS = [
 def _full_row(r: OrdineMedRow) -> dict[str, Any]:
     return dict(zip(FULL_ROW_HEADERS, [
         r.riga, r.cliente, r.articolo, r.colore, r.rocc, r.consegna, r.commento,
-        "900901", "900161", r.data_riconsegna, "900923", "D", "", r.gruppo_macchina,
+        900901, 900161, r.data_riconsegna, 900923, "D", r.bagno_prepostato, r.gruppo_macchina,
         r.titolo, r.descr_col, r.livello, r.abbin, r.mc, r.prezzo,
         r.pt_grg, r.pt_med, r.polmoni, r.cliente_note, r.nota_grg, r.nota_col,
     ]))
+
+
+# Column type of every "Dati sistema" / ERP column -- the ERP import template
+# (same one Elvy and Kamal fill) wants real numbers and real dates, not text
+# that merely looks like them.
+SYSTEM_COLUMN_TYPES: dict[str, str] = {
+    "CLIENTE": "integer",
+    "ARTICOLO": "text",
+    "COLORE": "code",          # number when it is one, text otherwise (A12, 007)
+    "Q.TA": "integer",
+    "CONSEGNA": "date",
+    "COMMENTO": "text",
+    "LAVORANTE": "integer",
+    "LAV. SUCC": "integer",
+    "DATA RICONSEGNA": "date",
+    "MAG. GREGGIO": "integer",
+    "SIGLA DISPOSIZIONE": "text",
+    "BAGNO PREPOSTO": "text",
+    "GRUPPO MACCHINA": "integer",
+}
+
+
+def _as_int_or_none(value: Any) -> Any:
+    if value in (None, ""):
+        return None
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, (int, float)):
+        return int(value)
+    text = _clean(value).replace(",", ".")
+    try:
+        return int(float(text))
+    except ValueError:
+        return value  # not numeric at all: keep it visible as text
+
+
+def _as_code(value: Any) -> Any:
+    """Numeric codes become numbers; a leading zero or any letter keeps the
+    value as text (007 -> 7 would no longer be the same colour code)."""
+    text = _clean(value)
+    if not text:
+        return None
+    if re.fullmatch(r"-?[1-9]\d*(\.0+)?|0", text):
+        return int(float(text))
+    return text
+
+
+def _as_date_cell(value: Any) -> Any:
+    converted = _to_date_value(value)
+    return converted
+
+
+def _system_value(header: str, value: Any) -> Any:
+    kind = SYSTEM_COLUMN_TYPES.get(header, "text")
+    if kind == "integer":
+        return _as_int_or_none(value)
+    if kind == "code":
+        return _as_code(value)
+    if kind == "date":
+        return _as_date_cell(value)
+    return "" if value is None else str(value)
+
+
+def system_row(r: "OrdineMedRow") -> list[Any]:
+    """CLIENTE..GRUPPO MACCHINA with every value in its proper Excel type."""
+    full = _full_row(r)
+    return [_system_value(header, full[header]) for header in SYSTEM_IMPORT_HEADERS]
+
+
+def _apply_system_formats(ws) -> None:
+    """Number formats that match the types: whole numbers as "0", dates as
+    dd/mm/yyyy, text columns as text (so a bath like T1201 stays text)."""
+    header = [c.value for c in ws[1]]
+    for col_idx, name in enumerate(header, start=1):
+        kind = SYSTEM_COLUMN_TYPES.get(name)
+        if kind is None:
+            continue
+        fmt = {"integer": "0", "code": "General", "date": "dd/mm/yyyy", "text": "@"}[kind]
+        for row_idx in range(2, ws.max_row + 1):
+            ws.cell(row=row_idx, column=col_idx).number_format = fmt
 
 
 def _ordine_da_creare_row(r: OrdineMedRow) -> list[Any]:
@@ -532,9 +698,9 @@ def export_erp_order_workbook(path: Path, records: list[OrdineMedRow]) -> None:
     ws.title = "Dati sistema (B-N)"
     ws.append(SYSTEM_IMPORT_HEADERS)
     for record in records:
-        full = _full_row(record)
-        ws.append([full[header] for header in SYSTEM_IMPORT_HEADERS])
+        ws.append(system_row(record))
     _style_sheet(ws, date_columns=("CONSEGNA", "DATA RICONSEGNA"))
+    _apply_system_formats(ws)
     path.parent.mkdir(parents=True, exist_ok=True)
     safe_save_workbook(wb, path)
     wb.close()
@@ -626,9 +792,9 @@ def export_ordine_med_workbook(
     ws2 = wb.create_sheet("Dati sistema (B-N)")
     ws2.append(SYSTEM_IMPORT_HEADERS)
     for r in records:
-        full = _full_row(r)
-        ws2.append([full[h] for h in SYSTEM_IMPORT_HEADERS])
+        ws2.append(system_row(r))
     _style_sheet(ws2, date_columns=("CONSEGNA", "DATA RICONSEGNA"))
+    _apply_system_formats(ws2)
 
     ws3 = wb.create_sheet("Filato X Tinturia")
     ws3.append(FILATO_AVAILABILITY_HEADERS)

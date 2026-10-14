@@ -144,6 +144,9 @@ class OrderRow:
     value_usd: float | None = None
     ship_date: str = ""
     abbina: str = ""
+    # Which machine batch of its colour group the row sits in (0 = first) --
+    # set by AbbinaCalculator when a colour group is split over several machines.
+    abbina_batch: int = 0
     # New PDF column: a free-text reference the customer attaches to the
     # order (e.g. 'Last Patch') -- shown as its own column and folded into
     # Commento after the year.

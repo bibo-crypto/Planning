@@ -357,6 +357,179 @@ class SituationSourcesMixin:
                 self._on_shared_cache_changed()
         except Exception as exc:  # noqa: BLE001
             logger.warning("Could not update shared Produzione reference: %s", exc)
+    def _queue_handle_upload(self, key, path):
+        """Parse and persist large source uploads off the Tk event loop."""
+        row = self.source_rows.get(key)
+        if getattr(self, "_source_uploading", set()) and key in self._source_uploading:
+            return
+        if not hasattr(self, "_source_uploading"):
+            self._source_uploading = set()
+        self._source_uploading.add(key)
+        if row:
+            row.button.configure(state="disabled")
+            row.set_status(True, "⏳ Importing…")
+
+        def worker():
+            try:
+                _label, loader_fn = data_loaders.LOADERS[key]
+                df, errors = loader_fn(path)
+                if errors or df is None or df.empty:
+                    raise ValueError("; ".join(errors) if errors else "The file is empty after filtering")
+                changed = db.save_frame_cache(key, df, source_path=path)
+                msg = f"✅ {len(df)} rows - {os.path.basename(path)}"
+                db.save_upload(key, os.path.basename(path), len(df), "ok", msg, file_path=str(path))
+                save_source(key, path)
+                error = None
+            except Exception as exc:  # noqa: BLE001
+                df, changed, msg, error = None, False, str(exc), exc
+                try:
+                    db.save_upload(key, os.path.basename(path), 0, "error", msg, file_path=str(path))
+                except Exception:
+                    pass
+
+            def apply_result():
+                try:
+                    self._apply_upload_result(key, path, row, df, changed, msg, error)
+                finally:
+                    # Whatever happens while showing the result, the button must come back.
+                    self._source_uploading.discard(key)
+                    if row and row.winfo_exists():
+                        row.button.configure(state="normal")
+
+            self.after(0, apply_result)
+
+        threading.Thread(target=worker, daemon=True, name=f"planning-upload-{key}").start()
+
+    def _apply_upload_result(self, key, path, row, df, changed, msg, error):
+        """Main-thread half of _queue_handle_upload: publish a finished background import."""
+        if error is not None:
+            if row:
+                row.set_status(False, f"❌ {msg}")
+            logger.warning("Situazione: %s upload failed: %s", key, error)
+            return
+        self.loaded_frames[key] = df
+        if key == "copertura":
+            self._copertura_revision += 1
+        if row:
+            row.set_status(True, f"✅ {len(df)} rows")
+        if key == "dfm":
+            # DFM parsing/indexing is expensive too; do not run it on Tk.
+            threading.Thread(target=self._save_shared_dfm, args=(path,), daemon=True,
+                             name="planning-dfm-index").start()
+        elif key == "data_prod":
+            threading.Thread(target=self._save_shared_prod, args=(path,), daemon=True,
+                             name="planning-prod-cache").start()
+        self._data_revision = getattr(self, "_data_revision", 0) + 1
+        logger.info("Situazione: %s uploaded — %d rows (%s; changed=%s)",
+                    key, len(df), os.path.basename(path), changed)
+        if not changed:
+            logger.info("Situazione: %s is identical to the data stored in SQLite; kept as is", key)
+        # Refresh is debounced/coalesced by the shared notification path.
+        self._refresh_after_upload_async()
+        if self._on_shared_cache_changed:
+            self._on_shared_cache_changed()
+
+    def _queue_codes_upload(self, key, path):
+        if not hasattr(self, "_source_uploading"):
+            self._source_uploading = set()
+        if "codes" in self._source_uploading:
+            return
+        self._source_uploading.add("codes")
+        self.codes_row.button.configure(state="disabled")
+        self.codes_row.set_status(True, "⏳ Importing…")
+
+        def worker():
+            try:
+                df, errors = data_loaders.load_codes(path)
+                if errors or df is None or df.empty:
+                    raise ValueError("; ".join(errors) if errors else "The file is empty")
+                db.save_codes(df)
+                changed = db.save_frame_cache("codes", df, source_path=path)
+                msg = f"Saved ({len(df)} codes) - {os.path.basename(path)}"
+                db.save_upload("codes", os.path.basename(path), len(df), "ok", msg, file_path=str(path))
+                save_source("articoli", path)
+                error = None
+            except Exception as exc:
+                df, changed, msg, error = None, False, str(exc), exc
+            def apply_result():
+                try:
+                    self._apply_codes_result(path, df, changed, msg, error)
+                finally:
+                    self._source_uploading.discard("codes")
+                    self.codes_row.button.configure(state="normal")
+
+            self.after(0, apply_result)
+        threading.Thread(target=worker, daemon=True, name="planning-upload-codes").start()
+
+    def _apply_codes_result(self, path, df, changed, msg, error):
+        """Main-thread half of _queue_codes_upload."""
+        if error:
+            self.codes_row.set_status(False, f"❌ {msg}")
+            return
+        self.codes_row.set_status(True, f"✅ Saved ({len(df)} codes)")
+        if not changed:
+            messagebox.showwarning("No changes", "Articoli is identical to the data already stored in SQLite; the existing database data was kept.")
+        # The Marca index is optional for this TITOLO import; build it off-thread.
+        def update_marca():
+            try:
+                import pandas as pd
+                import utility.articoli_cache as articoli_cache
+                import exporters.biglietti_exporter as exporter
+                marca_map, _ = exporter.load_articoli_marca_map(Path(path))
+                if marca_map:
+                    articoli_cache.save_articoli_cache(path)
+                    from utility.source_manager import save as save_source_frame
+                    save_source_frame("articoli_marca", pd.DataFrame({"articolo": list(marca_map), "marca": list(marca_map.values())}), path)
+            except Exception as exc:
+                logger.warning("Could not refresh Articoli Marca index: %s", exc)
+        threading.Thread(target=update_marca, daemon=True, name="planning-articoli-marca").start()
+
+    def _queue_listini_upload(self, key, path):
+        if not hasattr(self, "_source_uploading"):
+            self._source_uploading = set()
+        if "listini" in self._source_uploading:
+            return
+        self._source_uploading.add("listini")
+        self.listini_row.button.configure(state="disabled")
+        self.listini_row.set_status(True, "⏳ Importing…")
+
+        def worker():
+            try:
+                import utility.prezzi_cache as prezzi_cache
+                import calculate.prezzi as prezzi_logic
+                df, errors = prezzi_logic.load_prezzi(path)
+                if errors or df is None or df.empty:
+                    raise ValueError("; ".join(errors) if errors else "The file is empty")
+                changed = db.save_frame_cache("listini", df, source_path=path)
+                prezzi_cache.save_prezzi_cache(path)
+                save_source("listini", path)
+                msg = f"Saved ({len(df)} rows) - {os.path.basename(path)}"
+                db.save_upload("listini", os.path.basename(path), len(df), "ok", msg, file_path=str(path))
+                error = None
+            except Exception as exc:
+                df, changed, msg, error = None, False, str(exc), exc
+            def apply_result():
+                try:
+                    self._apply_listini_result(df, changed, msg, error)
+                finally:
+                    self._source_uploading.discard("listini")
+                    self.listini_row.button.configure(state="normal")
+
+            self.after(0, apply_result)
+        threading.Thread(target=worker, daemon=True, name="planning-upload-listini").start()
+
+    def _apply_listini_result(self, df, changed, msg, error):
+        """Main-thread half of _queue_listini_upload."""
+        if error:
+            self.listini_row.set_status(False, f"❌ {msg}")
+            return
+        self.listini_row.set_status(True, f"✅ {len(df)} rows")
+        if not changed:
+            messagebox.showwarning("No changes", "Listini is identical to the data already stored in SQLite; the existing database data was kept.")
+        self.refresh_prezzo_densita()
+        if self._on_shared_cache_changed:
+            self._on_shared_cache_changed()
+
     def _handle_upload(self, key, path, cache_path=None):
         """cache_path, if given, is what gets persisted/shown instead of
         path -- used by the Overview 'import everything' button, which

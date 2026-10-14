@@ -18,6 +18,64 @@ from .situazione_sources import SOURCE_BUTTON_NAMES, SOURCE_ORDER
 
 
 class SituationRefreshMixin:
+    def _refresh_after_upload_async(self):
+        """Recompute Situazione off the UI thread after a source upload.
+
+        Uploads often happen in batches. If required sources are still missing,
+        wait silently; the last upload will trigger this method again. The
+        normal manual Refresh button retains its existing confirmation flow.
+        """
+        if getattr(self, "_background_refresh_running", False):
+            self._background_refresh_pending = True
+            return
+        required = ("wincoint", *SOURCE_ORDER)
+        if any(key not in self.loaded_frames for key in required):
+            return
+        self._background_refresh_running = True
+        frames = {key: value.copy(deep=True) for key, value in self.loaded_frames.items() if value is not None}
+
+        def worker():
+            try:
+                existing = db.get_all_states()
+                old_comments = {partita: state.get("new_comment", "") for partita, state in existing.items()}
+                result_df = business_logic.compute_situation(
+                    orders_df=frames.get("wincoint"), dfm_df=frames.get("dfm"),
+                    data_prod_df=frames.get("data_prod"), copertura_df=frames.get("copertura"),
+                    uscita_df=frames.get("uscita"), qualita_df=frames.get("qualita"),
+                    codes_map=db.load_codes(), old_comments=old_comments,
+                )
+                if "partita" in result_df.columns:
+                    result_df["old_comment"] = result_df["partita"].map(
+                        lambda partita: existing.get(partita, {}).get("old_comment", "")
+                    )
+                current_partite = {
+                    str(value).strip() for value in result_df.get("partita", pd.Series(dtype=str)).tolist()
+                    if str(value).strip()
+                }
+                removed = db.remove_states_not_in(current_partite)
+                added, updated, unchanged = db.upsert_states(result_df.to_dict(orient="records"))
+                result = (added, updated, unchanged, removed, None)
+            except Exception as exc:  # noqa: BLE001
+                result = (0, 0, 0, 0, exc)
+
+            def apply_result():
+                self._background_refresh_running = False
+                added, updated, unchanged, removed, error = result
+                if error is not None:
+                    logger.warning("Situazione: background refresh after upload failed: %s", error)
+                else:
+                    self.summary_lbl.config(text=f"Added: {added}  |  Updated: {updated}  |  Unchanged: {unchanged}")
+                    logger.info("Situazione: background upload refresh — added=%d updated=%d unchanged=%d removed=%d",
+                                added, updated, unchanged, removed)
+                    self._load_table_from_db()
+                if getattr(self, "_background_refresh_pending", False):
+                    self._background_refresh_pending = False
+                    self._refresh_after_upload_async()
+
+            self.after(0, apply_result)
+
+        threading.Thread(target=worker, daemon=True, name="planning-situazione-upload-refresh").start()
+
     def _on_refresh(self, preserve_comment_history=False):
         if "wincoint" not in self.loaded_frames:
             messagebox.showwarning("Missing data", "Upload the WINCOINT orders file before refreshing.")

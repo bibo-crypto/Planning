@@ -343,7 +343,9 @@ def test_normalized_snapshot_round_trip(tmp_path, monkeypatch):
     loaded = situazione_db.load_frame_cache("copertura")
     assert loaded.to_dict(orient="records") == source.to_dict(orient="records")
     conn = sqlite3.connect(db_path)
-    assert conn.execute("SELECT COUNT(*) FROM source_snapshot_row").fetchone()[0] == 1
+    snapshot = conn.execute("SELECT payload_json, column_meta, row_count FROM source_snapshot WHERE source_name='copertura'").fetchone()
+    assert snapshot[0] is not None and snapshot[1] is not None and snapshot[2] == 1
+    assert conn.execute("SELECT COUNT(*) FROM source_snapshot_row").fetchone()[0] == 0
     conn.close()
 
 
