@@ -2028,11 +2028,12 @@ def _ticket_header(r: OrderRecord, stem: str) -> str:
     - MED: first 3 letters of Cliente - Commento - Polmon - Cliente MED
       (blank segments dropped rather than left as bare dashes).
     - EL KAMAL: Cliente - Consegna.
-    - Everything else (ELVY): Cliente - <order identifier>, unchanged."""
+    - Everything else (ELVY): Cliente - Commento.  The header is per ticket,
+      so it must never inherit a batch/file suffix such as ``PG-X``."""
     if r.customer_code == "3004":  # MED
         polmon = _polmoni_segment(r.additional_raw)
         parts = [r.customer_name[:3], r.commento, polmon, r.cliente_med]
         return "-".join(p for p in parts if p)
     if r.customer_code == "3019":  # EL KAMAL
         return f"{r.customer_name} - {_format_date(r.delivery)}"
-    return f"{r.customer_name}-{stem}"
+    return "-".join(part for part in (r.customer_name, r.commento) if part)

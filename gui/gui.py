@@ -32,6 +32,7 @@ import os
 import queue
 import sys
 import tkinter as tk
+from datetime import datetime
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
@@ -83,6 +84,33 @@ def _first_text_input(widget):
 
     for child in widget.winfo_children():
         target = _first_text_input(child)
+        if target is not None:
+            return target
+    return None
+
+
+def _search_text_input(widget):
+    """Find an editable input that belongs to a Search/Cerca toolbar."""
+    widget_class = widget.winfo_class()
+    if widget_class in {"TEntry", "Entry"}:
+        try:
+            if str(widget.cget("state")) in {"disabled", "readonly"}:
+                return None
+        except tk.TclError:
+            return None
+        parent = widget.nametowidget(widget.winfo_parent())
+        for sibling in parent.winfo_children():
+            if sibling.winfo_class() not in {"TLabel", "Label"}:
+                continue
+            try:
+                label = str(sibling.cget("text")).casefold()
+            except tk.TclError:
+                continue
+            if "search" in label or "cerca" in label:
+                return widget
+
+    for child in widget.winfo_children():
+        target = _search_text_input(child)
         if target is not None:
             return target
     return None
@@ -154,6 +182,9 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
         # The update dialog opts out because interrupting an in-flight update
         # can leave a partially downloaded installer.
         self.bind_all("<Escape>", self._close_child_windows, add="+")
+        # All lookup windows use the same convention: when one contains a
+        # Search field, it is ready for typing as soon as the window appears.
+        self.bind_class("Toplevel", "<Map>", self._focus_toplevel_search, add="+")
 
         # ── Persisted state ───────────────────────────────────────────
         self._prefs = load_settings()
@@ -737,7 +768,7 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
     def _focus_page_text_input(self, notebook: ttk.Notebook) -> None:
         """Place the caret in the first editable input on the active page."""
         try:
-            target = _first_text_input(notebook)
+            target = _search_text_input(notebook) or _first_text_input(notebook)
             if target is None or not target.winfo_exists() or not target.winfo_ismapped():
                 return
             target.focus_set()
@@ -745,6 +776,25 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
                 target.icursor(tk.END)
         except tk.TclError:
             pass
+
+    def _focus_toplevel_search(self, event) -> None:
+        """Give a newly opened lookup window's Search field keyboard focus."""
+        window = event.widget
+        if not isinstance(window, tk.Toplevel) or getattr(window, "_search_focus_scheduled", False):
+            return
+        window._search_focus_scheduled = True
+
+        def focus_search() -> None:
+            try:
+                target = _search_text_input(window)
+                if target is not None and target.winfo_exists() and target.winfo_ismapped():
+                    target.focus_force()
+                    target.icursor(tk.END)
+            except tk.TclError:
+                pass
+
+        self.after_idle(focus_search)
+        self.after(75, focus_search)
 
     def _on_shared_cache_changed(self) -> None:
         """Coalesce shared-source notifications into one refresh pass.
@@ -775,6 +825,7 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
             self._kamal_tab.sync_shared_lotti()
         if getattr(self, "_ordine_med_tab", None):
             self._ordine_med_tab.sync_shared_magazino()
+            self._ordine_med_tab.sync_shared_densita()
         if getattr(self, "_magazino_tab", None):
             self._magazino_tab.sync_shared_async()
             self._magazino_tab.sync_shared_lotti_async()
@@ -881,9 +932,15 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
         refresh()
 
     def _create_backup(self) -> None:
+        from utility.backup import BACKUP_PREFIX
+
+        backup_dir = APP_DATA_DIR / "backups"
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        backup_name = f"{BACKUP_PREFIX}_{datetime.now():%Y%m%d_%H%M%S}.zip"
         path = filedialog.asksaveasfilename(
             title="Create Planning Backup", defaultextension=".zip",
-            filetypes=[("Planning backup", "*.zip")], initialfile="planning_backup.zip",
+            filetypes=[("Planning backup", "*.zip")], initialdir=backup_dir,
+            initialfile=backup_name,
         )
         if not path:
             return

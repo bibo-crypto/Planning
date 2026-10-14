@@ -9,6 +9,32 @@ import zipfile
 
 from utility.utils import APP_DATA_DIR
 
+BACKUP_PREFIX = "planning_backup"
+MAX_BACKUPS = 10
+
+
+def _prune_old_backups(directory: Path) -> None:
+    """Keep only the ten newest Planning-created backup archives.
+
+    Only this application's timestamped archives are considered, so a user
+    can safely save a backup in a folder that also contains other ZIP files.
+    """
+    try:
+        backups = sorted(
+            (
+                path for path in directory.glob(f"{BACKUP_PREFIX}_*.zip")
+                if path.is_file()
+            ),
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+        for path in backups[MAX_BACKUPS:]:
+            path.unlink()
+    except OSError:
+        # A backup must never fail merely because an older archive is open or
+        # protected by another process.  It will be pruned on a later run.
+        pass
+
 
 def create_backup(destination: str | Path) -> Path:
     """Zip application data, SQLite databases, settings and caches."""
@@ -24,6 +50,7 @@ def create_backup(destination: str | Path) -> Path:
                     continue
                 archive.write(path, arcname=str(relative))
         archive.writestr("backup_info.txt", f"Created: {datetime.now().isoformat()}\n")
+    _prune_old_backups(destination.parent)
     return destination
 
 

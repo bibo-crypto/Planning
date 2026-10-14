@@ -161,6 +161,11 @@ class PrezziTab(ttk.Frame):
     def _restore_from_cache(self) -> None:
         # SQLite is the runtime source of truth. The original workbook path is
         # metadata only and is deliberately not required after restart.
+        # This runs after_idle during construction.  Do not let that deferred
+        # restore replace a file the user (or another workflow) has already
+        # started loading in the meantime.
+        if self._uploading or self._loaded_source_path or not self._base_df.empty:
+            return
         try:
             from utility.source_manager import load as load_source, source_name
             cached = load_source("listini")

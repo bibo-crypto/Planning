@@ -232,6 +232,14 @@ class OrdineMedTab(ttk.Frame):
             self.magazino_path = Path(cache["source_path"])
             self._lbl_magazino.config(text=f"✅ Shared: {cache['source_path']}", foreground="black")
 
+    def sync_shared_densita(self):
+        """Reflect a Densita' Query file chosen on any other page."""
+        cache = load_densita_cache()
+        source = cache.get("source_path")
+        if source and Path(source).is_file():
+            self.densita_path = Path(source)
+            self._lbl_densita.config(text=source, foreground="black")
+
     def _set_status(self, msg: str):
         color = "#b00020" if msg.startswith("Error") else ("grey" if "..." in msg else "green")
         self.after(0, lambda: self._lbl_status.config(text=msg, foreground=color))

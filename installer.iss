@@ -66,7 +66,8 @@ Name: "desktopicon"; \
 ; Copy the entire PyInstaller output folder into {app}
 Source: "{#SourceDir}\*"; \
     DestDir: "{app}"; \
-    Flags: ignoreversion recursesubdirs createallsubdirs
+    Flags: ignoreversion recursesubdirs createallsubdirs; \
+    Excludes: "cache\*,settings\*,logs\*,backups\*,situazione\*,*.db,*.db-*,*.sqlite,*.sqlite-*,*.sqlite3,*.sqlite3-*,*.pkl"
 
 [InstallDelete]
 ; The app used to be called "Planing" (misspelt).  Same AppId, so installing

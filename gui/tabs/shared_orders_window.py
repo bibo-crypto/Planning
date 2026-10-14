@@ -105,13 +105,18 @@ class SharedOrdersWindowMixin:
         hscroll.grid(row=2, column=0, sticky="ew", padx=10)
         tree.configure(yscrollcommand=vscroll.set, xscrollcommand=hscroll.set)
 
+        def visible_payloads():
+            term = search.get().strip().casefold()
+            return [
+                payload for payload in parsed
+                if not term or term in " ".join(str(payload.get(c, "")) for c in columns).casefold()
+            ]
+
         def render(*_args):
             tree.delete(*tree.get_children())
-            term = search.get().strip().casefold()
-            for payload in parsed:
+            for payload in visible_payloads():
                 values = tuple(str(payload.get(c, "")) for c in columns)
-                if not term or term in " ".join(values).casefold():
-                    tree.insert("", "end", values=values)
+                tree.insert("", "end", values=values)
         search.trace_add("write", render)
         render()
 
@@ -131,7 +136,7 @@ class SharedOrdersWindowMixin:
                 ws = wb.active
                 ws.title = "History"
                 ws.append(columns)
-                for payload in parsed:
+                for payload in visible_payloads():
                     ws.append([payload.get(c, "") for c in columns])
                 safe_save_workbook(wb, path)
                 wb.close()

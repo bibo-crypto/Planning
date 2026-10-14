@@ -27,11 +27,11 @@ echo.
 
 :: -- Create or reuse virtual environment -----------------------------------
 if exist venv\Scripts\python.exe (
-    echo  [1/5]  Reusing existing virtual environment ^(venv^)...
+    echo  [1/6]  Reusing existing virtual environment ^(venv^)...
     echo         Skipping recreation -- packages will be added/removed to
     echo         match requirements.txt instead of rebuilding from scratch.
 ) else (
-    echo  [1/5]  Creating virtual environment ^(venv^)...
+    echo  [1/6]  Creating virtual environment ^(venv^)...
     if exist venv (
         echo         Found an incomplete venv folder, removing it first...
         rmdir /s /q venv
@@ -47,7 +47,7 @@ echo         Done.
 echo.
 
 :: -- Activate venv ---------------------------------------------------------
-echo  [2/5]  Activating virtual environment...
+echo  [2/6]  Activating virtual environment...
 call venv\Scripts\activate.bat
 if errorlevel 1 (
     echo  [ERROR] Could not activate venv.
@@ -58,7 +58,7 @@ echo         Done.
 echo.
 
 :: -- Install dependencies ---------------------------------------------------
-echo  [3/5]  Syncing dependencies with requirements.txt...
+echo  [3/6]  Syncing dependencies with requirements.txt...
 python -m pip install --upgrade pip --quiet
 if errorlevel 1 (
     echo  [ERROR] Could not upgrade pip.
@@ -78,14 +78,14 @@ echo         Done.
 echo.
 
 :: -- Clean old build / dist ---------------------------------------------------
-echo  [4/5]  Cleaning old build and dist folders...
+echo  [4/6]  Cleaning old build and dist folders...
 if exist build  rmdir /s /q build
 if exist dist   rmdir /s /q dist
 echo         Done.
 echo.
 
 :: -- Build with PyInstaller ---------------------------------------------------
-echo  [5/5]  Building executable with PyInstaller...
+echo  [5/6]  Building executable with PyInstaller...
 echo.
 python -m PyInstaller main.spec --noconfirm --clean
 if errorlevel 1 (
@@ -104,10 +104,29 @@ if errorlevel 1 (
 :: Safe to delete once every PC runs a Planning build.
 copy /y "dist\Planning\Planning.exe" "dist\Planning\Planing.exe" >nul
 
+:: -- Release hygiene ---------------------------------------------------------
+:: Runtime state belongs in %%LOCALAPPDATA%%\Planning, never in a distributable
+:: ZIP/setup.  The spec does not bundle these folders, but remove them here as
+:: a final guard against a manually copied database or cache file.
+echo  [6/6]  Removing runtime data from release and creating clean ZIP...
+for %%D in (cache settings logs backups situazione) do (
+    if exist "dist\Planning\%%D" rmdir /s /q "dist\Planning\%%D"
+)
+for /r "dist\Planning" %%F in (*.db *.sqlite *.sqlite3 *.pkl) do del /q "%%F"
+for /r "dist\Planning" %%F in (*.db-* *.sqlite-* *.sqlite3-*) do del /q "%%F"
+for /f "usebackq tokens=*" %%V in ("version.txt") do set "PLANNING_VERSION=%%V"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Compress-Archive -Path 'dist\Planning\*' -DestinationPath 'dist\Planning_v!PLANNING_VERSION!.zip' -Force"
+if errorlevel 1 (
+    echo  [ERROR] Could not create the release ZIP.
+    if not defined PLANNING_NO_PAUSE pause
+    exit /b 1
+)
+
 echo.
 echo  ================================================
 echo    Build Complete!
 echo    Output folder: dist\Planning\
+echo    Release ZIP:   dist\Planning_v!PLANNING_VERSION!.zip
 echo  ================================================
 echo.
 echo  Next step - create the installer:

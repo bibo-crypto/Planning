@@ -39,7 +39,7 @@ def listini(tmp_path):
 @pytest.fixture
 def category_env(tmp_path, monkeypatch):
     """Everything that persists (overrides, SQLite cache, notifications) goes to a temp folder."""
-    from utility import notifications, prezzi_cache, prezzi_db
+    from utility import notifications, prezzi_cache, prezzi_db, source_manager
 
     monkeypatch.setattr(prezzi, "_CATEGORY_OVERRIDES_PATH", tmp_path / "settings" / "prezzi_category_overrides.json")
     monkeypatch.setattr(prezzi_db, "DB_PATH", tmp_path / "orders.sqlite3")
@@ -47,6 +47,14 @@ def category_env(tmp_path, monkeypatch):
     monkeypatch.setattr(notifications, "_PATH", tmp_path / "settings" / "notifications.json")
     monkeypatch.setattr(exporter, "_PREZZO_LOOKUP_CACHE", None)
     monkeypatch.setattr(prezzi_cache, "save_prezzi_cache", lambda *a, **k: None)
+    monkeypatch.setattr(prezzi_cache, "load_prezzi_cache", lambda: {})
+    # Prevent the tab's after-idle restore from loading the developer's real
+    # SQLite Listini snapshot while this fixture is exercising its temp file.
+    monkeypatch.setattr(source_manager, "load", lambda _key: None)
+    # These tests exercise the reference-map/override workflow.  A developer's
+    # locally cached Articoli workbook must not silently supply a Marca and
+    # turn the deliberately unknown C010999S fixture into an assigned row.
+    monkeypatch.setattr(prezzi, "_load_articoli_marca_lookup", lambda: {})
     prezzi._load_reference_category_map.cache_clear()
     yield tmp_path
     prezzi._load_reference_category_map.cache_clear()

@@ -802,7 +802,7 @@ class SituazioneTab(SituationSourcesMixin, SituationRefreshMixin, ttk.Frame):
         search_entry = ttk.Entry(top, textvariable=search_var, width=24)
         search_entry.pack(side="left")
         ttk.Button(top, text="Clear", width=6, command=lambda: search_var.set("")).pack(side="left", padx=(4, 0))
-        ttk.Button(top, text="Export Abbina", command=lambda: self._export_abbina(suggestions)).pack(side="right")
+        ttk.Button(top, text="Export Abbina", command=lambda: self._export_abbina(filtered_suggestions())).pack(side="right")
 
         cols = ["titolo", "codice", "colore", "rocche", "partita", "bagno", "abbina",
                 "tot_rocche", "mc_target", "polmoni", "extra_percent", "motivo", "new_comment"]
@@ -829,8 +829,7 @@ class SituazioneTab(SituationSourcesMixin, SituationRefreshMixin, ttk.Frame):
         tree.tag_configure("group_a", background="#eaf2f8")
         tree.tag_configure("group_b", background="#fff7e6")
 
-        def render():
-            tree.delete(*tree.get_children())
+        def filtered_suggestions():
             query = search_var.get().strip().casefold()
             visible = suggestions
             if query:
@@ -838,6 +837,11 @@ class SituazioneTab(SituationSourcesMixin, SituationRefreshMixin, ttk.Frame):
                     lambda column: column.str.casefold().str.contains(query, regex=False)
                 ).any(axis=1)
                 visible = suggestions[mask]
+            return visible
+
+        def render():
+            tree.delete(*tree.get_children())
+            visible = filtered_suggestions()
             group_tags = {
                 group: "group_a" if index % 2 == 0 else "group_b"
                 for index, group in enumerate(

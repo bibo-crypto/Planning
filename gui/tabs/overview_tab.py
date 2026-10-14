@@ -66,7 +66,11 @@ def _focus_entry_when_ready(window: tk.Toplevel, entry: ttk.Entry) -> None:
         except tk.TclError:
             pass
 
+    # A Toplevel can still be unmapped during its first idle callback on
+    # Windows.  Retry shortly afterwards so both card tickets and machine
+    # schedules consistently accept typing as soon as they appear.
     window.after_idle(focus_entry)
+    window.after(75, focus_entry)
 
 
 ARTICOLO_CLIENT_LABELS = {"G130": "Elvy", "G170": "Kamal"}
@@ -1010,14 +1014,24 @@ class OverviewTab(ttk.Frame):
                     tree.insert("", "end", values=values)
         search.trace_add("write", render)
         render()
+
+        def export_visible() -> None:
+            term = search.get().strip().casefold()
+            visible_df = machine_df
+            if term:
+                mask = machine_df.astype(str).apply(
+                    lambda column: column.str.casefold().str.contains(term, regex=False)
+                ).any(axis=1)
+                visible_df = machine_df.loc[mask]
+            export_dataframe_fast(
+                visible_df.rename(columns=labels), f"machine_{machine}_dyeing_schedule.xlsx", window,
+                sheet_title=f"M{machine}",
+            )
+
         buttons = ttk.Frame(window, padding=10)
         buttons.grid(row=2, column=0, columnspan=2, sticky="ew")
         ttk.Button(
-            buttons, text="Export Excel",
-            command=lambda: export_dataframe_fast(
-                machine_df.rename(columns=labels), f"machine_{machine}_dyeing_schedule.xlsx", window,
-                sheet_title=f"M{machine}",
-            ),
+            buttons, text="Export Excel", command=export_visible,
         ).pack(side="left")
         ttk.Button(buttons, text="Close", command=window.destroy).pack(side="right")
         _focus_entry_when_ready(window, entry)
@@ -1119,14 +1133,24 @@ class OverviewTab(ttk.Frame):
                     tree.insert("", "end", values=values)
         search.trace_add("write", render)
         render()
+
+        def export_visible() -> None:
+            term = search.get().strip().casefold()
+            visible_df = subset_df
+            if term:
+                mask = subset_df.astype(str).apply(
+                    lambda column: column.str.casefold().str.contains(term, regex=False)
+                ).any(axis=1)
+                visible_df = subset_df.loc[mask]
+            export_dataframe_typed(
+                visible_df.rename(columns=lambda c: HEADERS_IT.get(c, c.capitalize())),
+                export_filename, window, sheet_title=title[:31] or "Export",
+            )
+
         buttons = ttk.Frame(window, padding=10)
         buttons.grid(row=2, column=0, columnspan=2, sticky="ew")
         ttk.Button(
-            buttons, text="Export Excel",
-            command=lambda: export_dataframe_typed(
-                subset_df.rename(columns=lambda c: HEADERS_IT.get(c, c.capitalize())),
-                export_filename, window, sheet_title=title[:31] or "Export",
-            ),
+            buttons, text="Export Excel", command=export_visible,
         ).pack(side="left")
         ttk.Button(buttons, text="Close", command=window.destroy).pack(side="right")
         _focus_entry_when_ready(window, search_entry)
