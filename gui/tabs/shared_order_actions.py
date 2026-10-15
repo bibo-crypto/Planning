@@ -748,6 +748,7 @@ class SharedOrdersActionsMixin:
                         densita_map=densita_map, vmm_ratio_map=vmm_ratio_map,
                         magazino_summary=magazino_summary,
                         allow_article_mismatch=False,
+                        move_to_orders=False,
                     )
                     updated_count += res.get("updated", 0)
 
@@ -767,10 +768,9 @@ class SharedOrdersActionsMixin:
             rebuild()
             messagebox.showinfo(
                 "Auto-Assign Complete",
-                f"Assigned Partita GG for {updated_count} row(s) -- they've moved out of PG-X into Orders.\n\n"
-                "To print their Biglietti (and export Filato X Tinturia for them), switch to the Orders tab, "
-                "check them, and use \"Print Selected Biglietti\" -- they're no longer in PG-X, so "
-                "\"Print Assigned PG-X\" won't include them.",
+                f"Partita GG assigned for {updated_count} row(s) — rows remain in PG-X.\n\n"
+                "Review them in the PG-X tab, then use \"Print Assigned PG-X\" to print their Biglietti "
+                "and request raw yarn. Move each row to Orders manually when ready.",
                 parent=parent_window,
             )
 
