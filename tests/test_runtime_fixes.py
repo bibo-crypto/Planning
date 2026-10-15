@@ -388,3 +388,11 @@ def test_assigning_a_category_works_after_a_restart_when_listini_came_from_sqlit
         assert "prezzi-category-review:C010999S" not in {i["key"] for i in notifications.list_open()}
     finally:
         root.destroy()
+
+
+def test_main_window_module_imports_every_name_the_backup_dialog_uses():
+    """_create_backup() builds its default folder from APP_DATA_DIR; a missing
+    import only shows up as a NameError when the user clicks Backup."""
+    import gui.gui as main_window
+
+    assert main_window.APP_DATA_DIR  # a Path, not a NameError

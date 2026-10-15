@@ -35,6 +35,23 @@ def _upload_partita_key(value):
     return str(int(number)) if number.is_integer() else str(number)
 
 
+# Smart Auto-Assign preview table.  The identifying columns follow the order of
+# Situazione Generale (Cliente, Articolo, ..., Codice, Colore, ..., Partita, Rocche).
+AUTO_ASSIGN_COLUMNS = (
+    "check", "cliente", "articolo", "codice", "colore", "partita_col",
+    "rocche", "suggested_partita", "available_rocche",
+)
+AUTO_ASSIGN_HEADINGS = {
+    "check": "Assign", "cliente": "Cliente", "articolo": "Articolo", "codice": "Codice",
+    "colore": "Colore", "partita_col": "Partita Col", "rocche": "Rocche Needed",
+    "suggested_partita": "Suggested Partita GG", "available_rocche": "Stock Rocche",
+}
+AUTO_ASSIGN_WIDTHS = {
+    "check": 65, "cliente": 150, "articolo": 105, "codice": 85, "colore": 130,
+    "partita_col": 105, "rocche": 105, "suggested_partita": 130, "available_rocche": 100,
+}
+
+
 class SharedOrdersActionsMixin:
     @staticmethod
     def _toggle_child_maximize(window: tk.Toplevel) -> None:
@@ -633,6 +650,8 @@ class SharedOrdersActionsMixin:
                     "partita_col": str(record.colored_batch or ""),
                     "cliente": str(record.customer_name or ""),
                     "articolo": str(record.article or ""),
+                    "codice": str(record.color_code or ""),
+                    "colore": str(record.color_name or ""),
                     "rocche": record.quantity_cones,
                     "suggested_partita": matching_batch["partita"],
                     "available_rocche": matching_batch["rocche"],
@@ -644,8 +663,8 @@ class SharedOrdersActionsMixin:
         preview = tk.Toplevel(parent_window)
         bind_escape_to_close(preview)
         preview.title("⚡ Smart Auto-Assign Matches")
-        preview.geometry("860x460")
-        preview.minsize(700, 350)
+        preview.geometry("1010x460")
+        preview.minsize(820, 350)
         preview.transient(parent_window)
         preview.grab_set()
 
@@ -660,13 +679,9 @@ class SharedOrdersActionsMixin:
         table_frame = ttk.Frame(preview, padding=(10, 0, 10, 10))
         table_frame.pack(fill="both", expand=True)
 
-        columns = ("check", "partita_col", "cliente", "articolo", "rocche", "suggested_partita", "available_rocche")
-        headings = {
-            "check": "Assign", "partita_col": "Partita Col", "cliente": "Cliente",
-            "articolo": "Articolo", "rocche": "Rocche Needed",
-            "suggested_partita": "Suggested Partita GG", "available_rocche": "Stock Rocche",
-        }
-        widths = {"check": 65, "partita_col": 110, "cliente": 160, "articolo": 110, "rocche": 110, "suggested_partita": 140, "available_rocche": 110}
+        columns = AUTO_ASSIGN_COLUMNS
+        headings = AUTO_ASSIGN_HEADINGS
+        widths = AUTO_ASSIGN_WIDTHS
 
         tree = ttk.Treeview(table_frame, columns=columns, show="headings", height=10)
         for col in columns:
@@ -685,7 +700,10 @@ class SharedOrdersActionsMixin:
             tree.delete(*tree.get_children())
             for idx, item in enumerate(suggestions):
                 chk = "☑" if checked[idx] else "☐"
-                values = (chk, item["partita_col"], item["cliente"], item["articolo"], item["rocche"], item["suggested_partita"], f"{item['available_rocche']:g}")
+                values = (
+                    chk, item["cliente"], item["articolo"], item["codice"], item["colore"], item["partita_col"],
+                    item["rocche"], item["suggested_partita"], f"{item['available_rocche']:g}",
+                )
                 tree.insert("", "end", iid=str(idx), values=values)
 
         render_tree()

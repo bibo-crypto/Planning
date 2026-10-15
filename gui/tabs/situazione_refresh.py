@@ -360,6 +360,8 @@ class SituationRefreshMixin:
             colore = str(row.get("colore", "")).strip()
             partita = str(row.get("partita", "")).strip()
             partita_col = partita if partita else (colore if colore else code)
+            ordine = row.get("ordine", "")   # shown in the Notifications table
+            riga = row.get("riga", "")
             if partita and colore and partita != colore:
                 partita_col = f"{partita} ({colore})"
             if article and code:
@@ -371,7 +373,7 @@ class SituationRefreshMixin:
                     pending.append((
                         "add", category_key, "Prezzo Listini da Category",
                         f"Articolo {article}, color code {code}: no direct price; used Category {category} price {expected_num:.2f}{level_text}.",
-                        "Situazione Generale", "medium", partita_col,
+                        "Situazione Generale", "medium", partita_col, ordine, riga,
                     ))
                 else:
                     pending.append(("resolve", category_key))
@@ -381,17 +383,17 @@ class SituationRefreshMixin:
                     else:
                         pending.append((
                             "add", missing_key, "Prezzo Listini mancante",
-                            f"Articolo {article}, color code {code}: Prezzo Ord. {current_num:.2f} exists but Listini has no matching price.", "Situazione Generale", "medium", partita_col,
+                            f"Articolo {article}, color code {code}: Prezzo Ord. {current_num:.2f} exists but Listini has no matching price.", "Situazione Generale", "medium", partita_col, ordine, riga,
                         ))
                 elif current_num is not None and abs(current_num - 0.01) < 1e-9:
                     pending.append((
                         "add", f"situazione-price-suspicious:{identity}", "Prezzo Ord. sospetto (0.01)",
-                        f"Articolo {article}, color code {code}: Prezzo Ord. è 0.01.", "Situazione Generale", "high", partita_col,
+                        f"Articolo {article}, color code {code}: Prezzo Ord. è 0.01.", "Situazione Generale", "high", partita_col, ordine, riga,
                     ))
                 elif current_num is not None and expected_num is not None and abs(current_num - expected_num) > 0.01:
                     pending.append((
                         "add", f"situazione-price-mismatch:{identity}:{current_num}:{expected_num}", "Color price differs from Prezzi",
-                        f"Articolo {article}, color code {code}: Prezzo Ord. {current_num:.2f}, expected {expected_num:.2f} from Listini (machine rule included).", "Situazione Generale", "high", partita_col,
+                        f"Articolo {article}, color code {code}: Prezzo Ord. {current_num:.2f}, expected {expected_num:.2f} from Listini (machine rule included).", "Situazione Generale", "high", partita_col, ordine, riga,
                     ))
             return expected
 

@@ -37,7 +37,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from utility.magazino_cache import load_magazino_cache
-from utility.utils import load_settings, logger, save_settings
+from utility.utils import APP_DATA_DIR, load_settings, logger, save_settings
 from utility.updater import APP_VERSION, ReleaseInfo, check_for_updates_async, download_installer, install_update
 from utility import notifications
 from utility.backup import create_backup, restore_backup
@@ -87,6 +87,16 @@ def _first_text_input(widget):
         if target is not None:
             return target
     return None
+
+
+# (stored field, header, width, centred) -- the Notifications table and its Excel export.
+NOTIFICATION_COLUMNS = (
+    ("severity", "Severity", 80, True), ("category", "Category", 100, False),
+    ("title", "Title", 160, False), ("page", "Page", 110, True),
+    ("partita_colore", "Partita Colore", 110, True), ("ordine", "Ordine", 90, True),
+    ("riga", "Riga", 55, True), ("message", "Message", 270, False),
+    ("created_at", "Created", 130, True),
+)
 
 
 def _search_text_input(widget):
@@ -836,9 +846,11 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
             # it'll catch up on the next Situazione refresh regardless.
             self.after(500, self._situazione_tab.refresh_raw_yarn_match_async)
 
-    def _add_notification(self, key: str, title: str, message: str, page: str, severity: str = "medium", partita_colore: str = "") -> None:
+    def _add_notification(self, key: str, title: str, message: str, page: str, severity: str = "medium",
+                          partita_colore: str = "", ordine="", riga="") -> None:
         def add_now():
-            notifications.add(key, title, message, page, severity, partita_colore=partita_colore)
+            notifications.add(key, title, message, page, severity, partita_colore=partita_colore,
+                              ordine=ordine, riga=riga)
             self._refresh_notification_badge()
         self.after(0, add_now)
 
@@ -861,7 +873,7 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
         win = tk.Toplevel(self)
         bind_escape_to_close(win)
         win.title("Notifications")
-        win.geometry("860x380")
+        win.geometry("1010x380")
         win.minsize(680, 280)
         win.resizable(True, True)
         # Keep this as a normal overlapped Windows window so the native
@@ -878,9 +890,10 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
         category_var = tk.StringVar(value="All")
         category_combo = ttk.Combobox(filter_bar, textvariable=category_var, values=("All",) + notifications.CATEGORIES, state="readonly", width=14)
         category_combo.pack(side="left", padx=6)
-        tree = ttk.Treeview(win, columns=("severity", "category", "title", "page", "partita_colore", "message", "created"), show="headings")
-        for col, title, width in (("severity", "Severity", 80), ("category", "Category", 100), ("title", "Title", 160), ("page", "Page", 110), ("partita_colore", "Partita Colore", 110), ("message", "Message", 270), ("created", "Created", 130)):
-            tree.heading(col, text=title); tree.column(col, width=width, anchor="center" if col in {"severity", "page", "partita_colore", "created"} else "w")
+        tree = ttk.Treeview(win, columns=[c[0] for c in NOTIFICATION_COLUMNS], show="headings")
+        for col, title, width, centred in NOTIFICATION_COLUMNS:
+            tree.heading(col, text=title)
+            tree.column(col, width=width, anchor="center" if centred else "w")
         tree.grid(row=1, column=0, columnspan=5, sticky="nsew", padx=8, pady=8)
         tree.tag_configure("evenrow", background="#ffffff")
         tree.tag_configure("oddrow", background="#eef4fb")
@@ -889,7 +902,7 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
             for index, item in enumerate(notifications.list_open(category_var.get())):
                 tree.insert(
                     "", "end", iid=item["key"],
-                    values=(item.get("severity", ""), item.get("category", "Other"), item.get("title", ""), item.get("page", ""), item.get("partita_colore", ""), item.get("message", ""), item.get("created_at", "")),
+                    values=tuple(item.get(col, "Other" if col == "category" else "") for col, *_ in NOTIFICATION_COLUMNS),
                     tags=("oddrow" if index % 2 else "evenrow",),
                 )
             self._refresh_notification_badge()
@@ -913,10 +926,9 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
             try:
                 from openpyxl import Workbook
                 workbook = Workbook(); sheet = workbook.active; sheet.title = "Notifications"
-                headers = ("Severity", "Category", "Title", "Page", "Partita Colore", "Message", "Created")
-                sheet.append(headers)
+                sheet.append(tuple(title for _col, title, *_ in NOTIFICATION_COLUMNS))
                 for item in items:
-                    sheet.append((item.get("severity", ""), item.get("category", "Other"), item.get("title", ""), item.get("page", ""), item.get("partita_colore", ""), item.get("message", ""), item.get("created_at", "")))
+                    sheet.append(tuple(item.get(col, "Other" if col == "category" else "") for col, *_ in NOTIFICATION_COLUMNS))
                 sheet.freeze_panes = "A2"; sheet.auto_filter.ref = sheet.dimensions
                 for cell in sheet[1]: cell.font = cell.font.copy(bold=True)
                 safe_save_workbook(workbook, path); workbook.close()

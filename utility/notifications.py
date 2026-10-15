@@ -41,9 +41,27 @@ def category_for(key: str, title: str = "", page: str = "") -> str:
     return "Other"
 
 
+def _clean_ref(value) -> str:
+    """Ordine / Riga as the text people read: "" for blank/nan, "3" for 3.0."""
+    if value is None:
+        return ""
+    text = str(value).strip()
+    if text.casefold() in {"", "nan", "none", "nat"}:
+        return ""
+    try:
+        number = float(text)
+        if number.is_integer() and "e" not in text.casefold():
+            return str(int(number))
+    except ValueError:
+        pass
+    return text
+
+
 def list_all() -> list[dict]:
     items = _read()
     for item in items:
+        item.setdefault("ordine", "")   # notifications saved before these fields existed
+        item.setdefault("riga", "")
         item.setdefault("category", category_for(item.get("key", ""), item.get("title", ""), item.get("page", "")))
         item.setdefault("status", "resolved" if item.get("resolved") else "open")
     return items
@@ -93,11 +111,14 @@ def add_many(entries: Iterable[dict]) -> int:
                     if candidate and candidate not in ("None", "nan"):
                         partita_colore = candidate
             partita_colore = partita_colore or "N/A"
+        ordine = _clean_ref(entry.get("ordine"))
+        riga = _clean_ref(entry.get("riga"))
         category = str(entry.get("category", ""))
         item_category = category if category in CATEGORIES else category_for(key, title, page)
         items.append({
             "key": key, "title": title, "message": message, "page": page,
-            "partita_colore": partita_colore, "category": item_category,
+            "partita_colore": partita_colore, "ordine": ordine, "riga": riga,
+            "category": item_category,
             "severity": severity, "status": "open",
             "created_at": now, "resolved": False, "snoozed_until": "",
         })
@@ -108,10 +129,12 @@ def add_many(entries: Iterable[dict]) -> int:
     return added
 
 
-def add(key: str, title: str, message: str, page: str, severity: str = "medium", partita_colore: str = "", category: str = "") -> bool:
+def add(key: str, title: str, message: str, page: str, severity: str = "medium", partita_colore: str = "",
+        category: str = "", ordine="", riga="") -> bool:
     return bool(add_many([{
         "key": key, "title": title, "message": message, "page": page,
         "severity": severity, "partita_colore": partita_colore, "category": category,
+        "ordine": ordine, "riga": riga,
     }]))
 
 

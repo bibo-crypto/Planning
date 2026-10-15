@@ -158,13 +158,16 @@ class PrezziTab(ttk.Frame):
             return
         self._load_path(path, save_cache=True)
 
-    def _restore_from_cache(self) -> None:
+    def _restore_from_cache(self, force: bool = False) -> None:
+        # force=True is for reapply_categories(): it must re-run the category
+        # rules on the rows that are already loaded, so the "something is
+        # already loaded" guard below applies only to the deferred startup restore.
         # SQLite is the runtime source of truth. The original workbook path is
         # metadata only and is deliberately not required after restart.
         # This runs after_idle during construction.  Do not let that deferred
         # restore replace a file the user (or another workflow) has already
         # started loading in the meantime.
-        if self._uploading or self._loaded_source_path or not self._base_df.empty:
+        if not force and (self._uploading or self._loaded_source_path or not self._base_df.empty):
             return
         try:
             from utility.source_manager import load as load_source, source_name
@@ -311,7 +314,7 @@ class PrezziTab(ttk.Frame):
             # The data came from SQLite, so there is no workbook to read again
             # ("sqlite://listini" is a label, not a path): re-run the category
             # rules on the saved rows instead.
-            self._restore_from_cache()
+            self._restore_from_cache(force=True)
             if on_done:
                 on_done()
             return
