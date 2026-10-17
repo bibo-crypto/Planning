@@ -108,8 +108,11 @@ def summarize_by_partita(magazino_df):
     if "titolo" not in magazino_df.columns:
         magazino_df = magazino_df.copy()
         magazino_df["titolo"] = ""
-    grouped = magazino_df.groupby("partita", as_index=False).agg(
-        articolo=("articolo", "first"), titulo=("titolo", "first"),
+    # Stock is summed per Articolo AND Partita: grouping by Partita alone merged
+    # two different articles that share a lot number into one row (the first
+    # article's), inflating its stock and hiding the other.
+    grouped = magazino_df.groupby(["articolo", "partita"], as_index=False, sort=False).agg(
+        titulo=("titolo", "first"),
         mag_rocche=("colli", "sum"), mag_peso=("esistenza", "sum"),
     ).rename(columns={"titulo": "titolo"})
     return grouped[["articolo", "titolo", "partita", "mag_rocche", "mag_peso"]].sort_values(["articolo", "partita"])

@@ -88,6 +88,10 @@ class MasterDataTab(ttk.Frame):
             item = {col: entries[col].get().strip() for col in columns}
             if not item[columns[0]]:
                 messagebox.showwarning("Missing value", f"{columns[0]} is required.", parent=win); return
+            if key == "machines":
+                problem = master_data.validate_machine(item, self._data[key], tree.index(selected[0]) if selected else None)
+                if problem:
+                    messagebox.showwarning("Invalid machine", problem, parent=win); return
             if selected: self._data[key][tree.index(selected[0])] = item
             else: self._data[key].append(item)
             master_data.save(self._data); self._refresh(key); self._on_data_changed(); win.destroy()

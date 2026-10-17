@@ -1,0 +1,6 @@
+# Development / test tools -- NOT bundled into the EXE.
+#   pip install -r requirements-dev.txt
+#   python -m pytest -q
+-r requirements.txt
+pytest>=8,<9
+pyflakes>=3

@@ -704,7 +704,13 @@ class PlanningRegressionTests(unittest.TestCase):
             self.assertEqual(first["G010032S"], "100/2 - COTTON 100%")
 
             second, _errors = load_articoli_marca_map(path)
-            self.assertIs(first, second)  # in-memory cache hit, not just an equal dict
+            # In-memory cache hit: equal content, but a PRIVATE copy -- a caller
+            # that edits what it got back must not edit the cache for everybody.
+            self.assertEqual(first, second)
+            self.assertIsNot(first, second)
+            first["EDITED"] = "x"
+            third, _errors = load_articoli_marca_map(path)
+            self.assertNotIn("EDITED", third)
 
             key = disk_cache.file_cache_key(path)
             self.assertTrue(disk_cache._cache_path("articoli_marca", key).is_file())

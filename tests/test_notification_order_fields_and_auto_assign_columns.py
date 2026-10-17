@@ -56,3 +56,14 @@ def test_auto_assign_preview_columns_follow_situazione_generale_order():
     shared = [c for c in AUTO_ASSIGN_COLUMNS if c in situazione_order]
     assert shared == sorted(shared, key=situazione_order.index)                  # cliente, articolo, codice, colore, rocche
     assert AUTO_ASSIGN_COLUMNS.index("colore") < AUTO_ASSIGN_COLUMNS.index("partita_col") < AUTO_ASSIGN_COLUMNS.index("rocche")
+
+
+def test_open_notification_without_ordine_riga_is_filled_in_by_the_next_report(store):
+    store._write([{"key": "situazione-price:A:440:9001", "title": "t", "message": "m", "page": "p",
+                   "partita_colore": "9001", "category": "Prices", "severity": "medium", "status": "open",
+                   "created_at": "2026-10-01T00:00:00", "resolved": False, "snoozed_until": ""}])
+    assert store.add("situazione-price:A:440:9001", "t", "m", "p", ordine="O-77", riga=3.0) is False   # not a new one
+    items = store.list_open()
+    assert len(items) == 1 and (items[0]["ordine"], items[0]["riga"]) == ("O-77", "3")
+    store.add("situazione-price:A:440:9001", "t", "m", "p", ordine="O-99", riga=9)                      # never overwritten
+    assert store.list_open()[0]["ordine"] == "O-77"

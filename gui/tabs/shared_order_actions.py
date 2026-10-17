@@ -734,7 +734,7 @@ class SharedOrdersActionsMixin:
         loading.title("Assigning Stock...")
         loading.geometry("340x100")
         keep_window_on_top(loading)
-        ttk.Label(loading, text="Assigning Partita GG & moving rows to Orders...", padding=20).pack()
+        ttk.Label(loading, text="Assigning Partita GG...", padding=20).pack()
 
         def worker():
             try:
@@ -748,6 +748,8 @@ class SharedOrdersActionsMixin:
                         densita_map=densita_map, vmm_ratio_map=vmm_ratio_map,
                         magazino_summary=magazino_summary,
                         allow_article_mismatch=False,
+                        # Leave the assigned rows in PG-X: the user checks them and
+                        # moves them to Orders himself, through "Print Assigned PG-X".
                         move_to_orders=False,
                     )
                     updated_count += res.get("updated", 0)
@@ -768,9 +770,9 @@ class SharedOrdersActionsMixin:
             rebuild()
             messagebox.showinfo(
                 "Auto-Assign Complete",
-                f"Partita GG assigned for {updated_count} row(s) — rows remain in PG-X.\n\n"
-                "Review them in the PG-X tab, then use \"Print Assigned PG-X\" to print their Biglietti "
-                "and request raw yarn. Move each row to Orders manually when ready.",
+                f"Assigned Partita GG for {updated_count} row(s) -- they stay in PG-X.\n\n"
+                "To print their Biglietti, request the raw yarn and move them to Orders, "
+                "use \"Print Assigned PG-X\" in the PG-X tab.",
                 parent=parent_window,
             )
 

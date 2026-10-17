@@ -1,5 +1,6 @@
 """sync_venv_packages.py — prune packages from the active virtual
-environment that are no longer listed in requirements.txt.
+environment that are no longer listed in requirements.txt / requirements-dev.txt
+(nor required by one of those packages).
 
 Run with the venv's own Python (build.bat does this after activating
 venv, before the normal `pip install -r requirements.txt` step). Adding
@@ -45,6 +46,35 @@ def _requirement_names(requirements_path: Path) -> set[str]:
     return names
 
 
+def _with_dependencies(names: set[str]) -> set[str]:
+    """*names* plus everything they (transitively) need at run time.
+
+    `pip list` shows transitive packages too (pdfminer.six, Pillow, pluggy ...),
+    and they are not written in requirements.txt -- without this closure the
+    prune step would uninstall them (and pytest's own helpers with it).
+    """
+    from importlib import metadata
+
+    seen: set[str] = set()
+    pending = list(names)
+    while pending:
+        name = _normalize(pending.pop())
+        if name in seen:
+            continue
+        seen.add(name)
+        try:
+            requires = metadata.distribution(name).requires or []
+        except metadata.PackageNotFoundError:
+            continue
+        for requirement in requires:
+            if "extra ==" in requirement.replace("'", '"') or "extra==" in requirement.replace(" ", ""):
+                continue            # optional extras are not installed by default
+            match = re.match(r"^([A-Za-z0-9][A-Za-z0-9._-]*)", requirement.strip())
+            if match:
+                pending.append(match.group(1))
+    return seen
+
+
 def _installed_names() -> set[str]:
     result = subprocess.run(
         [sys.executable, "-m", "pip", "list", "--format=freeze"],
@@ -60,8 +90,11 @@ def _installed_names() -> set[str]:
 
 
 def main() -> int:
-    requirements_path = Path(__file__).resolve().parent / "requirements.txt"
-    wanted = _requirement_names(requirements_path) | {_normalize(p) for p in ALWAYS_KEEP}
+    root = Path(__file__).resolve().parent
+    # requirements-dev.txt (pytest, pyflakes) is kept too: pruning must not
+    # remove the tools the tests need.  It pulls requirements.txt in via -r.
+    wanted = _requirement_names(root / "requirements.txt") | _requirement_names(root / "requirements-dev.txt")
+    wanted = _with_dependencies(wanted) | {_normalize(p) for p in ALWAYS_KEEP}
     installed = _installed_names()
     to_remove = sorted(installed - wanted)
 

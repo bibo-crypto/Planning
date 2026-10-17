@@ -59,11 +59,8 @@ def load_elvy_mapping() -> dict[str, str]:
 def save_elvy_mapping(mapping: dict[str, str]) -> None:
     """Persist *mapping* to disk. Creates the directory if needed."""
     try:
-        MAPPING_FILE.parent.mkdir(parents=True, exist_ok=True)
-        MAPPING_FILE.write_text(
-            json.dumps(mapping, indent=2, ensure_ascii=False, sort_keys=True),
-            encoding="utf-8",
-        )
+        from utility.atomic import atomic_write_text
+        atomic_write_text(MAPPING_FILE, json.dumps(mapping, indent=2, ensure_ascii=False, sort_keys=True))
     except Exception as exc:  # noqa: BLE001
         logger.warning("Could not save Elvy mapping: %s", exc)
 

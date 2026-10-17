@@ -20,8 +20,8 @@ def _read() -> list[dict]:
 
 
 def _write(items: list[dict]) -> None:
-    _PATH.parent.mkdir(parents=True, exist_ok=True)
-    _PATH.write_text(json.dumps(items[-1000:], ensure_ascii=False, indent=2), encoding="utf-8")
+    from utility.atomic import atomic_write_text
+    atomic_write_text(_PATH, json.dumps(items[-1000:], ensure_ascii=False, indent=2))
 
 
 def category_for(key: str, title: str = "", page: str = "") -> str:
@@ -89,12 +89,23 @@ def list_open(category: str = "All") -> list[dict]:
 def add_many(entries: Iterable[dict]) -> int:
     items = _read()
     known_keys = {item.get("key") for item in items if not item.get("resolved")}
+    open_by_key = {item.get("key"): item for item in items if not item.get("resolved")}
     now = datetime.now().isoformat(timespec="seconds")
     import re
     added = 0
+    backfilled = False
     for entry in entries:
         key = str(entry["key"])
         if key in known_keys:
+            # Already open (not duplicated), but it may predate the Ordine/Riga
+            # columns: fill them in from this report instead of leaving them blank.
+            existing = open_by_key.get(key)
+            if existing is not None:
+                for field in ("ordine", "riga"):
+                    value = _clean_ref(entry.get(field))
+                    if value and not _clean_ref(existing.get(field)):
+                        existing[field] = value
+                        backfilled = True
             continue
         title = str(entry["title"])
         message = str(entry["message"])
@@ -123,8 +134,9 @@ def add_many(entries: Iterable[dict]) -> int:
             "created_at": now, "resolved": False, "snoozed_until": "",
         })
         known_keys.add(key)
+        open_by_key[key] = items[-1]
         added += 1
-    if added:
+    if added or backfilled:
         _write(items)
     return added
 

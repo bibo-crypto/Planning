@@ -45,6 +45,17 @@ MACHINE_CAPACITIES: list[int] = list(MACHINE_CAPACITIES)
 MACHINE_CODES: dict[int, int] = dict(ABBINA_MACHINE_CODES)
 
 
+def _refresh_machine_tables() -> None:
+    from calculate import constants as _constants
+    MACHINE_CAPACITIES[:] = _constants.MACHINE_CAPACITIES
+    MACHINE_CODES.clear()
+    MACHINE_CODES.update(_constants.ABBINA_MACHINE_CODES)
+
+
+from calculate import constants as _constants_module  # noqa: E402
+_constants_module.register_machine_listener(_refresh_machine_tables)
+
+
 def _smallest_fitting_machine(total_cones: float) -> int:
     """Return 0 for an empty group, otherwise the smallest fitting capacity."""
     if total_cones <= 0:

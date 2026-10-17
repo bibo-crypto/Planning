@@ -74,6 +74,37 @@ MACHINE_SIZE_TABLE: dict[int, int] = {
         MACHINE_CAPACITIES, (11, 12, 9, 10, 7, 8, 5, 6, 3)
     )
 }
+
+
+def _refresh_machine_size_table() -> None:
+    """Master Data is the source of truth: capacity -> machine number.  (For the
+    default machines this is exactly the table above.)"""
+    from calculate import constants as _constants
+    MACHINE_SIZE_TABLE.clear()
+    MACHINE_SIZE_TABLE.update(_constants.SUGGESTION_MACHINE_NUMBERS)
+
+
+from calculate import constants as _constants_module  # noqa: E402
+
+import functools
+import threading
+
+# Every operation below reads the shared workbook, edits it in memory and saves
+# it back.  Two of them running at once (e.g. a background assignment while the
+# user deletes a row) would each save their own copy and one of the edits would
+# be lost.  One re-entrant lock makes them run one after the other.
+_WORKBOOK_WRITE_LOCK = threading.RLock()
+
+
+def _serialized_workbook_write(function):
+    @functools.wraps(function)
+    def wrapper(*args, **kwargs):
+        with _WORKBOOK_WRITE_LOCK:
+            return function(*args, **kwargs)
+    return wrapper
+
+
+_constants_module.register_machine_listener(_refresh_machine_size_table)
 # Seen only on MED orders in the reference query (7 Rocche -> machine 11).
 # Kept separate since it overlaps oddly with the 6 -> 11 rule; flagged for
 # the user to confirm once real MED data is available.
@@ -1180,6 +1211,7 @@ def pg_x_batch_stock_status(articles: list[str], partita_gg: str, magazino_summa
     return "available" if expected_articles.issubset(stocked_articles) else "mismatch"
 
 
+@_serialized_workbook_write
 def remove_uploaded_pgx_rows(path: Path, row_indices: list[int]) -> int:
     """Remove successfully processed data rows from the uploaded workbook."""
     if not row_indices:
@@ -1238,6 +1270,7 @@ def _deduplicate_create_excel_rows(wb) -> int:
     return removed
 
 
+@_serialized_workbook_write
 def deduplicate_create_excel(path: Path) -> int:
     """Remove duplicate Partita Col rows from the shared Orders workbook."""
     from openpyxl import load_workbook
@@ -1253,6 +1286,7 @@ def deduplicate_create_excel(path: Path) -> int:
         wb.close()
 
 
+@_serialized_workbook_write
 def append_create_excel(path: Path, records: list[OrderRecord], customer: str) -> dict[str, Any]:
     """Create or append the shared workbook used by the dyeing review flow.
 
@@ -1365,7 +1399,8 @@ def append_create_excel(path: Path, records: list[OrderRecord], customer: str) -
 def _sync_workbook_history(path: Path, wb) -> None:
     """Best-effort mirror of the live Create workbook into SQLite history."""
     try:
-        from utility.orders_db import sync_rows
+        from utility.orders_db import partita_key, reconcile_sheet, sync_rows
+        keys_by_sheet: dict[str, set[str]] = {}
         for sheet_name in ("Orders", "PG-X"):
             if sheet_name not in wb.sheetnames:
                 continue
@@ -1373,6 +1408,13 @@ def _sync_workbook_history(path: Path, wb) -> None:
             headers = [_clean(cell.value) for cell in ws[1]]
             rows = [dict(zip(headers, values)) for values in ws.iter_rows(min_row=2, values_only=True)]
             sync_rows(path, sheet_name, rows)
+            if "Partita Col" in headers:   # without that column nothing can be said about what left the sheet
+                keys_by_sheet[sheet_name] = {partita_key(row.get("Partita Col")) for row in rows} - {""}
+        # A row that moved between the two sheets must not stay "open" in the old one.
+        for sheet_name, keys in keys_by_sheet.items():
+            other = next((name for name in keys_by_sheet if name != sheet_name), None)
+            moved_to = {key: other for key in keys_by_sheet.get(other, ())} if other else {}
+            reconcile_sheet(path, sheet_name, keys, moved_to)
     except Exception:
         # History must never prevent the operational Excel export from saving.
         pass
@@ -1432,6 +1474,7 @@ def load_create_excel_records(path: Path, partita_gg: str = "", sheet_name: str 
     return out
 
 
+@_serialized_workbook_write
 def update_pg_x_row(path: Path, partita_col: str, updates: dict[str, Any]) -> int:
     """Update editable fields for a PG-X color without assigning it yet."""
     from openpyxl import load_workbook
@@ -1471,6 +1514,7 @@ def update_pg_x_row(path: Path, partita_col: str, updates: dict[str, Any]) -> in
         wb.close()
 
 
+@_serialized_workbook_write
 def update_order_row(
     path: Path,
     partita_col: str,
@@ -1567,6 +1611,7 @@ def update_order_row(
         wb.close()
 
 
+@_serialized_workbook_write
 def save_pg_x_partita(
     path: Path,
     partita_col: str,
@@ -1700,6 +1745,7 @@ def save_pg_x_partita(
     return {"updated": len(matching_rows), "partita_gg": partita_gg, "available": available_total}
 
 
+@_serialized_workbook_write
 def move_pg_x_to_orders(path: Path, partita_col: str) -> int:
     """Move the selected PG-X color row to Orders."""
     from openpyxl import load_workbook
@@ -1720,11 +1766,8 @@ def move_pg_x_to_orders(path: Path, partita_col: str) -> int:
     if not matches:
         # Not an error: this happens whenever the row already moved out of
         # PG-X between when the caller decided to move it and when this
-        # runs -- e.g. Smart Auto-Assign's save_pg_x_partita() already moves
-        # a row to Orders the moment it assigns a raw batch, so a
-        # subsequent "move assigned rows to Orders" pass (Print Assigned
-        # PG-X) can reach a row that isn't in PG-X anymore. Nothing to move
-        # is a no-op success, not a crash.
+        # runs (e.g. a row moved by an earlier "Print Assigned PG-X" pass).
+        # Nothing to move is a no-op success, not a crash.
         wb.close()
         return 0
     existing = {_partita_key(orders_ws.cell(r, order_col).value) for r in range(2, orders_ws.max_row + 1)}
@@ -1742,6 +1785,24 @@ def move_pg_x_to_orders(path: Path, partita_col: str) -> int:
     return len(matches)
 
 
+def _record_history_before_delete(path: Path, sheet_name: str, ws, headers: list, col_idx: int,
+                                  match_rows: list[int], reason: str) -> None:
+    """Write the rows' history (upsert, then archive) BEFORE they are deleted
+    from the workbook.  If that fails nothing is deleted: the history is the
+    only record that remains once the rows are gone."""
+    try:
+        from utility.orders_db import archive, sync_rows
+        rows = [dict(zip(headers, [cell.value for cell in ws[row_idx]])) for row_idx in match_rows]
+        sync_rows(path, sheet_name, rows)   # make sure each row exists in the history first
+        archive(path, sheet_name, [ws.cell(row=r, column=col_idx).value for r in match_rows], reason=reason)
+    except Exception as exc:
+        raise RuntimeError(
+            "The order history could not be updated, so nothing was deleted from the workbook. "
+            f"Details: {exc}"
+        ) from exc
+
+
+@_serialized_workbook_write
 def delete_pg_x_row(path: Path, partita_col: str) -> int:
     """Delete the selected PG-X color row."""
     from openpyxl import load_workbook
@@ -1761,10 +1822,10 @@ def delete_pg_x_row(path: Path, partita_col: str) -> int:
         wb.close()
         raise ValueError(f"Partita Col '{partita_col}' was not found in PG-X.")
     try:
-        from utility.orders_db import archive
-        archive(path, "PG-X", [ws.cell(row=r, column=col_idx).value for r in matches], reason="deleted")
+        _record_history_before_delete(path, "PG-X", ws, headers, col_idx, matches, "deleted")
     except Exception:
-        pass
+        wb.close()
+        raise
     for row_idx in reversed(matches):
         ws.delete_rows(row_idx, 1)
     safe_save_workbook(wb, path)
@@ -1772,6 +1833,7 @@ def delete_pg_x_row(path: Path, partita_col: str) -> int:
     return len(matches)
 
 
+@_serialized_workbook_write
 def delete_shipped_shared_rows(path: Path, partita_cols, sheet_name: str) -> int:
     """Delete rows in one shared-workbook sheet whose Partita Col shipped."""
     from openpyxl import load_workbook
@@ -1790,11 +1852,7 @@ def delete_shipped_shared_rows(path: Path, partita_cols, sheet_name: str) -> int
             row_idx for row_idx in range(2, ws.max_row + 1)
             if _partita_key(ws.cell(row=row_idx, column=col_idx).value) in shipped
         ]
-        try:
-            from utility.orders_db import archive
-            archive(path, sheet_name, [ws.cell(row=r, column=col_idx).value for r in matches], reason="shipped/invoiced")
-        except Exception:
-            pass
+        _record_history_before_delete(path, sheet_name, ws, headers, col_idx, matches, "shipped/invoiced")
         for row_idx in reversed(matches):
             ws.delete_rows(row_idx, 1)
         _style_sheet(ws, date_columns=("Consegna", "Delivery Date"))

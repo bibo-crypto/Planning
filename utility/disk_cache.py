@@ -15,7 +15,9 @@ Usage (see calculate/prezzi.py for a real example)::
 """
 from __future__ import annotations
 
+import copy
 import hashlib
+import re
 import os
 import pickle
 from pathlib import Path
@@ -43,8 +45,24 @@ def _cache_dir() -> Path:
 
 
 def _cache_path(namespace: str, cache_key: tuple) -> Path:
-    digest = hashlib.sha1("|".join(str(part) for part in cache_key).encode("utf-8")).hexdigest()
-    return _cache_dir() / f"{namespace}_{digest}.pkl"
+    # The namespace is only a readable prefix: characters such as ":" are not
+    # allowed in Windows file names ("magazino:None" made the write fail, so the
+    # disk cache silently never worked).  The digest covers the FULL namespace,
+    # so two namespaces that sanitise to the same prefix still never collide.
+    digest = hashlib.sha1(
+        "|".join([str(namespace), *(str(part) for part in cache_key)]).encode("utf-8")
+    ).hexdigest()
+    safe_prefix = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(namespace)).strip("_.")[:40] or "cache"
+    return _cache_dir() / f"{safe_prefix}_{digest}.pkl"
+
+
+def _private_copy(result: Any) -> Any:
+    """A caller that edits the DataFrame it got back must not be editing the
+    cached one for everybody else."""
+    try:
+        return copy.deepcopy(result)
+    except Exception:  # noqa: BLE001 -- an un-copyable result is returned as is
+        return result
 
 
 def cached_load(namespace: str, path, compute: Callable[[], Any],
@@ -67,7 +85,7 @@ def cached_load(namespace: str, path, compute: Callable[[], Any],
     cache_key = file_cache_key(path)
     memory_key = (namespace, cache_key)
     if cache_key is not None and memory_key in _MEMORY_CACHE:
-        return _MEMORY_CACHE[memory_key]
+        return _private_copy(_MEMORY_CACHE[memory_key])
 
     disk_path = None
     if cache_key is not None:
@@ -81,13 +99,15 @@ def cached_load(namespace: str, path, compute: Callable[[], Any],
             pass
         if loaded_from_disk:
             _MEMORY_CACHE[memory_key] = result
-            return result
+            return _private_copy(result)
 
     result = compute()
     if cache_key is not None and is_valid(result):
-        _MEMORY_CACHE[memory_key] = result
+        # Store a private copy: the caller keeps (and may modify) `result`.
+        _MEMORY_CACHE[memory_key] = _private_copy(result)
         try:
-            _cache_path(namespace, cache_key).write_bytes(pickle.dumps(result))
+            from utility.atomic import atomic_write_bytes
+            atomic_write_bytes(_cache_path(namespace, cache_key), pickle.dumps(result))
         except Exception:  # noqa: BLE001 -- caching is best-effort, never blocks returning the real result
             pass
     return result

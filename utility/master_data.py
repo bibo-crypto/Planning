@@ -4,6 +4,7 @@ This is deliberately JSON-backed until the central database phase is approved.
 """
 from __future__ import annotations
 
+import copy
 import json
 from typing import Any
 
@@ -41,16 +42,40 @@ def load() -> dict[str, list[dict[str, Any]]]:
         data = json.loads(PATH.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         data = {}
-    result = {key: list(data.get(key, defaults)) for key, defaults in DEFAULTS.items()}
+    # deep copy: callers edit the rows they get, and that must never reach DEFAULTS
+    result = {key: copy.deepcopy(list(data.get(key, defaults))) for key, defaults in DEFAULTS.items()}
     # Drop the old, generic machine rows from the first prototype.
     result["machines"] = [m for m in result["machines"] if m.get("number") and m.get("rocche")]
     return result
 
 
 def save(data: dict[str, list[dict[str, Any]]]) -> None:
-    PATH.parent.mkdir(parents=True, exist_ok=True)
-    PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    from utility.atomic import atomic_write_text
+    atomic_write_text(PATH, json.dumps(data, ensure_ascii=False, indent=2))
     _delave_maps_cache.clear()
+    try:   # a changed machine capacity must reach the calculations right away
+        from calculate import constants
+        constants.reload_machines()
+    except Exception:  # noqa: BLE001 -- reference data is saved; a reload problem is only logged
+        import logging
+        logging.getLogger(__name__).exception("Could not reload the machine tables")
+
+
+def validate_machine(item: dict[str, Any], existing: list[dict[str, Any]], editing_index: int | None = None) -> str | None:
+    """Error text for a machine row that must not be saved, else None."""
+    values: dict[str, int] = {}
+    for field, label in (("code", "Code"), ("number", "Number"), ("rocche", "Rocche")):
+        text = str(item.get(field, "")).strip()
+        if not text.isdigit() or int(text) <= 0:
+            return f"{label} must be a positive whole number."
+        values[field] = int(text)
+    for index, other in enumerate(existing):
+        if index == editing_index:
+            continue
+        for field, label in (("code", "Code"), ("number", "Number")):
+            if str(other.get(field, "")).strip() == str(values[field]):
+                return f"{label} {values[field]} is already used by another machine."
+    return None
 
 
 _delave_maps_cache: dict[str, dict[str, str]] = {}

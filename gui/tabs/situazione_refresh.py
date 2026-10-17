@@ -181,9 +181,7 @@ class SituationRefreshMixin:
                 f"Partita {partita} (Bagno {row.get('bagno', '')}, Articolo {row.get('articolo', '')}): "
                 f"filato disponibile in Magazino — {row.get('raw_yarn_match', '')}.",
                 "Situazione Generale", "medium",
-                partita,
-                row.get("ordine", ""),
-                row.get("riga", ""),
+                partita, row.get("ordine", ""), row.get("riga", ""),
             )
     def _notify_abbina_pending(self, suggestions: pd.DataFrame | None = None) -> None:
         """Fire one aggregate notification when the "Da abbinare" matching

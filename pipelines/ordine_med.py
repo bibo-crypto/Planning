@@ -47,6 +47,16 @@ from utility.master_data import raw_articolo_for
 GRUPPO_MACCHINA_TABLE: dict[int, int] = {**ABBINA_MACHINE_CODES, 7: 3301}
 
 
+def _refresh_gruppo_macchina_table() -> None:
+    from calculate import constants as _constants
+    GRUPPO_MACCHINA_TABLE.clear()
+    GRUPPO_MACCHINA_TABLE.update({**_constants.ABBINA_MACHINE_CODES, 7: 3301})
+
+
+from calculate import constants as _constants_module  # noqa: E402
+_constants_module.register_machine_listener(_refresh_gruppo_macchina_table)
+
+
 def _polmoni_multiplier(polmoni_text: str) -> int:
     """'2 POLMONI' -> 8 (2 polmoni * 4 coni each), matching the reference
     query's Custom column."""

@@ -13,6 +13,17 @@ from calculate.constants import MACHINE_CAPACITIES as SHARED_MACHINE_CAPACITIES,
 
 MACHINE_CAPACITIES = list(SHARED_MACHINE_CAPACITIES)
 MACHINE_NUMBERS = dict(SUGGESTION_MACHINE_NUMBERS)
+
+
+def _refresh_machine_tables() -> None:
+    from calculate import constants as _constants
+    MACHINE_CAPACITIES[:] = _constants.MACHINE_CAPACITIES
+    MACHINE_NUMBERS.clear()
+    MACHINE_NUMBERS.update(_constants.SUGGESTION_MACHINE_NUMBERS)
+
+
+from calculate import constants as _constants_module  # noqa: E402
+_constants_module.register_machine_listener(_refresh_machine_tables)
 SPECIAL_TITLES = {"30/1", "31/1", "36/1", "9.5/1", "23/1", "15,4/1",
                   "26,8/1", "38/1", "8,3/1", "35,4/1"}
 _NORMALIZED_SPECIAL_TITLES = {title.replace(" ", "").casefold() for title in SPECIAL_TITLES}

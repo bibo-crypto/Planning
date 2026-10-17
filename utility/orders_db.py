@@ -89,6 +89,47 @@ def archive(source_file: Path, sheet_name: str, partita_cols: Iterable[Any], rea
         conn.close()
 
 
+def partita_key(value: Any) -> str:
+    """The normalised Partita Col key the history is stored under."""
+    return _key(value)
+
+
+def reconcile_sheet(source_file: Path, sheet_name: str, present_keys: set[str],
+                    moved_to: dict[str, str] | None = None, db_path: Path = DB_PATH) -> int:
+    """Close the open history records of *sheet_name* that are no longer in it.
+
+    sync_rows() only adds or refreshes rows, so a row that left the sheet --
+    moved PG-X -> Orders, or deleted by hand in Excel -- stayed "open" there
+    (the same Partita Col then looked open in two sheets).  ``moved_to`` maps a
+    key that now lives in the other sheet to that sheet's name.
+    """
+    moved_to = moved_to or {}
+    now = datetime.now().isoformat(timespec="seconds")
+    conn = _connect(db_path)
+    try:
+        open_keys = [
+            row["partita_col"] for row in conn.execute(
+                "SELECT partita_col FROM orders WHERE source_file=? AND sheet_name=? AND status='open'",
+                (str(source_file.resolve()), sheet_name),
+            )
+        ]
+        closed = 0
+        for key in open_keys:
+            if key in present_keys:
+                continue
+            reason = f"moved to {moved_to[key]}" if key in moved_to else "removed from workbook"
+            conn.execute(
+                """UPDATE orders SET status='archived', archived_reason=?, archived_at=?, updated_at=?
+                   WHERE source_file=? AND sheet_name=? AND partita_col=? AND status='open'""",
+                (reason, now, now, str(source_file.resolve()), sheet_name, key),
+            )
+            closed += 1
+        conn.commit()
+        return closed
+    finally:
+        conn.close()
+
+
 def list_open(db_path: Path = DB_PATH) -> list[dict[str, Any]]:
     conn = _connect(db_path)
     try:

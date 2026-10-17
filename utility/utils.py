@@ -133,7 +133,17 @@ def parse_number(value: Any) -> float | None:
     """
     Try to parse *value* as a float.
     Returns None when the value is not numeric rather than raising.
+
+    A real number (int/float, e.g. a cell read from Excel) is already a number:
+    only TEXT needs the separator guessing below.  Going through str() first
+    turned 1.234 into 1234.0 (a lone "." before exactly three digits looks like
+    a thousands separator in text).
     """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        number = float(value)
+        return None if number != number else number      # NaN -> None
     text = clean_text(value)
     if not text:
         return None
@@ -287,11 +297,8 @@ def save_settings(settings: dict[str, object]) -> None:
     Creates the directory if needed; silently skips on error.
     """
     try:
-        SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        SETTINGS_FILE.write_text(
-            json.dumps(settings, indent=2, ensure_ascii=False),
-            encoding="utf-8",
-        )
+        from utility.atomic import atomic_write_text
+        atomic_write_text(SETTINGS_FILE, json.dumps(settings, indent=2, ensure_ascii=False))
     except Exception as exc:  # noqa: BLE001
         logger.warning("Could not save settings: %s", exc)
 
