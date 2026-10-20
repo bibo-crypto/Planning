@@ -49,7 +49,7 @@ KAMAL_ARTICLE_PREFIX = "C170"
 
 from utility.magazino_cache import load_magazino_cache, save_magazino_cache
 from utility.lotti_cache import load_lotti_cache, save_lotti_cache
-from utility.utils import logger, load_settings, save_settings
+from utility.utils import find_pdfs, logger, load_settings, save_settings
 from typing import Callable
 
 
@@ -59,6 +59,7 @@ class KamalTab(ttk.Frame):
     def __init__(self, master, on_shared_cache_changed: Callable[[], None] | None = None):
         super().__init__(master)
         self._pdf_paths: list[Path] = []
+        self._pdf_folder_path: Path | None = None
         self._raw_yarn_path: Path | None = None
         self._lotti_path: Path | None = None
         self._output_path: Path | None = None
@@ -71,6 +72,9 @@ class KamalTab(ttk.Frame):
         self._kamal_bagno_enabled = tk.BooleanVar(value=False)
         self._kamal_bagno_start = tk.StringVar(value="")
         self._first_bagno_snapshot: str | None = None
+        self._kamal_order_no_enabled = tk.BooleanVar(value=False)
+        self._kamal_order_no = tk.StringVar(value="")
+        self._order_no_snapshot: str | None = None
         self._shared_dfm_path = ""
         self._on_shared_cache_changed = on_shared_cache_changed
         self._prefs = load_settings()
@@ -93,11 +97,14 @@ class KamalTab(ttk.Frame):
         sel_frame.grid(row=0, column=0, sticky="ew", padx=4, pady=(4, 2))
         sel_frame.columnconfigure((0, 1, 2), weight=1)
         ttk.Button(sel_frame, text="📄 Select PDF(s)", command=self._on_select_pdfs, width=16).grid(row=0, column=0, padx=4, pady=4, sticky="ew")
-        ttk.Button(sel_frame, text="💾 Output File", command=self._on_select_output, width=16).grid(row=0, column=1, padx=4, pady=4, sticky="ew")
+        ttk.Button(sel_frame, text="📁 Select PDF Folder", command=self._on_select_pdf_folder, width=18).grid(row=0, column=1, padx=4, pady=4, sticky="ew")
+        ttk.Button(sel_frame, text="💾 Output File", command=self._on_select_output, width=16).grid(row=0, column=2, padx=4, pady=4, sticky="ew")
         self._lbl_pdfs = ttk.Label(sel_frame, text="No PDFs selected", foreground="grey", anchor="w")
         self._lbl_pdfs.grid(row=1, column=0, sticky="ew", padx=4)
         self._lbl_output = ttk.Label(sel_frame, text="No output file selected", foreground="grey", anchor="w")
-        self._lbl_output.grid(row=1, column=1, columnspan=2, sticky="ew", padx=4)
+        self._lbl_output.grid(row=1, column=2, sticky="ew", padx=4)
+        self._lbl_pdf_folder = ttk.Label(sel_frame, text="No PDF folder selected", foreground="grey", anchor="w")
+        self._lbl_pdf_folder.grid(row=2, column=0, columnspan=2, sticky="ew", padx=4)
 
         self._lbl_dfm = ttk.Label(
             self,
@@ -133,8 +140,22 @@ class KamalTab(ttk.Frame):
             foreground="grey", wraplength=620, justify="left",
         ).grid(row=1, column=0, columnspan=3, sticky="w", pady=(2, 0))
 
+        order_frame = ttk.LabelFrame(self, text="Optional Order Number in Commento", padding=6)
+        order_frame.grid(row=4, column=0, sticky="ew", padx=4, pady=(3, 2))
+        order_frame.columnconfigure(2, weight=1)
+        ttk.Label(order_frame, text="Order No.:").grid(row=0, column=0, padx=(0, 5), pady=2, sticky="w")
+        ttk.Entry(order_frame, textvariable=self._kamal_order_no, width=14).grid(row=0, column=1, padx=4, pady=2, sticky="w")
+        ttk.Checkbutton(
+            order_frame, text="Add to Commento", variable=self._kamal_order_no_enabled,
+        ).grid(row=0, column=2, padx=8, pady=2, sticky="w")
+        ttk.Label(
+            order_frame,
+            text="Default: disabled. Example: 28 → PG-159640-ORD.Nr.28-2026-(LETTER 105).",
+            foreground="grey", wraplength=620, justify="left",
+        ).grid(row=1, column=0, columnspan=3, sticky="w", pady=(2, 0))
+
         erp_frame = ttk.LabelFrame(self, text="Also Extract ERP Files", padding=6)
-        erp_frame.grid(row=4, column=0, sticky="ew", padx=4, pady=(3, 2))
+        erp_frame.grid(row=5, column=0, sticky="ew", padx=4, pady=(3, 2))
         erp_frame.columnconfigure(1, weight=1)
 
         ttk.Button(
@@ -169,9 +190,15 @@ class KamalTab(ttk.Frame):
         self._kamal_bagno_start.trace_add(
             "write", lambda *_: self._save_prefs(kamal_bagno_start=self._kamal_bagno_start.get())
         )
+        self._kamal_order_no_enabled.trace_add(
+            "write", lambda *_: self._save_prefs(kamal_order_no_enabled=self._kamal_order_no_enabled.get())
+        )
+        self._kamal_order_no.trace_add(
+            "write", lambda *_: self._save_prefs(kamal_order_no=self._kamal_order_no.get())
+        )
 
         action_frame = ttk.Frame(self, padding=(6, 4))
-        action_frame.grid(row=5, column=0, sticky="ew", padx=4, pady=2)
+        action_frame.grid(row=6, column=0, sticky="ew", padx=4, pady=2)
         self._btn_convert = ttk.Button(
             action_frame, text="▶  Convert", command=self._on_convert, style="Accent.TButton"
         )
@@ -185,9 +212,23 @@ class KamalTab(ttk.Frame):
         if not paths:
             return
         self._pdf_paths = [Path(p) for p in paths]
+        self._pdf_folder_path = None
         self._lbl_pdfs.config(
             text=f"{len(self._pdf_paths)} file(s) selected", foreground="black"
         )
+        self._lbl_pdf_folder.config(text="No PDF folder selected", foreground="grey")
+
+    def _on_select_pdf_folder(self):
+        path = filedialog.askdirectory(
+            title="Select a folder containing Kamal order PDFs",
+            initialdir=self._prefs.get("kamal_last_dir") or None,
+        )
+        if path:
+            self._pdf_folder_path = Path(path)
+            self._pdf_paths = []
+            self._lbl_pdfs.config(text="No individual PDFs selected", foreground="grey")
+            self._lbl_pdf_folder.config(text=str(self._pdf_folder_path), foreground="black")
+            self._save_prefs(kamal_pdf_folder_path=str(self._pdf_folder_path), kamal_last_dir=str(self._pdf_folder_path))
 
     def _on_select_lotti(self):
         path = filedialog.askopenfilename(
@@ -259,6 +300,13 @@ class KamalTab(ttk.Frame):
         self._kamal_update_filato_file.set(self._prefs.get("kamal_update_filato_file", True))
         self._kamal_bagno_enabled.set(bool(self._prefs.get("kamal_bagno_enabled", False)))
         self._kamal_bagno_start.set(str(self._prefs.get("kamal_bagno_start", "") or ""))
+        self._kamal_order_no_enabled.set(bool(self._prefs.get("kamal_order_no_enabled", False)))
+        self._kamal_order_no.set(str(self._prefs.get("kamal_order_no", "") or ""))
+
+        pdf_folder_str = self._prefs.get("kamal_pdf_folder_path")
+        if pdf_folder_str and Path(pdf_folder_str).is_dir():
+            self._pdf_folder_path = Path(pdf_folder_str)
+            self._lbl_pdf_folder.config(text=pdf_folder_str, foreground="black")
 
         raw_yarn_str = self._prefs.get("kamal_raw_yarn_path")
         if raw_yarn_str and Path(raw_yarn_str).is_file():
@@ -335,7 +383,10 @@ class KamalTab(ttk.Frame):
         self._save_prefs(kamal_lotti_path=str(self._lotti_path), kamal_last_dir=str(self._lotti_path.parent))
 
     def _on_convert(self):
-        if not self._pdf_paths:
+        pdf_paths = list(self._pdf_paths)
+        if self._pdf_folder_path is not None:
+            pdf_paths = find_pdfs(self._pdf_folder_path)
+        if not pdf_paths:
             messagebox.showwarning("Missing input", "Select at least one Kamal order PDF first.")
             return
         if not self._output_path:
@@ -365,21 +416,32 @@ class KamalTab(ttk.Frame):
                 return
             self._first_bagno_snapshot = first_bagno
 
+        self._order_no_snapshot = None
+        if self._kamal_order_no_enabled.get():
+            order_no = self._kamal_order_no.get().strip()
+            if not order_no:
+                messagebox.showwarning(
+                    "Order number", "Enter the order number or untick \"Add to Commento\"."
+                )
+                return
+            self._order_no_snapshot = order_no
+
         self._btn_convert.config(state="disabled")
         self._lbl_status.config(text="Converting…", foreground="grey")
-        thread = threading.Thread(target=self._run_conversion, daemon=True)
+        thread = threading.Thread(target=self._run_conversion, args=(pdf_paths,), daemon=True)
         thread.start()
 
     def _set_status(self, text: str):
         """Thread-safe status label update — safe to call from the background conversion thread."""
         self.after(0, lambda: self._lbl_status.config(text=text, foreground="grey"))
 
-    def _run_conversion(self):
+    def _run_conversion(self, pdf_paths: list[Path] | None = None):
         errors: list[str] = []
         all_rows = []
+        pdf_paths = pdf_paths if pdf_paths is not None else list(self._pdf_paths)
         self._set_status("Reading PDF(s)…")
         try:
-            for pdf_path in self._pdf_paths:
+            for pdf_path in pdf_paths:
                 all_rows.extend(KamalParser(pdf_path).parse())
         except Exception as exc:  # noqa: BLE001
             errors.append(f"Error parsing PDF(s): {exc}")
@@ -455,6 +517,7 @@ class KamalTab(ttk.Frame):
                     codes_map=codes_map,
                     lotti_summary=lotti_summary,
                     first_bagno=self._first_bagno_snapshot,
+                    order_no=self._order_no_snapshot,
                 ).export()
             except Exception as exc:  # noqa: BLE001
                 errors.append(f"Error exporting: {exc}")
@@ -465,7 +528,9 @@ class KamalTab(ttk.Frame):
                 else:
                     ordini_path = self._kamal_erp_export_dir / "EXCEL PER ORDINE VENDITA EGITTO.xlsx"
                     try:
-                        ordini_rows = build_ordine_kamal_rows(all_rows, dfm_c170_entries)
+                        ordini_rows = build_ordine_kamal_rows(
+                            all_rows, dfm_c170_entries, order_no=self._order_no_snapshot
+                        )
                         assign_ordine_kamal_machines(ordini_rows)
                         assign_bagno_prepostato(ordini_rows, self._first_bagno_snapshot)
                         if lotti_summary is not None and not lotti_summary.empty:
@@ -497,6 +562,9 @@ class KamalTab(ttk.Frame):
         self._kamal_bagno_start.set("")
         self._kamal_bagno_enabled.set(False)
         self._first_bagno_snapshot = None
+        self._kamal_order_no.set("")
+        self._kamal_order_no_enabled.set(False)
+        self._order_no_snapshot = None
         if errors:
             self._lbl_status.config(text="Completed with errors", foreground="#b00020")
             messagebox.showerror("Errors", "\n".join(errors))

@@ -3,6 +3,7 @@
 from utility.utils import lazy_call
 
 build_el_kamal_stem = lazy_call("exporters.biglietti_exporter", "build_el_kamal_stem")
+build_el_kamal_excel_stem = lazy_call("exporters.biglietti_exporter", "build_el_kamal_excel_stem")
 build_output_stem = lazy_call("exporters.biglietti_exporter", "build_output_stem")
 detect_order_format = lazy_call("exporters.biglietti_exporter", "detect_order_format")
 enrich_records = lazy_call("exporters.biglietti_exporter", "enrich_records")

@@ -2,7 +2,7 @@
 # PyInstaller spec file for Planning
 # Run via build.bat — do NOT run manually without activating the venv first.
 
-from PyInstaller.utils.hooks import collect_all
+from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 block_cipher = None
 
@@ -22,6 +22,17 @@ for _pkg in ("pypdfium2", "pypdfium2_raw", "pandas", "numpy"):
     datas += _datas
     binaries += _binaries
     extra_hiddenimports += _hidden
+
+# Our own packages.  Many modules are loaded lazily BY NAME at runtime
+# (utility.utils.lazy_call / LazyModule -> importlib), which PyInstaller's static
+# analysis cannot see -- so a module that nothing imports directly was silently
+# left out of the EXE and failed on first use with "No module named ...".
+# (This is exactly what happened to parsers.kamal_parser, pipelines.ordine_kamal
+# and exporters.kamal_excel_exporter.)  Collect every submodule of every package
+# of ours, so adding a new lazily loaded module can never break the build again.
+FIRST_PARTY_PACKAGES = ("calculate", "exporters", "gui", "parsers", "pipelines", "utility")
+for _pkg in FIRST_PARTY_PACKAGES:
+    extra_hiddenimports += collect_submodules(_pkg)
 
 # Bundle icon.ico as a data file too (not just as the .exe's icon below) so
 # gui.py can load it at runtime and set the window/taskbar icon while the

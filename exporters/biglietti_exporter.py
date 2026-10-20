@@ -52,6 +52,23 @@ def _number(v: Any) -> float | int | None:
         return None
 
 
+def _kamal_kg(v: Any) -> float | int | None:
+    """Read Kamal's ERP KG value in real kilograms.
+
+    The Kamal ERP export stores whole-number weights in tenths of a kilogram
+    (``525`` means ``52.5``). Values that already contain a decimal point are
+    already expressed in kilograms and are kept unchanged.
+    """
+    parsed = _number(v)
+    if parsed is None:
+        return None
+    text = _clean(v).replace(" ", "")
+    if "." not in text and "," not in text and float(parsed).is_integer():
+        value = float(parsed) / 10
+        return int(value) if value.is_integer() else value
+    return parsed
+
+
 def _order_number(v: Any) -> str:
     s = _clean(v)
     if "/" in s:
@@ -772,6 +789,37 @@ def load_dispo_bagno_rows(path: Path) -> list[dict[str, Any]]:
         wb.close()
 
 
+# Customer codes the ERP order dump (Sheet1) may contain.  3019 = EL KAMAL: the
+# same raw ERP dump as ELVY/MED, but its quantity is in KG and its machine and
+# cone count come from the Dispo rows (Field3 / Field10), not from the order.
+ELVY_CODE, MED_CODE, KAMAL_CODE = "3009", "3004", "3019"
+_ERP_DUMP_CUSTOMER_CODES = {ELVY_CODE, MED_CODE, KAMAL_CODE}
+_DEFAULT_KAMAL_NAME = "EL KAMAL"
+
+
+def _master_data_customer_name(code: str, default: str) -> str:
+    """The customer name saved for *code* in Master Data > Customers, else *default*."""
+    try:
+        from utility import master_data
+        for row in master_data.load().get("customers", []):
+            if _clean(row.get("code")) == code and _clean(row.get("name")):
+                return _clean(row.get("name"))
+    except Exception:  # noqa: BLE001 -- reference data is optional here
+        pass
+    return default
+
+
+def _machine_number_from_dispo_code(value: Any) -> str:
+    """Dispo's Field3 holds the machine GROUP code (e.g. 3309); the ticket shows
+    the machine number (3309 -> 3).  Unknown code -> blank, never a guess."""
+    try:
+        from calculate.constants import MACHINE_NUMBER_BY_CODE
+        number = MACHINE_NUMBER_BY_CODE.get(int(float(_clean(value))))
+    except (TypeError, ValueError):
+        return ""
+    return str(number) if number is not None else ""
+
+
 def load_order(input_path: Path, dispo_path: Path | None = None) -> tuple[list[OrderRecord], list[dict[str, Any]]]:
     wb = openpyxl.load_workbook(input_path, data_only=True, read_only=True)
     order_sheet = next(
@@ -805,7 +853,7 @@ def load_order(input_path: Path, dispo_path: Path | None = None) -> tuple[list[O
     result: list[OrderRecord] = []
     for row in data:
         code = _clean(_get(row, "Cliente"))
-        if code not in {"3009", "3004"}:
+        if code not in _ERP_DUMP_CUSTOMER_CODES:
             continue
         article = _clean(_get(row, "Articolo"))
         raw = raw_by_article.get(("G" + article[1:]).upper(), {}) if article else {}
@@ -813,6 +861,36 @@ def load_order(input_path: Path, dispo_path: Path | None = None) -> tuple[list[O
         raw_batch = _clean(_get(raw, "Partita.GG", "Partita")) or _first_match(additional, r"PG[- ]*([0-9]+)")
         riga = _clean(_get(row, "Riga"))
         dispo = dispo_by_riga.get(_dispo_suffix(riga), {})
+        if code == KAMAL_CODE:
+            # EL KAMAL: Ordinata is in KG.  The Dispo row carries what the ticket
+            # needs: Field2 = Bagno, Field3 = machine group code, Field9 = KG and
+            # Field10 = number of cones.  Commento is the order's own comment
+            # (PG-...-ORD.nr...(LETTER n)); it is not a dash-encoded one.
+            kg = _kamal_kg(_get(dispo, "Field9")) or _kamal_kg(_get(row, "Ordinata", "Assegnata"))
+            result.append(OrderRecord(
+                customer_code=code,
+                customer_name=_master_data_customer_name(KAMAL_CODE, _DEFAULT_KAMAL_NAME),
+                article=article,
+                description=additional or article,
+                additional_raw=additional,
+                color_code=_clean(_get(row, "Colore")),
+                color_name=_clean(_get(row, "__col7")) or _clean(_get(row, "Colore")),
+                order_no=_order_number(_get(row, "Ordine")),
+                order_row=riga,
+                colored_batch=_clean(_get(row, "Partita")),
+                raw_batch=raw_batch,
+                quantity_cones=_number(_get(dispo, "Field10")),
+                raw_weight=kg,
+                dispo=_clean(_get(dispo, "Dispo")),
+                bagno=_clean(_get(dispo, "Field2", "Bagno")),
+                delivery=_get(row, "Consegna"),
+                title=_clean(_get(raw, "Titolo")) or _clean(_get(row, "Descrizione")),
+                formato="7777",
+                machine=_machine_number_from_dispo_code(_get(dispo, "Field3")),
+                commento=additional,
+                kg=kg,
+            ))
+            continue
         result.append(OrderRecord(
             customer_code=code,
             customer_name=_clean(_get(row, "__col2")) or ("MED" if code == "3004" else "ELVY"),
@@ -834,7 +912,7 @@ def load_order(input_path: Path, dispo_path: Path | None = None) -> tuple[list[O
         ))
     wb.close()
     if not result:
-        raise ValueError("Non sono state trovate righe con Cliente 3004 o 3009.")
+        raise ValueError("Non sono state trovate righe con Cliente 3004, 3009 o 3019.")
     return result, raw_rows
 
 
@@ -913,7 +991,7 @@ def load_el_kamal_order(data_path: Path, dispo_path: Path | None = None) -> tupl
             colored_batch=_clean(_get(row, "Partita Col", "Partita")),
             raw_batch=_clean(_get(row, "Partita GG")),
             quantity_cones=_number(_get(row, "ROCCHE", "Rocche")),
-            raw_weight=_number(_get(row, "KG")),
+                raw_weight=_kamal_kg(_get(row, "KG")),
             dispo=dispo_text or _clean(_get(dispo_row, "Dispo")),
             bagno=bagno,
             delivery=_get(row, "CONSEGNA", "Consegna"),
@@ -921,7 +999,7 @@ def load_el_kamal_order(data_path: Path, dispo_path: Path | None = None) -> tupl
             formato=_clean(_get(row, "Formmato", "Formato")) or "7777",
             machine=_clean(_get(row, "M/C")),
             commento=_clean(_get(row, "COMMENTO RIGO ORDINE")),
-            kg=_number(_get(row, "KG")),
+                kg=_kamal_kg(_get(row, "KG")),
         ))
     if not result:
         raise ValueError("Non sono state trovate righe d'ordine EL KAMAL in Sheet1.")
@@ -929,10 +1007,39 @@ def load_el_kamal_order(data_path: Path, dispo_path: Path | None = None) -> tupl
 
 
 def build_el_kamal_stem(records: list["OrderRecord"]) -> str:
-    """e.g. 'D-505444-EL_KAMAL' -- confirmed against a real reference
-    ticket filename the user sent (no year in it, unlike MED)."""
+    """Build the Kamal Biglietti filename stem.
+
+    Kamal ticket files use the requested convention ``D-<dispo>-KAMAL-<year>``.
+    The Excel filename is intentionally separate: it is derived from the
+    ``ORD...`` portion of Commento by :func:`build_el_kamal_excel_stem`.
+    """
     dispo_num = _dispo_number(records[0].dispo) if records else ""
-    return f"D-{dispo_num}-EL_KAMAL" if dispo_num else "EL_KAMAL"
+    year = ""
+    for record in records:
+        match = re.search(r"\b(?:19|20)\d{2}\b", _clean(record.commento))
+        if match:
+            year = match.group(0)
+            break
+    if not year:
+        year = str(datetime.now().year)
+    return f"D-{dispo_num}-KAMAL-{year}" if dispo_num else f"KAMAL-{year}"
+
+
+def build_el_kamal_excel_stem(records: list["OrderRecord"]) -> str:
+    """Return the Excel stem from ``ORD`` through the end of Commento.
+
+    Example: ``PG-159640-ORD.Nr.28-2026(LETTER 108)`` becomes
+    ``ORD.Nr.28-2026(LETTER 108)``.  Characters that Windows does not allow
+    in filenames are replaced conservatively.
+    """
+    for record in records:
+        comment = _clean(record.commento)
+        match = re.search(r"\bORD\b.*$", comment, re.IGNORECASE)
+        if match:
+            stem = match.group(0).strip()
+            stem = re.sub(r"[<>:\"/\\|?*]", "_", stem)
+            return stem.rstrip(" .") or "KAMAL"
+    return "KAMAL"
 
 
 def enrich_records(
@@ -1094,6 +1201,7 @@ def export_workbook(
     stem: str = "",
     customer: str = "",
     magazino_summary=None,
+    hide_kamal_quantities: bool = False,
 ) -> None:
     customer = customer or ("ELVY" if records[0].customer_code == "3009" else "MED")
     # The Create (EXCEL+Biglietti) extract is consumed in Partita Col order.
@@ -1121,8 +1229,10 @@ def export_workbook(
         headers = common + ["Delivery Date"] + extra_cols
     ws.append(headers)
     for r in records:
+        quantity = None if customer == "EL_KAMAL" and hide_kamal_quantities else r.quantity_cones
+        kg = None if customer == "EL_KAMAL" and hide_kamal_quantities else r.kg
         row = [r.dispo, r.article, r.title, r.formato, r.order_no, r.color_code, r.color_name,
-               r.quantity_cones, r.kg, r.machine, r.colored_batch, r.delivery,
+               quantity, kg, r.machine, r.colored_batch, r.delivery,
                r.commento, r.bagno, r.customer_name, r.raw_batch]
         if customer == "MED":
             polmon = _polmoni_segment(r.additional_raw)
@@ -1969,7 +2079,13 @@ def _style_sheet(
         ws.column_dimensions[letter].width = max(10, content_width + 2)
 
 
-def export_word(path: Path, template_path: Path, records: list[OrderRecord], stem: str = "") -> None:
+def export_word(
+    path: Path,
+    template_path: Path,
+    records: list[OrderRecord],
+    stem: str = "",
+    hide_kamal_quantities: bool = False,
+) -> None:
     """Create one Word file, one Biglietto page per order color.
 
     Uses python-docx (lxml-backed) instead of the stdlib ElementTree, and
@@ -2020,7 +2136,7 @@ def export_word(path: Path, template_path: Path, records: list[OrderRecord], ste
 
     for idx, record in enumerate(records):
         new_tbl = copy.deepcopy(template_tbl)
-        _fill_ticket_table(new_tbl, record, qn, OxmlElement, stem)
+        _fill_ticket_table(new_tbl, record, qn, OxmlElement, stem, hide_kamal_quantities)
         for row in new_tbl.findall(qn("w:tr")):
             cant_split = OxmlElement("w:cantSplit")
             row.get_or_add_trPr().append(cant_split)
@@ -2038,7 +2154,9 @@ def export_word(path: Path, template_path: Path, records: list[OrderRecord], ste
     doc.save(str(path))
 
 
-def _fill_ticket_table(tbl, r: OrderRecord, qn, OxmlElement, stem: str) -> None:
+def _fill_ticket_table(
+    tbl, r: OrderRecord, qn, OxmlElement, stem: str, hide_kamal_quantities: bool = False
+) -> None:
     rows = tbl.findall(qn("w:tr"))
 
     def put(row: int, cell: int, text: Any) -> None:
@@ -2069,7 +2187,9 @@ def _fill_ticket_table(tbl, r: OrderRecord, qn, OxmlElement, stem: str) -> None:
     put(2, 2, r.title); put(2, 3, r.formato); put(2, 4, r.article)
     put(3, 2, r.raw_batch); put(4, 2, r.color_name); put(5, 2, r.colored_batch)
     put(6, 2, r.dispo); put(6, 3, f"Ordine.  {r.order_no}"); put(7, 3, r.bagno)
-    put(8, 2, r.quantity_cones); put(9, 2, r.kg); put(10, 2, r.machine)
+    ticket_quantity = None if r.customer_code == "3019" and hide_kamal_quantities else r.quantity_cones
+    ticket_kg = None if r.customer_code == "3019" and hide_kamal_quantities else r.kg
+    put(8, 2, ticket_quantity); put(9, 2, ticket_kg); put(10, 2, r.machine)
     vmm = r.vmm22 if r.vmm22 is not None else r.raw_weight
     put(11, 3, f"VMM22( {float(vmm):.2f} )Kg" if vmm is not None else "VMM22(       )Kg")
 

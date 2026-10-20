@@ -355,3 +355,121 @@ def test_shared_workbook_writers_never_run_at_the_same_time():
     for thread in threads:
         thread.join()
     assert overlaps == []
+
+
+# ------------------------------------------------------------ EXE must contain lazily loaded modules
+def test_pyinstaller_spec_collects_every_package_that_is_loaded_lazily_by_name():
+    """parsers.kamal_parser etc. are only ever imported by name at runtime, so
+    PyInstaller cannot see them: they were missing from the EXE and Ordine Kamal
+    failed with "No module named 'parsers.kamal_parser'".  The spec must collect
+    every first-party package, and every lazily referenced module must live in one."""
+    import re
+
+    root = Path(__file__).resolve().parent.parent
+    spec = (root / "main.spec").read_text(encoding="utf-8")
+    match = re.search(r"FIRST_PARTY_PACKAGES\s*=\s*\(([^)]*)\)", spec)
+    assert match, "main.spec must define FIRST_PARTY_PACKAGES"
+    collected = set(re.findall(r"[\"']([A-Za-z_][\w]*)[\"']", match.group(1)))
+    assert "collect_submodules(_pkg)" in spec
+
+    packages = {p.name for p in root.iterdir() if (p / "__init__.py").is_file() and p.name != "tests"}
+    assert packages <= collected, f"packages not collected into the EXE: {sorted(packages - collected)}"
+
+    referenced = set()
+    for path in root.rglob("*.py"):
+        if "tests" in path.parts or ".git" in path.parts:
+            continue
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        referenced |= set(re.findall(r"(?:lazy_call|LazyModule|import_module)\(\s*[\"']([\w.]+)[\"']", text))
+    for module in referenced:
+        top = module.split(".")[0]
+        assert top in collected, f"{module} is loaded by name but {top!r} is not collected in main.spec"
+        assert (root / Path(*module.split("."))).with_suffix(".py").is_file() or (root / Path(*module.split(".")) / "__init__.py").is_file(), module
+
+
+# ------------------------------------------------------------ EL KAMAL (Cliente 3019) in the ERP dump
+ERP_HEADERS = ["Cliente", " ", "Articolo", " 2", " 3", "Colore", " 4", "Sottolinea", "Confezione", "Ordine", "Riga",
+               "Tipo riga Ordine", "Prezzo", "Data", "Consegna", " 5", "Riserva", "Unità di misura", "Partita",
+               "Ordinata", "Spedita", "Rimanenza", "Chili Disposti Scatola", "Assegnata", "Scatole assegnate",
+               "Scatole spedibili", " 6", "Disposta", "Saldato", "Descrizione aggiuntiva ordine"]
+
+
+def _kamal_erp_dump(path: Path, rows: list[tuple]) -> None:
+    sheet_rows = [ERP_HEADERS, ERP_HEADERS]            # the real export repeats its header row
+    for code, article, colore, riga, partita, qty, comment in rows:
+        row = [None] * len(ERP_HEADERS)
+        row[0], row[1], row[2], row[5] = code, "AL KAMAL INDUSTRY AND TRADE", article, colore
+        row[6], row[9], row[10] = f"KA-{colore}", "0/005420", riga
+        row[14], row[17], row[18] = datetime(2026, 11, 3), "KG", partita
+        row[19], row[29] = f"   {qty},00", comment
+        sheet_rows.append(row)
+    _workbook(path, {"Sheet1": sheet_rows})
+
+
+def _dispo_file(path: Path, rows: list[tuple]) -> None:
+    header = ["Dispo", "Field1", "Field2", "Field3", "Articolo", "Colore", "Field5", "Field8", "Field9", "Field10", "Field11", "Field14"]
+    _workbook(path, {"Sheet1": [header, header, *rows]})
+
+
+def test_erp_dump_with_cliente_3019_is_read_as_el_kamal(tmp_path):
+    from exporters import biglietti_exporter as b
+
+    data, dispo = tmp_path / "ORD.xlsx", tmp_path / "Dispo.xlsx"
+    _kamal_erp_dump(data, [(3019, "C170026S", 790001, 1, 159527, 672, "PG-159392-ORD.nr.25-2026(LETTER 105)"),
+                           (3019, "C170027S", 790129, 2, 159528, 84, "PG-159393-ORD.nr.25-2026(LETTER 105)")])
+    _dispo_file(dispo, [("D-00505578-001", 79185, "T1303", 3309, "C170026S", "790001", "KA-OPTICAL", "OO", 698, 88, "KG", "003019"),
+                        ("D-00505578-002", 79186, "T1304", 3308, "C170027S", "790129", "KA-BLE 9", "OO", 87, 36, "KG", "003019")])
+    assert b.detect_order_format(data) == "ELVY_MED"      # same dump shape as ELVY / MED
+    records, _raw = b.load_order(data, dispo)
+    assert [r.customer_code for r in records] == ["3019", "3019"]
+    first, second = records
+    assert (first.bagno, first.machine, first.quantity_cones, first.kg) == ("T1303", "3", 88, 69.8)     # ERP tenths: 698 -> 69.8
+    assert (second.bagno, second.machine, second.quantity_cones, second.kg) == ("T1304", "5", 36, 8.7)  # ERP tenths: 87 -> 8.7
+    assert first.raw_batch == "159392" and first.colored_batch == "159527"
+    assert first.commento == "PG-159392-ORD.nr.25-2026(LETTER 105)"
+    assert b.build_el_kamal_stem(records) == "D-505578-KAMAL-2026"
+    b.enrich_records(records, "EL_KAMAL")
+    assert (first.machine, first.kg) == ("3", 69.8)                         # enrichment leaves Kamal's own values alone
+    assert b._ticket_header(first, "x").startswith("EL KAMAL - ")
+
+
+def test_customer_name_for_3019_comes_from_master_data_customers(tmp_path, monkeypatch):
+    from exporters import biglietti_exporter as b
+    from utility import master_data
+
+    monkeypatch.setattr(master_data, "PATH", tmp_path / "master_data.json")
+    data = master_data.load()
+    data["customers"] = [{"code": "3019", "name": "EL KAMAL TEXTILE"}]
+    master_data.save(data)
+    assert b._master_data_customer_name("3019", "EL KAMAL") == "EL KAMAL TEXTILE"
+    assert b._master_data_customer_name("9999", "fallback") == "fallback"
+
+
+def test_kamal_row_without_a_dispo_match_keeps_the_order_kg_and_no_guessed_machine(tmp_path):
+    from exporters import biglietti_exporter as b
+
+    data = tmp_path / "ORD.xlsx"
+    _kamal_erp_dump(data, [(3019, "C170026S", 790001, 1, 159527, 672, "PG-1-ORD.nr.25-2026(LETTER 105)")])
+    (record,), _ = b.load_order(data, None)
+    assert record.kg == 672 and record.machine == "" and record.quantity_cones is None and record.bagno == ""
+    assert b._machine_number_from_dispo_code("9999") == "" and b._machine_number_from_dispo_code("abc") == ""
+
+
+def test_elvy_and_med_rows_are_still_read_next_to_kamal_rows(tmp_path):
+    from exporters import biglietti_exporter as b
+
+    data = tmp_path / "ORD.xlsx"
+    _kamal_erp_dump(data, [(3009, "C130027S", 440, 1, 1001, 24, "PG-1-PO-5-2026"),
+                           (3004, "C130028S", 441, 2, 1002, 24, "PG-2-PO-6-2026"),
+                           (3019, "C170026S", 790001, 3, 1003, 672, "PG-3-ORD.nr.25-2026(LETTER 105)"),
+                           (3011, "C130029S", 442, 4, 1004, 24, "ignored customer")])
+    records, _ = b.load_order(data, None)
+    assert [r.customer_code for r in records] == ["3009", "3004", "3019"]
+
+
+def test_biglietti_tab_routes_3019_rows_to_the_el_kamal_outputs():
+    root = Path(__file__).resolve().parent.parent
+    tab = (root / "gui" / "tabs" / "biglietti_tab.py").read_text(encoding="utf-8")
+    assert 'has_kamal = any(r.customer_code == "3019"' in tab
+    assert "kamal_records = [r for r in records if r.customer_code == \"3019\"]" in tab
+    assert 'customer="EL_KAMAL"' in tab

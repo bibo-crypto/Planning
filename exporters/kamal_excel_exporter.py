@@ -68,7 +68,8 @@ class KamalExcelExporter:
     def __init__(self, rows: Sequence[KamalOrderRow], output_path: Path,
                  dfm_c170_entries: list[dict] | None = None,
                  magazino_summary=None, codes_map: dict | None = None,
-                 lotti_summary=None, first_bagno: str | None = None) -> None:
+                 lotti_summary=None, first_bagno: str | None = None,
+                 order_no: str | None = None) -> None:
         self.rows = rows
         self.output_path = output_path
         self.dfm_c170_entries = dfm_c170_entries or []
@@ -77,6 +78,7 @@ class KamalExcelExporter:
         self.lotti_summary = lotti_summary
         # "First bagno" for BAGNO PREPOSTO (None / "" = leave blank).
         self.first_bagno = first_bagno
+        self.order_no = order_no
 
     def export(self) -> None:
         logger.info("Exporting %d Kamal row(s) → %s", len(self.rows), self.output_path.name)
@@ -90,7 +92,9 @@ class KamalExcelExporter:
         apply_column_widths(ws, RAW_KAMAL_COLUMNS)
         freeze_and_filter(ws, RAW_KAMAL_COLUMNS)
 
-        kamal_rows = build_ordine_kamal_rows(list(self.rows), self.dfm_c170_entries)
+        kamal_rows = build_ordine_kamal_rows(
+            list(self.rows), self.dfm_c170_entries, order_no=self.order_no
+        )
 
         # Primary: match by Kamal's own raw-yarn message number (Lotto),
         # which is a deterministic reference from their supplier.

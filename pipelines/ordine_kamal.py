@@ -10,14 +10,17 @@ defaults) with only CLIENTE changed to Kamal's code -- COLORE holds the
 COLOREDFM code, same convention as Elvy's own "COLORE" column, not a text
 colour name.
 
-COMMENTO format (as specified): "PG-X-ORD.nr.<year>(LETTER <reply no>)"
--- X gets replaced with the matched raw yarn Partita the same way as
-Elvy orders, via ordini_elvy.match_raw_yarn().
+COMMENTO format (legacy): "PG-X-ORD.nr.<year>(LETTER <reply no>)".
+When the operator enables the optional order number, the format becomes
+"PG-X-ORD.Nr.<order no>-<year>-(LETTER <reply no>)". X gets replaced with
+the matched raw yarn Partita the same way as Elvy orders, via
+ordini_elvy.match_raw_yarn().
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+import re
 
 from calculate.abbina_calculator import MACHINE_CODES, _smallest_fitting_machine, split_into_batches
 from calculate.bagno import sequence_bagno
@@ -58,6 +61,8 @@ class OrdineKamalRow:
     batch_no: int = 0              # machine batch of its colour group (0 = first)
     colore_name: str = ""          # "اللون" -- Kamal's own colour label, used as the
                                     # GRUPPO MACCHINA grouping key when COLOREDFM is blank
+    titolo: str = ""               # yarn count; grouped by /1 versus /2 class
+    order_no: str = ""              # optional operator-supplied order number
 
     @property
     def quantity_cones(self) -> float:
@@ -71,24 +76,41 @@ class OrdineKamalRow:
         return self.peso_kg
 
 
-def _machine_group_key(row: OrdineKamalRow) -> tuple[str, str] | None:
+def _titolo_group(value: str) -> str:
+    """Return the machine-group class for a Kamal yarn count.
+
+    Kamal's rule is based on the number of plies, not the full yarn count:
+    ``50/1``, ``96/1`` and ``70/1`` may share a colour machine, while any
+    ``/2`` count belongs to a separate group.  Unknown formats remain exact
+    values so they are never merged accidentally.
+    """
+    normalised = re.sub(r"\s+", "", clean_text(value)).casefold()
+    match = re.search(r"/(1|2)$", normalised)
+    if match:
+        return f"plies/{match.group(1)}"
+    return f"exact/{normalised}"
+
+
+def _machine_group_key(row: OrdineKamalRow) -> tuple[str, str, str] | None:
     """
     Grouping key used to sum weight and pick a machine for GRUPPO MACCHINA.
 
-    COLOREDFM is the primary key. When a row has no COLOREDFM (blank),
+    COLOREDFM plus the Titolo ply class is the primary key. When a row has no COLOREDFM (blank),
     fall back to grouping by Colore ("اللون", Kamal's own colour label)
-    instead of skipping the row -- rows sharing the same Colore still get
-    their Peso (kg) summed together and rounded to one machine; a Colore
-    that appears on its own is rounded using just its own weight. Rows
+    plus the Titolo ply class instead of skipping the row -- rows sharing the
+    same Colore and ply class still get their Peso (kg) summed together and rounded to one
+    machine; a group that appears on its own is rounded using its own weight. Rows
     with neither COLOREDFM nor Colore have no grouping key and are left
-    unassigned.
+    unassigned. This deliberately prevents, for example, 50/1 and 100/2
+    from sharing a machine even when their colour code is identical.
     """
     color = clean_text(row.coloredfm)
+    titolo = _titolo_group(row.titolo)
     if color:
-        return ("coloredfm", color)
+        return ("coloredfm", color, titolo)
     colore = clean_text(row.colore_name)
     if colore:
-        return ("colore", colore)
+        return ("colore", colore, titolo)
     return None
 
 
@@ -97,7 +119,7 @@ def assign_ordine_kamal_machines(rows: list[OrdineKamalRow]) -> None:
     # Rows of one colour are filled into machine batches in order: a batch never
     # exceeds the largest machine, so a colour whose total is bigger than that
     # is split over several machines instead of overfilling one.
-    members: dict[tuple[str, str], list[OrdineKamalRow]] = {}
+    members: dict[tuple[str, str, str], list[OrdineKamalRow]] = {}
     for row in rows:
         key = _machine_group_key(row)
         if key is not None:
@@ -136,7 +158,11 @@ def assign_bagno_prepostato(rows: list[OrdineKamalRow], first_bagno: str | None)
         row.bagno_proposto = value
 
 
-def build_ordine_kamal_rows(rows: list[KamalOrderRow], dfm_c170_entries: list[dict]) -> list[OrdineKamalRow]:
+def build_ordine_kamal_rows(
+    rows: list[KamalOrderRow],
+    dfm_c170_entries: list[dict],
+    order_no: str | None = None,
+) -> list[OrdineKamalRow]:
     """
     dfm_c170_entries: dfm_lookup.load_dfm_entries_by_prefix("C170") --
     passed in rather than loaded here so the caller only loads it once per
@@ -156,7 +182,11 @@ def build_ordine_kamal_rows(rows: list[KamalOrderRow], dfm_c170_entries: list[di
             unmatched += 1
 
         year = _extract_year(r.order_date)
-        commento = f"PG-X-ORD.nr.{year}(LETTER {clean_text(r.reply_no)})"
+        supplied_order_no = clean_text(order_no)
+        if supplied_order_no:
+            commento = f"PG-X-ORD.Nr.{supplied_order_no}-{year}-(LETTER {clean_text(r.reply_no)})"
+        else:
+            commento = f"PG-X-ORD.nr.{year}(LETTER {clean_text(r.reply_no)})"
 
         out.append(OrdineKamalRow(
             articolo_delta=articolo,
@@ -167,6 +197,8 @@ def build_ordine_kamal_rows(rows: list[KamalOrderRow], dfm_c170_entries: list[di
             data_riconsegna=data_riconsegna_dt,
             sender_msg_no=clean_text(r.sender_msg_no),
             colore_name=clean_text(r.colore_name),
+            titolo=clean_text(r.titolo),
+            order_no=supplied_order_no,
         ))
 
     if unmatched:
