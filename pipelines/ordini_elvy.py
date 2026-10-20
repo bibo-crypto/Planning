@@ -245,7 +245,7 @@ def update_existing_ordini_file(target_path: Path, ordini_rows: list[OrdiniElvyR
             if isinstance(value, datetime):
                 cell.number_format = "DD/MM/YYYY"
 
-    safe_save_workbook(wb, target_path)
+    safe_save_workbook(wb, target_path, keep_backup=False)
     wb.close()
     return len(ordini_rows)
 
@@ -347,7 +347,7 @@ def update_existing_filato_file(target_path: Path, matches: list[RawYarnMatch]) 
         for col_idx, attr in col_attr.items():
             ws.cell(row=row_idx, column=col_idx).value = getattr(match, attr, None)
 
-    safe_save_workbook(wb, target_path)
+    safe_save_workbook(wb, target_path, keep_backup=False)
     wb.close()
     return len(matches)
 
@@ -377,7 +377,7 @@ def export_ordini_full(target_path: Path, ordini_rows: list) -> int:
     freeze_and_filter(ws, ORDINI_ELVY_COLUMNS)
 
     target_path.parent.mkdir(parents=True, exist_ok=True)
-    safe_save_workbook(wb, target_path)
+    safe_save_workbook(wb, target_path, keep_backup=False)
     wb.close()
     return len(ordini_rows)
 
@@ -423,7 +423,7 @@ def export_filato_full(
                 cell.alignment = Alignment(horizontal="center", vertical="center")
 
     target_path.parent.mkdir(parents=True, exist_ok=True)
-    safe_save_workbook(wb, target_path)
+    safe_save_workbook(wb, target_path, keep_backup=False)
     wb.close()
     return len(matches)
 

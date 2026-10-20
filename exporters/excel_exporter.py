@@ -369,7 +369,7 @@ class ExcelExporter(_LegacyMethodShims):
                         cell.alignment = Alignment(horizontal="center", vertical="center")
 
         self.output_path.parent.mkdir(parents=True, exist_ok=True)
-        safe_save_workbook(wb, self.output_path)
+        safe_save_workbook(wb, self.output_path, keep_backup=False)
         logger.info("Export completed: %s", self.output_path)
 
     # ------------------------------------------------------------------

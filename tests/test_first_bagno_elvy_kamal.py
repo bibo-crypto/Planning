@@ -171,6 +171,29 @@ def test_kamal_workbook_end_to_end_with_text_colour_code_and_bagno(tmp_path):
     assert all(a for a in abbina)
 
 
+def test_kamal_raw_sheet_check_articolo_uses_elvy_history_rule(tmp_path):
+    from exporters.kamal_excel_exporter import KamalExcelExporter
+    from parsers.kamal_parser import KamalOrderRow
+
+    parsed = [
+        KamalOrderRow(reply_no="1", order_date="2026/07/20", titolo="50/1", coloredfm="101", peso_kg=1),
+        KamalOrderRow(reply_no="1", order_date="2026/07/20", titolo="60/1", coloredfm="202", peso_kg=1),
+    ]
+    dfm_entries = [
+        {"articolo": "C170050S", "titolo": "50/1", "coloredfm": "101"},
+        {"articolo": "C170060S", "titolo": "60/1", "coloredfm": "999"},
+    ]
+    output = tmp_path / "kamal.xlsx"
+    KamalExcelExporter(parsed, output, dfm_c170_entries=dfm_entries).export()
+
+    ws = openpyxl.load_workbook(output)["Kamal Order"]
+    headers = [cell.value for cell in ws[1]]
+    assert headers[-1] == "Check Articolo"
+    check_col = headers.index("Check Articolo") + 1
+    assert ws.cell(row=2, column=check_col).value in (None, "")
+    assert ws.cell(row=3, column=check_col).value == "prima volta tint."
+
+
 # ---------------------------------------------------------------- Filato reader
 def test_filato_reader_missing_sheet_is_ok_for_extraction(tmp_path):
     from pipelines.ordini_elvy import read_filato_tinturia_sheet

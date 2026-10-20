@@ -14,6 +14,7 @@ from typing import Sequence
 import openpyxl
 from utility.utils import clean_text
 from utility.master_data import raw_articolo_for
+from parsers.dfm_lookup import is_first_time_dyeing
 
 from exporters.excel_exporter import (
     FILATO_TINTURIA_COLUMNS,
@@ -45,6 +46,7 @@ RAW_KAMAL_COLUMNS: list[tuple[str, str, str]] = [
     ("Colore",         "colore_name",    "text"),
     ("Peso (kg)",      "peso_kg",        "number"),
     ("Abbina",         "abbina",         "text"),
+    ("Check Articolo", "check_articolo", "text"),
 ]
 
 ORDINE_KAMAL_COLUMNS: list[tuple[str, str, str]] = [
@@ -124,6 +126,18 @@ class KamalExcelExporter:
         # COLOREDFM lookup used to leave without an Abbina.
         for parsed_row, derived_row in zip(self.rows, kamal_rows):
             parsed_row.abbina = derived_row.abbina or ""
+            # Use ELVY's exact Articolo + COLOREDFM history rule.  Kamal's
+            # derived Articolo is finished (C170...), so resolve it to its
+            # raw equivalent before passing it to the shared helper.
+            parsed_row.check_articolo = (
+                "prima volta tint."
+                if is_first_time_dyeing(
+                    raw_articolo_for(derived_row.articolo_delta),
+                    derived_row.coloredfm,
+                    self.dfm_c170_entries,
+                )
+                else ""
+            )
 
         # The raw sheet was written before the derived rows were calculated.
         # Update its Abbina cells after the machine assignment so the parsed
@@ -136,6 +150,17 @@ class KamalExcelExporter:
         if abbina_col is not None:
             for row_index, parsed_row in enumerate(self.rows, start=2):
                 ws.cell(row=row_index, column=abbina_col).value = getattr(parsed_row, "abbina", "") or ""
+
+        check_articolo_col = next(
+            (index + 1 for index, (_header, attr, _dtype) in enumerate(RAW_KAMAL_COLUMNS)
+             if attr == "check_articolo"),
+            None,
+        )
+        if check_articolo_col is not None:
+            for row_index, parsed_row in enumerate(self.rows, start=2):
+                ws.cell(row=row_index, column=check_articolo_col).value = (
+                    getattr(parsed_row, "check_articolo", "") or ""
+                )
 
         write_header(ws2, ORDINE_KAMAL_COLUMNS)
         write_data(ws2, ORDINE_KAMAL_COLUMNS, kamal_rows)
@@ -163,7 +188,7 @@ class KamalExcelExporter:
                         cell.alignment = Alignment(horizontal="center", vertical="center")
 
         self.output_path.parent.mkdir(parents=True, exist_ok=True)
-        safe_save_workbook(wb, self.output_path)
+        safe_save_workbook(wb, self.output_path, keep_backup=False)
         logger.info("Export completed: %s", self.output_path)
 
     def _build_lotto_matches(self, kamal_rows: list[OrdineKamalRow]) -> list[RawYarnMatch]:

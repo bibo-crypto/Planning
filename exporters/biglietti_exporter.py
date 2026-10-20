@@ -1222,9 +1222,10 @@ def export_workbook(
     if customer == "MED":
         headers = common + ["Partita MED", "Cliente MED", "POLMON"] + extra_cols
     elif customer == "EL_KAMAL":
-        # EL KAMAL's source doesn't carry these -- dropped per request, not
-        # just left blank.
-        headers = common
+        # Keep VMM22 visible for Kamal unless the dedicated privacy/display
+        # option is enabled.  With the option enabled its value is cleared
+        # along with Rocche and KG; unticking restores all three values.
+        headers = common + ["VMM22"]
     else:
         headers = common + ["Delivery Date"] + extra_cols
     ws.append(headers)
@@ -1238,7 +1239,7 @@ def export_workbook(
             polmon = _polmoni_segment(r.additional_raw)
             row += [r.partita_med, r.cliente_med, polmon, r.color_tube, r.vmm22, r.prezzo, r.densita]
         elif customer == "EL_KAMAL":
-            pass
+            row += [None if hide_kamal_quantities else r.vmm22]
         else:
             row += [r.delivery_date, r.color_tube, r.vmm22, r.prezzo, r.densita]
         ws.append(row)
@@ -1257,7 +1258,7 @@ def export_workbook(
         days_until_highlight_columns={"Delivery Date": 4},
     )
     path.parent.mkdir(parents=True, exist_ok=True)
-    safe_save_workbook(wb, path)
+    safe_save_workbook(wb, path, keep_backup=False)
     wb.close()
 
 
@@ -2190,8 +2191,11 @@ def _fill_ticket_table(
     ticket_quantity = None if r.customer_code == "3019" and hide_kamal_quantities else r.quantity_cones
     ticket_kg = None if r.customer_code == "3019" and hide_kamal_quantities else r.kg
     put(8, 2, ticket_quantity); put(9, 2, ticket_kg); put(10, 2, r.machine)
-    vmm = r.vmm22 if r.vmm22 is not None else r.raw_weight
-    put(11, 3, f"VMM22( {float(vmm):.2f} )Kg" if vmm is not None else "VMM22(       )Kg")
+    if r.customer_code == "3019" and hide_kamal_quantities:
+        put(11, 3, "")
+    else:
+        vmm = r.vmm22 if r.vmm22 is not None else r.raw_weight
+        put(11, 3, f"VMM22( {float(vmm):.2f} )Kg" if vmm is not None else "VMM22(       )Kg")
 
 
 def _format_date(value: Any) -> str:

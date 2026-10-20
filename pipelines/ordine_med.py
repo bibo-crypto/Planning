@@ -712,7 +712,7 @@ def export_erp_order_workbook(path: Path, records: list[OrdineMedRow]) -> None:
     _style_sheet(ws, date_columns=("CONSEGNA", "DATA RICONSEGNA"))
     _apply_system_formats(ws)
     path.parent.mkdir(parents=True, exist_ok=True)
-    safe_save_workbook(wb, path)
+    safe_save_workbook(wb, path, keep_backup=False)
     wb.close()
 
 
@@ -755,7 +755,7 @@ def export_filato_availability_workbook(
                 ws.freeze_panes = source_ws.freeze_panes
                 ws.auto_filter.ref = source_ws.auto_filter.ref
                 path.parent.mkdir(parents=True, exist_ok=True)
-                safe_save_workbook(wb, path)
+                safe_save_workbook(wb, path, keep_backup=False)
                 wb.close()
                 return
         finally:
@@ -775,7 +775,7 @@ def export_filato_availability_workbook(
             f"A2:H{ws.max_row}", FormulaRule(formula=['$H2="NO"'], fill=red_fill)
         )
     path.parent.mkdir(parents=True, exist_ok=True)
-    safe_save_workbook(wb, path)
+    safe_save_workbook(wb, path, keep_backup=False)
     wb.close()
 
 
@@ -820,7 +820,7 @@ def export_ordine_med_workbook(
         )
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    safe_save_workbook(wb, path)
+    safe_save_workbook(wb, path, keep_backup=False)
     wb.close()
 
 

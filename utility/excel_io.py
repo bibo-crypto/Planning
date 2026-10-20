@@ -64,6 +64,16 @@ def safe_save_workbook(workbook, path: Path, keep_backup: bool = True) -> None:
             except OSError:
                 pass  # a missing backup must never block the save itself
         os.replace(temp_path, path)
+        # Callers that explicitly opt out of version backups use a stable,
+        # replace-in-place export.  Remove an old backup from earlier runs as
+        # well, so it cannot be mistaken for a second (previous) order file.
+        if not keep_backup:
+            try:
+                path.with_name(f"{path.stem}.previous{path.suffix}").unlink()
+            except OSError:
+                # The fresh export has already been written. A locked stale
+                # backup should not make the whole conversion look failed.
+                pass
     except OSError as exc:
         translated = _lock_error(path, exc)
         if translated is not None:

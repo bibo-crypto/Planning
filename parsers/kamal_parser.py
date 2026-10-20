@@ -57,6 +57,8 @@ class KamalOrderRow:
     titolo: str = ""              # "نمرة الغزل", e.g. "80/2" -- blank for many rows
     colore_name: str = ""         # "اللون", Kamal's own colour label
     peso_kg: float = 0.0          # "الوزن", in kg
+    # Kept on the raw first Excel sheet, like ELVY's Purchase Orders sheet.
+    check_articolo: str = ""
 
 
 def _to_western_digits(text: str) -> str:
