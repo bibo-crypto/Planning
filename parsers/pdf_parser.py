@@ -211,6 +211,12 @@ class PDFParser:
     # ------------------------------------------------------------------
 
     def _parse_pdf(self) -> list[OrderRow]:
+        """Parse the Purchase Order PDF page by page into OrderRow objects.
+
+        Per page: read the PO number/date, locate the table through the "Pos." anchor,
+        split the words into rows and columns, and carry the current abbina (match)
+        annotation forward to the rows it applies to.
+        """
         all_rows: list[OrderRow] = []
         pod_no = ""
         po_date = ""

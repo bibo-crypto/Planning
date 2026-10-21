@@ -216,6 +216,12 @@ class ElvyInvoiceParser:
         self.pdf_path = Path(pdf_path)
 
     def parse(self) -> list[ElvyInvoiceRow]:
+        """Parse the Elvy invoice PDF.
+
+        Page 1 gives the invoice number/date and the item blocks; page 2 gives the
+        Rocche (cone count) of each item, matched to the blocks in order (a warning is
+        logged when the counts differ).  Returns one ElvyInvoiceRow per item.
+        """
         logger.info("Opening Elvy Invoice PDF: %s", self.pdf_path.name)
 
         with pdfplumber.open(self.pdf_path) as pdf:

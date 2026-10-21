@@ -38,6 +38,13 @@ def load_magazino(path, articolo_prefix=RAW_ARTICOLO_PREFIXES):
 
 
 def _load_magazino_uncached(path, articolo_prefix=RAW_ARTICOLO_PREFIXES):
+    """Read a Magazino (yarn warehouse) Excel file without using the cache.
+
+    Two layouts are accepted: the summary export (Articolo / Partita / Mag.rocche /
+    Mag.peso, returned straight away) and the detailed one with MAGAZZINO, ARTICOLO,
+    PARTITA, ORDINE, ESISTENZA and COLLI, which is cleaned and filtered below.
+    Returns (DataFrame | None, [error messages]).
+    """
     required = ["MAGAZZINO", "ARTICOLO", "PARTITA", "ORDINE", "ESISTENZA", "COLLI"]
     summary_raw = pd.read_excel(path, header=None)
     summary_header_row = _find_header_row(summary_raw, ["Articolo", "Partita", "Mag.rocche", "Mag.peso"])

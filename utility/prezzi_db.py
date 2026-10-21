@@ -30,6 +30,9 @@ def _connect(db_path: Path | None = None) -> sqlite3.Connection:
 def load_prezzi_frame(
     fingerprint: tuple[object, ...], db_path: Path | None = None,
 ) -> pd.DataFrame | None:
+    """Load the cached Listini frame from SQLite, but only when its stored fingerprint equals the given one; otherwise None.
+    Values are read back without dtype guessing so codes like "00123" stay text.
+    """
     fingerprint_json = json.dumps(fingerprint, ensure_ascii=False, separators=(",", ":"))
     connection = None
     try:
@@ -58,6 +61,7 @@ def load_prezzi_frame(
 def save_prezzi_frame(
     fingerprint: tuple[object, ...], frame: pd.DataFrame, db_path: Path | None = None,
 ) -> None:
+    """Save the Listini frame (as JSON) in SQLite together with its fingerprint, replacing the previous one."""
     fingerprint_json = json.dumps(fingerprint, ensure_ascii=False, separators=(",", ":"))
     payload = frame.to_json(orient="records", date_format="iso", double_precision=15)
     connection = _connect(db_path)

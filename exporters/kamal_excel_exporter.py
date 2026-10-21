@@ -30,6 +30,7 @@ from pipelines.ordine_kamal import (
     assign_ordine_kamal_machines,
     build_ordine_kamal_rows,
     match_by_lotto,
+    resolve_kamal_colours,
 )
 from pipelines.ordini_elvy import RawYarnMatch, match_raw_yarn
 from utility.utils import logger
@@ -67,6 +68,14 @@ ORDINE_KAMAL_COLUMNS: list[tuple[str, str, str]] = [
 
 
 class KamalExcelExporter:
+    """Writes the Kamal workbook from the parsed Kamal order PDF rows.
+
+    Sheets: "Kamal Order" (the PDF rows as read, with the DFM colour code/name and
+    the Abbina / first-time-dyeing checks filled in), "Ordine Kamal" (the rows
+    prepared for the ERP: Articolo, machine group, bagno, raw yarn) and
+    "Filato x Tinturia" (the raw yarn to prepare, written when there is some).  Inputs besides the rows: the DFM C170 entries, the magazino and lotti
+    summaries, the Articoli codes map, the first bagno and the order number.
+    """
     def __init__(self, rows: Sequence[KamalOrderRow], output_path: Path,
                  dfm_c170_entries: list[dict] | None = None,
                  magazino_summary=None, codes_map: dict | None = None,
@@ -83,7 +92,19 @@ class KamalExcelExporter:
         self.order_no = order_no
 
     def export(self) -> None:
+        """Build and save the workbook.
+
+        Order of work: look every colour up in DFM (so every sheet shows the DFM code
+        and name), build the Ordine Kamal rows, match raw yarn (first by the supplier's
+        Lotto message number, then by quantity against the magazino), assign the machine
+        group and bagno, copy Abbina and the first-time-dyeing check back to the PDF
+        rows, then write the sheets.
+        """
         logger.info("Exporting %d Kamal row(s) → %s", len(self.rows), self.output_path.name)
+
+        # COLOREDFM and the colour name come from DFM where it knows the colour;
+        # done before the raw sheet is written so that sheet shows them too.
+        resolve_kamal_colours(self.rows, self.dfm_c170_entries)
 
         wb = openpyxl.Workbook()
         ws = wb.active
@@ -192,6 +213,9 @@ class KamalExcelExporter:
         logger.info("Export completed: %s", self.output_path)
 
     def _build_lotto_matches(self, kamal_rows: list[OrdineKamalRow]) -> list[RawYarnMatch]:
+        """Build the raw-yarn matches from the Partita written in each row's Commento.
+        Rows marked PG-X or with an empty/X partita are skipped; the quantities already assigned per (article, titolo, partita) are accumulated.
+        """
         matches: list[RawYarnMatch] = []
         if self.lotti_summary is None or self.lotti_summary.empty:
             return matches

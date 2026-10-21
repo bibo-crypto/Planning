@@ -773,6 +773,60 @@ def build_machine_schedule(situation_df, copertura_df, today=None) -> pd.DataFra
 # ---------------------------------------------------------------------------
 
 PRICE_PLACEHOLDER_VALUE = 0.01
+PRICE_TOLERANCE = 0.01          # differences up to one cent are rounding noise
+
+
+def parse_price(value) -> float | None:
+    """Turn a price cell ("5,50", "$ 5.5", 5.5, "", None) into a float.
+
+    Returns None for a blank or non-numeric cell.  This is the single price
+    parser of the Situazione screens, so the Notifications, the red row
+    highlight and the "errori prezzi colori" table all read prices the same way.
+    """
+    try:
+        if value in (None, ""):
+            return None
+        text = str(value).replace("$", "").replace("USD", "").replace("usd", "")
+        text = text.strip().replace(",", ".")
+        return float(text) if text else None
+    except (TypeError, ValueError):
+        return None
+
+
+def listini_loaded(df) -> bool:
+    """True when at least one row carries a Prezzo Listini.
+
+    A completely blank Prezzo Listini column means the Listini file has not been
+    uploaded yet (the column is filled best-effort), not that every colour is
+    unpriced -- so "missing from Listini" is only reported once Listini is
+    actually available.
+    """
+    if df is None or getattr(df, "empty", True) or "prezzo_lisini" not in df.columns:
+        return False
+    return any(parse_price(v) is not None for v in df["prezzo_lisini"])
+
+
+def price_issue(prezzo, prezzo_lisini, listini_available: bool = True) -> str | None:
+    """Describe what is wrong with one row's prices, or None when they are fine.
+
+    prezzo          -- Prezzo Ord.: the price entered in Wincoint.
+    prezzo_lisini   -- Prezzo Listini: the expected price (machine surcharge included).
+    Rules, first match wins:
+      1. Prezzo Ord. is the 0.01 placeholder.
+      2. Prezzo Ord. exists (non-zero) but Listini has no price for the colour.
+      3. Both exist and differ by more than a cent.
+    A blank/zero Prezzo Ord. is NOT an error: Wincoint often leaves it empty and
+    relies on Listini.
+    """
+    prezzo_num = parse_price(prezzo)
+    listini_num = parse_price(prezzo_lisini)
+    if prezzo_num is not None and abs(prezzo_num - PRICE_PLACEHOLDER_VALUE) < 1e-9:
+        return f"Prezzo sospetto ({PRICE_PLACEHOLDER_VALUE})"
+    if prezzo_num not in (None, 0.0) and listini_num is None and listini_available:
+        return f"Prezzo Ord. ({prezzo_num:g}) senza Prezzo Listini"
+    if prezzo_num is not None and listini_num is not None and abs(prezzo_num - listini_num) > PRICE_TOLERANCE:
+        return f"Prezzo Ord. ({prezzo_num:g}) diverso da Prezzo Listini ({listini_num:g})"
+    return None
 
 
 def find_price_anomalies(df):
@@ -780,30 +834,16 @@ def find_price_anomalies(df):
     prezzo, prezzo_lisini, issue) for every row whose price needs a human
     to check it. Never raises -- an empty/missing dataframe just returns [].
 
-    Compares "prezzo" (Prezzo Ord. -- the price actually entered in
-    Wincoint, see situazione_loaders.load_wincoint_orders) against
-    "prezzo_lisini" (the Listini/Prezzi-file lookup, machine surcharge
-    included -- see situazione_tab._recompute_prezzo_densita_for_frame).
-    Wincoint commonly leaves its own price blank and relies on Listini as
-    the source of truth, so a blank "prezzo" next to a real "prezzo_lisini"
-    is normal and NOT flagged -- only a genuine mismatch, a placeholder
-    value, or no Listini match at all counts as an anomaly."""
+    Uses price_issue() for each row: a placeholder 0.01, a Prezzo Ord. that has
+    no matching Prezzo Listini, or a real mismatch.  A blank Prezzo Ord. next
+    to a real Prezzo Listini is normal (Wincoint relies on Listini) and NOT
+    flagged."""
     if df is None or df.empty:
         return []
     if "prezzo" not in df.columns and "prezzo_lisini" not in df.columns:
         return []
 
-    def _as_number(value):
-        try:
-            if value in (None, ""):
-                return None
-            text = str(value).replace("$", "").replace("USD", "").replace("usd", "").strip().replace(",", ".")
-            if not text:
-                return None
-            return float(text)
-        except (TypeError, ValueError):
-            return None
-
+    available = listini_loaded(df)
     out = []
     for _, row in df.iterrows():
         articolo = str(row.get("articolo", "") or "").strip()
@@ -811,13 +851,7 @@ def find_price_anomalies(df):
         if not articolo:
             continue  # nothing to price-check on a blank row
 
-        prezzo_num = _as_number(row.get("prezzo"))
-        prezzo_lisini_num = _as_number(row.get("prezzo_lisini"))
-        issue = None
-        if prezzo_num is not None and abs(prezzo_num - PRICE_PLACEHOLDER_VALUE) < 1e-9:
-            issue = f"Prezzo sospetto ({PRICE_PLACEHOLDER_VALUE})"
-        elif prezzo_num is not None and prezzo_lisini_num is not None and abs(prezzo_num - prezzo_lisini_num) > 0.01:
-            issue = f"Prezzo Ord. ({prezzo_num:g}) diverso da Prezzo Listini ({prezzo_lisini_num:g})"
+        issue = price_issue(row.get("prezzo"), row.get("prezzo_lisini"), available)
 
         if issue:
             partita = clean_text(row.get("partita", ""))

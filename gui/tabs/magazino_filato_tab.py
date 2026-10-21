@@ -20,6 +20,7 @@ from utility.excel_io import safe_save_workbook
 from utility.lotti_cache import load_lotti_cache, save_lotti_cache
 from utility.magazino_cache import load_magazino_cache, save_magazino_cache
 from utility.utils import logger
+from utility.ui_thread import post_to_ui
 
 COLUMNS = ["articolo", "titolo", "partita", "mag_rocche", "mag_peso", "lotto"]
 HEADERS = {
@@ -32,6 +33,7 @@ class MagazinoFilatoTab(ttk.Frame):
     """Embeddable 'Magazino Filato' tab."""
 
     def __init__(self, master, on_shared_cache_changed: Callable[[], None] | None = None):
+        """Create the Magazino Filato page: the Magazino and Lotti frames, the shared-source state and the widgets, then restore the saved sources."""
         super().__init__(master)
         self.magazino_summary = pd.DataFrame()
         self.lotti_summary = pd.DataFrame()
@@ -95,6 +97,7 @@ class MagazinoFilatoTab(ttk.Frame):
             logger.warning("Could not restore legacy Magazino summary cache: %s", exc)
 
     def _restore_shared_lotti(self):
+        """Reload the last Lotti file saved in the cache (when it still exists and nothing is loaded yet)."""
         cache = load_lotti_cache()
         source_path = cache.get("source_path", "")
         if not source_path or not Path(source_path).is_file() or not self.lotti_summary.empty:
@@ -167,12 +170,14 @@ class MagazinoFilatoTab(ttk.Frame):
         self._lotti_syncing = True
 
         def worker():
+            """Worker: load the shared Lotti file and give the result to apply_result."""
             try:
                 df, errors = lotti_logic.load_lotti(source_path)
             except Exception as exc:  # noqa: BLE001
                 df, errors = None, [str(exc)]
 
             def apply_result():
+                """Take the shared Lotti into use (summary by partita, SQLite snapshots) and refresh the table."""
                 self._lotti_syncing = False
                 if errors or df is None or df.empty:
                     return
@@ -191,11 +196,12 @@ class MagazinoFilatoTab(ttk.Frame):
                 if self._on_shared_cache_changed:
                     self._on_shared_cache_changed()
 
-            self.after(0, apply_result)
+            post_to_ui(self, apply_result)
 
         threading.Thread(target=worker, daemon=True).start()
 
     def _build_upload_panel(self):
+        """Build the upload panel: the buttons to select the Magazino and Lotti files and their status labels."""
         panel = ttk.LabelFrame(self, text="1) Upload files")
         panel.pack(side="top", fill="x", padx=8, pady=6)
 
@@ -226,6 +232,7 @@ class MagazinoFilatoTab(ttk.Frame):
         ttk.Button(row3, text="📤 Export to Excel", command=self._on_export).pack(side="right")
 
     def _build_treeview(self):
+        """Build the summary line and the table of the Magazino summary."""
         summary_bar = ttk.Frame(self)
         summary_bar.pack(side="top", fill="x", padx=8, pady=(2, 0))
         ttk.Label(summary_bar, textvariable=self.total_available_var,
@@ -264,6 +271,10 @@ class MagazinoFilatoTab(ttk.Frame):
         self.status_var.set("Loading Magazino file…")
 
         def worker():
+            """Read the chosen Magazino file off the UI thread and hand the result to
+            apply_result, which updates the status, aggregates raw files into the summary
+            (app-generated summaries are used as they are) and refreshes the table.
+            """
             try:
                 df, errors = logic.load_magazino(path, articolo_prefix=None)
             except Exception as exc:  # noqa: BLE001
@@ -271,6 +282,7 @@ class MagazinoFilatoTab(ttk.Frame):
                 df = None
 
             def apply_result():
+                """UI-thread end of the Magazino upload: show the error, or summarise by partita (raw files are aggregated, summaries used as they are), update the status and refresh."""
                 self._uploading = False
                 self._btn_magazino.config(state="normal")
                 if errors or df is None or df.empty:
@@ -302,7 +314,7 @@ class MagazinoFilatoTab(ttk.Frame):
                             len(self.magazino_summary), os.path.basename(display_path))
                 self._recompute()
 
-            self.after(0, apply_result)
+            post_to_ui(self, apply_result)
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -322,6 +334,7 @@ class MagazinoFilatoTab(ttk.Frame):
             self.lotti_status_var.set("Loading LOTTI file…")
 
         def worker():
+            """Worker: load the uploaded Lotti file, summarise it by partita and save the snapshots; any error is passed on."""
             try:
                 df, errors = lotti_logic.load_lotti(path)
                 if errors or df is None or df.empty:
@@ -336,6 +349,7 @@ class MagazinoFilatoTab(ttk.Frame):
                 df, summary, error = None, None, exc
 
             def apply_result():
+                """UI-thread end of the Lotti upload: show the error or the new status and refresh the table."""
                 self._lotti_uploading = False
                 if hasattr(self, "_btn_lotti"):
                     self._btn_lotti.configure(state="normal")
@@ -353,7 +367,7 @@ class MagazinoFilatoTab(ttk.Frame):
                 logger.info("Magazino Filato: loaded %d Lotto entries from %s", len(df), os.path.basename(path))
                 self._recompute()
 
-            self.after(0, apply_result)
+            post_to_ui(self, apply_result)
         threading.Thread(target=worker, daemon=True, name="planning-upload-lotti").start()
 
     def sync_shared_async(self):
@@ -387,12 +401,14 @@ class MagazinoFilatoTab(ttk.Frame):
         self._syncing = True
 
         def worker():
+            """Worker: load the shared Magazino file and give the result to apply_result."""
             try:
                 df, errors = logic.load_magazino(source_path, articolo_prefix=None)
             except Exception as exc:  # noqa: BLE001
                 df, errors = None, [str(exc)]
 
             def apply_result():
+                """Take the shared Magazino into use: summary by partita, cache it and refresh the table."""
                 self._syncing = False
                 if errors or df is None or df.empty:
                     return
@@ -412,11 +428,12 @@ class MagazinoFilatoTab(ttk.Frame):
                 if self._on_shared_cache_changed:
                     self._on_shared_cache_changed()
 
-            self.after(0, apply_result)
+            post_to_ui(self, apply_result)
 
         threading.Thread(target=worker, daemon=True).start()
 
     def _get_unfiltered_df(self):
+        """The Magazino summary joined with the Lotti by partita (empty lotto when there are no Lotti), before any search filter."""
         if self._base_df.empty:
             return pd.DataFrame()
 
@@ -459,6 +476,7 @@ class MagazinoFilatoTab(ttk.Frame):
             ), tags=(tag,))
 
     def _apply_search_and_sort(self):
+        """Apply the search text and the current sort to the table and draw it."""
         self._filter_after_id = None
         df = self._get_unfiltered_df()
         if df.empty:
@@ -499,6 +517,9 @@ class MagazinoFilatoTab(ttk.Frame):
         self._filter_after_id = self.after(180, self._apply_search_and_sort)
 
     def _on_export(self):
+        """Export the Magazino summary table to a styled Excel file chosen by the user
+        (header colours, borders, centred columns).
+        """
         if self.summary_df.empty:
             messagebox.showinfo("No data", "Upload the Magazino file first.")
             return

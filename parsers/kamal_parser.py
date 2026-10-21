@@ -116,6 +116,12 @@ class KamalParser:
         self.pdf_path = pdf_path
 
     def parse(self) -> list[KamalOrderRow]:
+        """Parse the Kamal order PDF into one KamalOrderRow per dyeing line.
+
+        For every page it reads the reply number, order date and dye type, then each
+        data table row (notes, sender, COLOREDFM, titolo, colour name, weight).
+        RTL text is fixed and fully blank rows are skipped.
+        """
         logger.info("Opening Kamal order PDF: %s", self.pdf_path.name)
         rows: list[KamalOrderRow] = []
 

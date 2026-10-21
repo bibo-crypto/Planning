@@ -21,6 +21,7 @@ from parsers.prod_lookup import load_prod_cache, save_prod_cache
 from utility.excel_io import safe_save_workbook
 from utility.path_manager import source_path, save_source
 from utility.utils import logger
+from utility.ui_thread import post_to_ui
 
 SOURCE_LABELS = {"dfm": "Machine data (DFM)", "data_prod": "Production data"}
 COLUMNS = ["cliente", "week_of_year", "machine_name", "total_peso", "batch_count"]
@@ -64,6 +65,7 @@ class SettimanaTab(ttk.Frame):
             self.source_rows[key] = row
 
     def _build_toolbar(self):
+        """Build the toolbar: Calculate, Export to Excel and the week selector."""
         bar = ttk.Frame(self)
         bar.pack(side="top", fill="x", padx=8, pady=4)
 
@@ -144,7 +146,7 @@ class SettimanaTab(ttk.Frame):
                                      name="planning-weekly-prod-cache").start()
                 self._auto_calculate_if_ready()
 
-            self.after(0, apply_result)
+            post_to_ui(self, apply_result)
         threading.Thread(target=worker, daemon=True, name=f"planning-weekly-upload-{key}").start()
 
     # ---------------------------------------------------- shared DFM / Prod
@@ -222,7 +224,7 @@ class SettimanaTab(ttk.Frame):
                 self._auto_calculate_if_ready()
                 self.after_idle(self.sync_shared_async)
 
-            self.after(0, apply_result)
+            post_to_ui(self, apply_result)
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -271,6 +273,10 @@ class SettimanaTab(ttk.Frame):
             self._on_refresh_async()
 
     def _on_refresh_async(self):
+        """Calculate the weekly batch weights from the DFM and production data on a
+        worker thread (a second request is ignored while one runs) and render the
+        result when it is ready.
+        """
         if self._weekly_calculating:
             return
 
@@ -311,7 +317,7 @@ class SettimanaTab(ttk.Frame):
                 )
                 self._render()
 
-            self.after(0, apply_result)
+            post_to_ui(self, apply_result)
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -338,6 +344,9 @@ class SettimanaTab(ttk.Frame):
 
     # -------------------------------------------------------------- display
     def _render(self):
+        """Fill the weekly table: for the selected week, one group per customer with its
+        batch count and total weight, plus the grand totals shown in the summary label.
+        """
         self.tree.delete(*self.tree.get_children())
         if self.batch_weights.empty:
             self.summary_lbl.config(text="")
@@ -385,6 +394,9 @@ class SettimanaTab(ttk.Frame):
 
     # -------------------------------------------------------------- export
     def _on_export(self):
+        """Export the weekly summary to a styled Excel file chosen by the user (the
+        selected week, the date ranges of the weeks and the per-customer totals).
+        """
         if self.batch_weights.empty:
             messagebox.showinfo("No data", "Calculate before exporting.")
             return

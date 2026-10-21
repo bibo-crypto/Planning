@@ -32,6 +32,14 @@ def load_lotti(path, articolo_prefix: str | tuple[str, ...] | None = RAW_ARTICOL
 
 
 def _load_lotti_uncached(path, articolo_prefix: str | tuple[str, ...] | None = RAW_ARTICOLO_PREFIXES):
+    """Read a Lotti (lots-in-stock) Excel file without using the cache.
+
+    Finds the sheet/header row holding MAGAZZINO, ARTICOLO, PARTITA, ORDINE, QESI and
+    LOTTO, converts the number columns, then keeps only usable stock: warehouse
+    900910 with ORDINE = 0, or warehouse 900160 with an ORDINE, and QESI > 0
+    (optionally limited to raw-yarn article prefixes).
+    Returns (DataFrame | None, [error messages]).
+    """
     required = ["MAGAZZINO", "ARTICOLO", "PARTITA", "ORDINE", "QESI", "LOTTO"]
     sheets = pd.read_excel(path, header=None, sheet_name=None)
     raw = None

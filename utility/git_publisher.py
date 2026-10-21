@@ -167,6 +167,9 @@ def explain_git_error(text: str) -> str:
 
 
 def _run(root: Path | str, args: list[str], *, timeout: int = _LOCAL_TIMEOUT) -> subprocess.CompletedProcess:
+    """Run one git command in the repository and return the finished process.
+    Never waits for a prompt, forces English messages (so errors can be recognised), hides the console window on Windows and turns a missing git or a timeout into GitError.
+    """
     git = find_git()
     if not git:
         raise GitError("Git is not installed on this computer (https://git-scm.com/downloads).")

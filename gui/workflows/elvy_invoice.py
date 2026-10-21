@@ -7,9 +7,13 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from utility.utils import find_pdfs, logger, make_output_path
+from utility.ui_thread import post_to_ui
 
 
 class ElvyInvoiceWorkflowMixin:
+    """The "Invoice Elvy" page of the main window: pick Elvy invoice PDFs, convert
+    them to Excel on a worker thread and show the status.
+    """
     def _build_elvy_invoice_tab(self, parent: ttk.Frame) -> None:
         """
         Converts Elvy's raw-yarn "Invoice to Delta" PDFs (Proforma invoice +
@@ -162,6 +166,10 @@ class ElvyInvoiceWorkflowMixin:
         output_dir: Path,
         one_per_file: bool,
     ) -> None:
+        """Convert the Elvy invoice PDFs (worker thread): parse each one, add the
+        Articolo Delta from the Elvy mapping, then write one Excel per PDF or one merged
+        Excel; errors are collected and reported when it finishes.
+        """
         from exporters.elvy_invoice_exporter import ElvyInvoiceExporter
         from parsers.elvy_invoice_parser import ElvyInvoiceParser, ElvyInvoiceRow
         from parsers.elvy_mapping import load_elvy_mapping, lookup_articolo_delta
@@ -201,7 +209,7 @@ class ElvyInvoiceWorkflowMixin:
                 logger.error(msg)
                 errors.append(msg)
 
-        self.after(0, self._on_einv_conversion_done, errors, total)
+        post_to_ui(self, self._on_einv_conversion_done, errors, total)
     def _on_einv_conversion_done(self, errors: list[str], total: int) -> None:
         self._set_einv_ui_enabled(True)
 
@@ -220,11 +228,11 @@ class ElvyInvoiceWorkflowMixin:
             )
             self._set_einv_status(f"Done — {total} file(s) converted successfully.")
     def _set_einv_status(self, text: str) -> None:
-        self.after(0, self._einv_lbl_status.config, {"text": text})
+        post_to_ui(self, self._einv_lbl_status.config, {"text": text})
     def _advance_einv_progress(self) -> None:
         def _inc() -> None:
             self._einv_progress["value"] += 1
-        self.after(0, _inc)
+        post_to_ui(self, _inc)
     def _set_einv_ui_enabled(self, enabled: bool) -> None:
         state = "normal" if enabled else "disabled"
 
@@ -236,4 +244,4 @@ class ElvyInvoiceWorkflowMixin:
                 self._einv_btn_convert,
             ):
                 widget.config(state=state)
-        self.after(0, _apply)
+        post_to_ui(self, _apply)

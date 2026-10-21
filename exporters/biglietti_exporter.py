@@ -281,6 +281,9 @@ def load_articoli_marca_map(path: Path) -> tuple[dict[str, str], list[str]]:
 
 
 def _load_articoli_marca_map_uncached(path: Path) -> tuple[dict[str, str], list[str]]:
+    """Read Articoli.xlsx (Sheet2, or the active sheet) into {ARTICOLO FILATO: Marca}.
+    Returns (map, errors); an empty map is reported as an error.
+    """
     errors: list[str] = []
     out: dict[str, str] = {}
     wb = openpyxl.load_workbook(path, data_only=True, read_only=True)
@@ -404,6 +407,9 @@ def _add_days_skip_friday(start_date, days_to_add: int):
 
 
 def _compute_delivery_date(raw_batch: Any, prezzo: Any, machine: Any, today=None) -> Any:
+    """Delivery date of a colour line, or "Pending for yarn" while it has no raw batch.
+    The lead time depends on the machine group (8, 16 or 24 days when there is no price) and is counted from today.
+    """
     if not _clean(raw_batch):
         return "Pending for yarn"
     today = today or datetime.now().date()
@@ -436,6 +442,14 @@ def compute_delivery_date(records: list["OrderRecord"]) -> None:
 
 
 def _prezzo_match_for(articolo: str, codice: str, lookup: dict[tuple, tuple]) -> tuple[Any, bool, str, Any]:
+    """Find the Listini price for one order line.
+
+    Tries an exact (article, colour) match over every spelling of the colour code;
+    an unambiguous direct match wins.  Otherwise falls back to the article's
+    category price for that colour.
+    Returns (price, from_category, category, level): from_category is True when the
+    price came from the category fallback; price is "" when nothing matched.
+    """
     if not lookup:
         return "", False, "", None
     from calculate.prezzi import _price_color_key, _price_color_variants
@@ -547,6 +561,9 @@ def load_densita_query(path: Path | None = None) -> tuple[dict[int, dict[str, An
 
 
 def _load_densita_query_uncached(path: Path) -> tuple[dict[int, dict[str, Any]], list[str]]:
+    """Read the density query workbook (sheet "Entry") into {partita: {peso_net, color_tube, ...}}.
+    Net weight is derived from the gross weight (minus 45, in kg).  Returns (map, errors).
+    """
     errors: list[str] = []
     out: dict[int, dict[str, Any]] = {}
     wb = openpyxl.load_workbook(path, data_only=True, read_only=True)
@@ -617,6 +634,9 @@ def load_vmm22_ratio_from_magazino(path: Path | None) -> tuple[dict[int, float],
 
 
 def _load_vmm22_ratio_from_magazino_uncached(path: Path) -> tuple[dict[int, float], list[str]]:
+    """Compute the VMM22 ratio per partita from the Magazino file: the sum of ESISTENZA divided by the sum of COLLI, over warehouses 900910, 900160 and 900923.
+    Returns ({partita: ratio}, errors).
+    """
     errors: list[str] = []
     totals: dict[int, list[float]] = {}  # partita -> [esistenza_sum, colli_sum]
     wb = openpyxl.load_workbook(path, data_only=True, read_only=True)
@@ -643,6 +663,9 @@ def _load_vmm22_ratio_from_magazino_uncached(path: Path) -> tuple[dict[int, floa
 
 @dataclass
 class OrderRecord:
+    """One colour line of a customer order (ELVY, MED or EL KAMAL): customer, article, colour code/name, quantities, batches, delivery, bagno, price and density.
+    Built by the loaders, completed by enrich_records() and consumed by the Excel and Word exporters.
+    """
     customer_code: str
     customer_name: str
     article: str
@@ -725,6 +748,9 @@ def _read_sheet_rows(ws) -> list[dict[str, Any]]:
 
 
 def _get(row: dict[str, Any], *names: str) -> Any:
+    """Read a value from a sheet row by any of several header names (case/spacing-insensitive).
+    Known aliases are added automatically (e.g. "colore" also tries "codice colore"); the first non-blank hit wins, else "".
+    """
     aliases = {
         "articolo": ("codice articolo", "articolo codice"),
         "colore": ("codice colore", "colore codice", "descrizione colore"),
@@ -835,6 +861,14 @@ def _machine_number_from_dispo_code(value: Any) -> str:
 
 
 def load_order(input_path: Path, dispo_path: Path | None = None) -> tuple[list[OrderRecord], list[dict[str, Any]]]:
+    """Load an ELVY / MED / EL KAMAL order from the uploaded Excel files.
+
+    Reads the order dump (and the optional Dispo file), keeps the rows of the
+    supported customers (ERP codes 3009 / 3019 ...), joins each row to its Dispo
+    row, and builds one OrderRecord per colour line.  For Kamal the colour name is
+    the cell right after the colour code in the order file.
+    Returns (records, raw_rows) where raw_rows are the untouched sheet rows.
+    """
     wb = openpyxl.load_workbook(input_path, data_only=True, read_only=True)
     order_sheet = next(
         (name for name in wb.sheetnames if _key(name) in {"ordine", "sheet1"}),
@@ -955,6 +989,7 @@ def load_order(input_path: Path, dispo_path: Path | None = None) -> tuple[list[O
 # ---------------------------------------------------------------------------
 
 def _read_dispo_csv(path: Path) -> list[dict[str, Any]]:
+    """Read a Dispo CSV (delimiter sniffed among ; , and tab, UTF-8 with BOM) into row dicts keyed like the Excel reader, including the positional __colN keys."""
     import csv
     with open(path, encoding="utf-8-sig", newline="") as f:
         sample = f.read(4096)
@@ -983,6 +1018,12 @@ def _read_dispo_csv(path: Path) -> list[dict[str, Any]]:
 
 
 def load_el_kamal_order(data_path: Path, dispo_path: Path | None = None) -> tuple[list[OrderRecord], list[dict[str, Any]]]:
+    """Load an EL KAMAL order from its dedicated workbook (DESCR COL / Colore layout).
+
+    Returns (records, []): one OrderRecord per colour line, with the Dispo row
+    joined in when a Dispo file is supplied.  The raw-rows list is always empty
+    because this layout has no raw sheet to carry along.
+    """
     wb = openpyxl.load_workbook(data_path, data_only=True, read_only=True)
     if "Sheet1" not in wb.sheetnames:
         raise ValueError('Il file Data Ordine EL KAMAL deve contenere il foglio "Sheet1".')
@@ -1230,6 +1271,13 @@ def export_workbook(
     magazino_summary=None,
     hide_kamal_quantities: bool = False,
 ) -> None:
+    """Write the "Create (EXCEL+Biglietti)" workbook for one customer.
+
+    Records are sorted numerically by Partita Col (empty ones last).  Writes the
+    common columns plus the customer extras (Color Tube, VMM22, Prezzo, Densita),
+    the optional filato (yarn) section, and styles the sheet.
+    hide_kamal_quantities (EL KAMAL only) leaves the Rocche, KG and VMM22 cells empty.
+    """
     customer = customer or ("ELVY" if records[0].customer_code == "3009" else "MED")
     # The Create (EXCEL+Biglietti) extract is consumed in Partita Col order.
     # Sort numerically (not lexicographically, so 20 comes after 3) and keep
@@ -2185,9 +2233,16 @@ def export_word(
 def _fill_ticket_table(
     tbl, r: OrderRecord, qn, OxmlElement, stem: str, hide_kamal_quantities: bool = False
 ) -> None:
+    """Fill one ticket (a Word table of the Biglietti template) with an order record.
+
+    Works on the raw WordprocessingML: each put(row, cell, text) clears the cell's
+    runs, writes the text into the first run and applies the template's font size.
+    hide_kamal_quantities leaves the quantity/kg cells empty for EL KAMAL (customer 3019) tickets.
+    """
     rows = tbl.findall(qn("w:tr"))
 
     def put(row: int, cell: int, text: Any) -> None:
+        """Write text into cell number `cell` of row number `row` (both 1-based) of the ticket table: clears the cell's runs, writes the text into the first run and applies the template's font size."""
         c = rows[row - 1].findall(qn("w:tc"))[cell - 1]
         for p in c.findall(".//" + qn("w:p")):
             for t in p.findall(".//" + qn("w:t")):

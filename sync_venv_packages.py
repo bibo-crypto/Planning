@@ -90,6 +90,9 @@ def _installed_names() -> set[str]:
 
 
 def main() -> int:
+    """Remove from the virtual environment every package that is not (directly or as a dependency) in requirements.txt / requirements-dev.txt.
+    Returns 0 on success.
+    """
     root = Path(__file__).resolve().parent
     # requirements-dev.txt (pytest, pyflakes) is kept too: pruning must not
     # remove the tools the tests need.  It pulls requirements.txt in via -r.

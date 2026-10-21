@@ -21,6 +21,7 @@ def bind_escape_close(
     closed = False
 
     def close() -> None:
+        """Close the window once (extra calls do nothing): run the close callback or destroy the window, ignore Tk errors if it is already gone, then give focus back to the parent."""
         nonlocal closed
         if closed:
             return

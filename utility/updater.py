@@ -220,6 +220,9 @@ def _needs_elevation(install_dir: Path) -> bool:
 
 
 def _run_update_script(script_path: Path, creation_flags: int, elevated: bool) -> None:
+    """Start the PowerShell update script.
+    When elevated, it is started through the Windows UAC "runas" prompt because the install folder (Program Files) needs Administrator rights; otherwise it is started directly and hidden.
+    """
     if not elevated:
         subprocess.Popen(
             ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", str(script_path)],

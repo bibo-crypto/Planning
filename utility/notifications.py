@@ -25,6 +25,7 @@ def _write(items: list[dict]) -> None:
 
 
 def category_for(key: str, title: str = "", page: str = "") -> str:
+    """Pick a notification's category (Prices, Raw Yarn, Quality, Delay, Files, System or Other) from keywords in its key, title and page."""
     text = f"{key} {title} {page}".casefold()
     if any(x in text for x in ("price", "prezzi", "prezzo")):
         return "Prices"
@@ -68,6 +69,7 @@ def list_all() -> list[dict]:
 
 
 def list_open(category: str = "All") -> list[dict]:
+    """The notifications still open: not resolved, not snoozed into the future, optionally limited to one category."""
     now = datetime.now()
     result = []
     for item in list_all():
@@ -87,6 +89,12 @@ def list_open(category: str = "All") -> list[dict]:
 
 
 def add_many(entries: Iterable[dict]) -> int:
+    """Add several notifications at once and return how many were new.
+
+    Entries are de-duplicated on their "key" against the OPEN notifications: an
+    already-open one is not added again (only its missing Ordine/Riga are filled in
+    from the new report).  Everything is read and written in one pass.
+    """
     items = _read()
     known_keys = {item.get("key") for item in items if not item.get("resolved")}
     open_by_key = {item.get("key"): item for item in items if not item.get("resolved")}

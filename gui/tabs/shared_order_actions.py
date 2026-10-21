@@ -24,6 +24,7 @@ from .biglietti_exports import (
     update_order_row,
     update_pg_x_row,
 )
+from utility.ui_thread import post_to_ui
 
 
 def _upload_partita_key(value):
@@ -53,6 +54,13 @@ AUTO_ASSIGN_WIDTHS = {
 
 
 class SharedOrdersActionsMixin:
+    """Actions of the shared orders window, mixed into BigliettiTab.
+
+    Everything that changes the shared Excel (Orders / PG-X sheets): assigning
+    Partita GG to PG-X rows (one by one, by upload, or by the automatic match),
+    printing Biglietti for the selected rows, and deleting shipped colours.  Each
+    long operation runs on a worker thread and reports back through post_to_ui().
+    """
     @staticmethod
     def _toggle_child_maximize(window: tk.Toplevel) -> None:
         try:
@@ -106,6 +114,7 @@ class SharedOrdersActionsMixin:
         }
 
         def worker():
+            """Worker: apply the edited values to the row in the shared Excel (an Orders row, or a PG-X row), recomputing what depends on Partita GG, then reload the sheets."""
             try:
                 partita_gg = str(values.get("Partita GG", "")).strip()
                 if sheet_name == "Orders":
@@ -139,9 +148,9 @@ class SharedOrdersActionsMixin:
                     "Orders": load_create_excel_records(self.shared_excel_path, sheet_name="Orders"),
                     "PG-X": load_create_excel_records(self.shared_excel_path, sheet_name="PG-X"),
                 }
-                self.after(0, lambda: finish(new_datasets, message))
+                post_to_ui(self, lambda: finish(new_datasets, message))
             except Exception as exc:
-                self.after(0, lambda exc=exc: fail(exc))
+                post_to_ui(self, lambda exc=exc: fail(exc))
 
         def finish(new_datasets, message):
             self._pg_x_saving = False
@@ -159,11 +168,17 @@ class SharedOrdersActionsMixin:
 
         threading.Thread(target=worker, daemon=True).start()
     def _save_pg_x_in_background(self, window, partita_col, partita_gg, datasets, refresh_records, rebuild, partita_gg_var, allow_article_mismatch=False):
+        """Save one Partita Col -> Partita GG assignment of a PG-X row on a worker thread.
+
+        Writes it into the shared Excel (save_pg_x_partita), reloads the Orders and PG-X
+        sheets and refreshes the window; a second save is ignored while one is running.
+        """
         if getattr(self, "_pg_x_saving", False):
             return
         self._pg_x_saving = True
 
         def worker():
+            """Worker: save the Partita GG assignment into the shared Excel and reload the Orders and PG-X sheets."""
             try:
                 _codes, densita_map, vmm_ratio_map, _prices, magazino_summary = self._load_common_sources()
                 result = save_pg_x_partita(
@@ -176,9 +191,9 @@ class SharedOrdersActionsMixin:
                     "Orders": load_create_excel_records(self.shared_excel_path, sheet_name="Orders"),
                     "PG-X": load_create_excel_records(self.shared_excel_path, sheet_name="PG-X"),
                 }
-                self.after(0, lambda: finish(result, new_datasets))
+                post_to_ui(self, lambda: finish(result, new_datasets))
             except Exception as exc:
-                self.after(0, lambda exc=exc: fail(exc))
+                post_to_ui(self, lambda exc=exc: fail(exc))
 
         def finish(result, new_datasets):
             self._pg_x_saving = False
@@ -200,6 +215,7 @@ class SharedOrdersActionsMixin:
 
         threading.Thread(target=worker, daemon=True).start()
     def _pg_x_row_action_in_background(self, window, action, partita_col, datasets, refresh_records, rebuild):
+        """Run a PG-X row action (move it to Orders, or delete it) on a worker thread, then reload the sheets and refresh the window; one action at a time."""
         if getattr(self, "_pg_x_action_running", False):
             return
         self._pg_x_action_running = True
@@ -211,9 +227,9 @@ class SharedOrdersActionsMixin:
                     "Orders": load_create_excel_records(self.shared_excel_path, sheet_name="Orders"),
                     "PG-X": load_create_excel_records(self.shared_excel_path, sheet_name="PG-X"),
                 }
-                self.after(0, lambda: finish(count, new_datasets))
+                post_to_ui(self, lambda: finish(count, new_datasets))
             except Exception as exc:
-                self.after(0, lambda exc=exc: fail(exc))
+                post_to_ui(self, lambda exc=exc: fail(exc))
 
         def finish(count, new_datasets):
             self._pg_x_action_running = False
@@ -234,6 +250,13 @@ class SharedOrdersActionsMixin:
         self, window, sheet_name, record_by_iid, sheet_by_iid,
         datasets, refresh_records, rebuild,
     ):
+        """Delete from the shared Excel the colours already shipped according to the
+        Uscita file.
+
+        Needs the Uscita source (asks to upload it in Situazione otherwise), finds the
+        matching rows of the sheet on a worker thread, asks for confirmation with the
+        count, deletes them and refreshes the window.
+        """
         if getattr(self, "_delete_shipped_running", False):
             return
         uscita_path = source_path("uscita", existing_only=True)
@@ -254,6 +277,7 @@ class SharedOrdersActionsMixin:
                 return text.casefold()
 
         def worker():
+            """Worker: read the Uscita file and collect the rows of the sheet whose partita has already shipped."""
             try:
                 from parsers.situazione_loaders import load_uscita
                 uscita_df, errors = load_uscita(str(uscita_path))
@@ -266,11 +290,12 @@ class SharedOrdersActionsMixin:
                     if sheet_by_iid.get(iid) == sheet_name
                 ]
                 count = sum(1 for record in page_records if normalize(record.colored_batch) in shipped)
-                self.after(0, lambda: confirm_and_delete(count, shipped))
+                post_to_ui(self, lambda: confirm_and_delete(count, shipped))
             except Exception as exc:
-                self.after(0, lambda exc=exc: shipped_delete_failed(exc, window))
+                post_to_ui(self, lambda exc=exc: shipped_delete_failed(exc, window))
 
         def confirm_and_delete(count, shipped):
+            """Report how many shipped colours were found, ask for confirmation and delete them from the shared Excel."""
             if not count:
                 self._delete_shipped_running = False
                 return messagebox.showinfo(
@@ -293,9 +318,9 @@ class SharedOrdersActionsMixin:
                         "Orders": load_create_excel_records(self.shared_excel_path, sheet_name="Orders"),
                         "PG-X": load_create_excel_records(self.shared_excel_path, sheet_name="PG-X"),
                     }
-                    self.after(0, lambda: delete_finished(deleted, new_datasets))
+                    post_to_ui(self, lambda: delete_finished(deleted, new_datasets))
                 except Exception as exc:
-                    self.after(0, lambda exc=exc: shipped_delete_failed(exc, window))
+                    post_to_ui(self, lambda exc=exc: shipped_delete_failed(exc, window))
 
             threading.Thread(target=delete_worker, daemon=True).start()
 
@@ -318,6 +343,7 @@ class SharedOrdersActionsMixin:
         self, window, selected: dict[str, bool], record_by_iid: dict[str, object],
         move_assigned_pg_x: bool = False,
     ):
+        """Print Biglietti for the selected rows: needs the template and a selection, writes to one stable output file (each print replaces the previous one) and runs the printing worker."""
         if not self.template_path or not self.template_path.is_file():
             return messagebox.showwarning("Missing Template", "Select the Biglietti.docx template first.", parent=window)
         records = [record_by_iid[iid] for iid, is_selected in selected.items() if is_selected]
@@ -348,6 +374,12 @@ class SharedOrdersActionsMixin:
             daemon=True,
         ).start()
     def _worker_shared_biglietti(self, records, destination: Path, pg_x_partita_cols=None):
+        """Print Biglietti for the selected shared-order rows (worker thread).
+
+        Writes the Word tickets, then -- separately, so a failure here cannot hide the
+        tickets that were printed -- the Filato X Tinturia file for the rows that have a
+        Partita GG, and moves the printed PG-X rows to Orders.  Reports each outcome.
+        """
         lines = []
         had_error = False
         try:
@@ -403,10 +435,10 @@ class SharedOrdersActionsMixin:
 
         if had_error:
             self._set_status("Completed with errors -- see details.")
-            self.after(0, lambda: messagebox.showwarning("Biglietti", "\n".join(lines)))
+            post_to_ui(self, lambda: messagebox.showwarning("Biglietti", "\n".join(lines)))
         else:
-            self.after(0, lambda: messagebox.showinfo("Biglietti", "\n".join(lines)))
-        self.after(0, lambda: self.convert_btn.config(state="normal"))
+            post_to_ui(self, lambda: messagebox.showinfo("Biglietti", "\n".join(lines)))
+        post_to_ui(self, lambda: self.convert_btn.config(state="normal"))
     def _upload_pgx_gg_file(self, parent_window, datasets, refresh_records, rebuild, partita_gg_var):
         """Read a two-column Partita Col/Partita GG file and assign every PG-X row."""
         if getattr(self, "_pgx_upload_running", False):
@@ -442,6 +474,10 @@ class SharedOrdersActionsMixin:
         self._pgx_upload_running = True
 
         def inspect_file():
+            """Worker of the PG-X upload: read the uploaded Partita Col / Partita GG pairs and
+            check each against the PG-X rows and the magazino stock, sorting them into
+            ready, missing-stock and error lists for the confirmation step.
+            """
             try:
                 _codes, densita_map, vmm_ratio_map, _prices, summary = self._load_common_sources()
                 pgx_records = load_create_excel_records(self.shared_excel_path, sheet_name="PG-X")
@@ -480,7 +516,7 @@ class SharedOrdersActionsMixin:
                     ),
                 )
             except Exception as exc:
-                self.after(0, lambda exc=exc: fail_upload(exc))
+                post_to_ui(self, lambda exc=exc: fail_upload(exc))
 
         def confirm_missing(ready, missing, errors, densita_map, vmm_ratio_map, summary):
             # Any failure here (for example the window was closed while the
@@ -492,6 +528,7 @@ class SharedOrdersActionsMixin:
                 fail_upload(exc)
 
         def _confirm_missing(ready, missing, errors, densita_map, vmm_ratio_map, summary):
+            """Ask whether to accept the PG-X upload rows whose Partita GG is not in Magazino, then apply the approved ones."""
             approved = []
             if missing:
                 details = "\n".join(
@@ -521,6 +558,9 @@ class SharedOrdersActionsMixin:
             ).start()
 
         def apply_upload(assignments, errors, densita_map, vmm_ratio_map, summary):
+            """Apply the confirmed PG-X upload: save every assignment into the shared Excel,
+            remove the uploaded source rows that succeeded, and collect the errors.
+            """
             updated = 0
             source_rows_removed = 0
             successful_source_rows = []
@@ -559,7 +599,7 @@ class SharedOrdersActionsMixin:
                     ),
                 )
             except Exception as exc:
-                self.after(0, lambda exc=exc: fail_upload(exc))
+                post_to_ui(self, lambda exc=exc: fail_upload(exc))
 
         def finish_upload(updated, source_rows_removed, errors, new_datasets):
             self._pgx_upload_running = False
@@ -730,6 +770,12 @@ class SharedOrdersActionsMixin:
         ttk.Button(btn_frame, text=f"✅ Approve & Assign Matches ({len(suggestions)})", command=approve_matches).pack(side="right", padx=4)
         ttk.Button(btn_frame, text="Cancel", command=preview.destroy).pack(side="right", padx=4)
     def _apply_auto_assigned_matches(self, parent_window, selected_suggestions, datasets, refresh_records, rebuild, partita_gg_var):
+        """Assign the stock suggested by the automatic match to the chosen PG-X rows.
+
+        Shows a small "Assigning Stock..." window and, on a worker thread, saves each
+        suggested Partita GG (never accepting an article mismatch); the rows stay in
+        PG-X so the user can check them before they move to Orders.
+        """
         loading = tk.Toplevel(parent_window)
         loading.title("Assigning Stock...")
         loading.geometry("340x100")
@@ -737,6 +783,7 @@ class SharedOrdersActionsMixin:
         ttk.Label(loading, text="Assigning Partita GG...", padding=20).pack()
 
         def worker():
+            """Worker: save each suggested Partita GG into the shared Excel and count the updated rows."""
             try:
                 _codes, densita_map, vmm_ratio_map, _prices, magazino_summary = self._load_common_sources()
                 updated_count = 0
@@ -758,9 +805,9 @@ class SharedOrdersActionsMixin:
                     "Orders": load_create_excel_records(self.shared_excel_path, sheet_name="Orders"),
                     "PG-X": load_create_excel_records(self.shared_excel_path, sheet_name="PG-X"),
                 }
-                self.after(0, lambda: finish(loading, new_datasets, updated_count))
+                post_to_ui(self, lambda: finish(loading, new_datasets, updated_count))
             except Exception as exc:
-                self.after(0, lambda exc=exc: fail(loading, exc))
+                post_to_ui(self, lambda exc=exc: fail(loading, exc))
 
         def finish(loading, new_datasets, updated_count):
             if loading.winfo_exists():

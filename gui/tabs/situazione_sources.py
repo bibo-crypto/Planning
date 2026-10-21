@@ -14,6 +14,7 @@ from parsers.dfm_lookup import build_dfm_lookup, load_dfm_cache, save_dfm_cache,
 from parsers.prod_lookup import load_prod_cache, save_prod_cache
 from utility.path_manager import save_source, source_path
 from utility.utils import logger
+from utility.ui_thread import post_to_ui
 
 SOURCE_ORDER = ["copertura", "data_prod", "dfm", "wincoint", "uscita", "qualita"]
 SOURCE_BUTTON_NAMES = {
@@ -29,6 +30,11 @@ SOURCE_BUTTON_NAMES = {
 
 
 class SituationSourcesMixin:
+    """Upload and restore of the source files of the Situazione page (WINCOINT, DFM,
+    production data, Copertura, Uscita, Qualita, Codes, Listini ...): reading each
+    file, validating it, saving its snapshot in SQLite and reloading the saved
+    ones at startup.
+    """
     def _on_upload_data(self):
         """Reload every previously uploaded source from its saved file path."""
         uploads = db.get_all_uploads()
@@ -173,7 +179,7 @@ class SituationSourcesMixin:
                     logger.warning("Situazione: legacy startup restore had errors: %s", errors)
                 self._refresh_after_restore()
 
-            self.after(0, apply_result)
+            post_to_ui(self, apply_result)
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -198,7 +204,7 @@ class SituationSourcesMixin:
                 self._copertura_revision += 1
                 self.source_rows["copertura"].set_status(True, f"✅ {len(df)} rows")
 
-            self.after(0, apply_result)
+            post_to_ui(self, apply_result)
 
         threading.Thread(target=worker, daemon=True).start()
     @staticmethod
@@ -253,7 +259,7 @@ class SituationSourcesMixin:
                     db.save_upload("data_prod", Path(prod_path).name, len(df), "ok", f"✅ {len(df)} rows - {Path(prod_path).name}", file_path=prod_path)
                 self.after_idle(self.sync_shared_async)
 
-            self.after(0, apply_result)
+            post_to_ui(self, apply_result)
 
         threading.Thread(target=worker, daemon=True).start()
     def sync_remaining_shared_sources(self):
@@ -312,7 +318,7 @@ class SituationSourcesMixin:
                         db.save_upload(key, path.name, len(df), "ok", f"✅ {len(df)} rows - {path.name}", file_path=str(path))
                 self.after_idle(self.sync_remaining_shared_sources)
 
-            self.after(0, apply_result)
+            post_to_ui(self, apply_result)
 
         threading.Thread(target=worker, daemon=True).start()
     def _save_shared_dfm(self, path):
@@ -396,7 +402,7 @@ class SituationSourcesMixin:
                     if row and row.winfo_exists():
                         row.button.configure(state="normal")
 
-            self.after(0, apply_result)
+            post_to_ui(self, apply_result)
 
         threading.Thread(target=worker, daemon=True, name=f"planning-upload-{key}").start()
 
@@ -458,7 +464,7 @@ class SituationSourcesMixin:
                     self._source_uploading.discard("codes")
                     self.codes_row.button.configure(state="normal")
 
-            self.after(0, apply_result)
+            post_to_ui(self, apply_result)
         threading.Thread(target=worker, daemon=True, name="planning-upload-codes").start()
 
     def _apply_codes_result(self, path, df, changed, msg, error):
@@ -515,7 +521,7 @@ class SituationSourcesMixin:
                     self._source_uploading.discard("listini")
                     self.listini_row.button.configure(state="normal")
 
-            self.after(0, apply_result)
+            post_to_ui(self, apply_result)
         threading.Thread(target=worker, daemon=True, name="planning-upload-listini").start()
 
     def _apply_listini_result(self, df, changed, msg, error):
@@ -569,6 +575,10 @@ class SituationSourcesMixin:
         save_source(key, display_path)
         logger.info("Situazione: %s uploaded — %d rows (%s)", key, len(df), os.path.basename(display_path))
     def _handle_codes_upload(self, _key, path, cache_path=None):
+        """Load the Articoli (codes) file: show an error status when it cannot be read or
+        is empty, otherwise save the codes and their snapshot in SQLite and update the
+        status line.
+        """
         display_path = cache_path or path
         try:
             df, errors = data_loaders.load_codes(path)

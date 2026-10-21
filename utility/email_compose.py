@@ -105,6 +105,7 @@ def open_outlook_account_setup() -> None:
 
 @dataclass
 class EmailTemplate:
+    """A saved e-mail template: recipients (to, cc), subject and body; is_blank() tells when nothing is filled in."""
     to: str = ""
     cc: str = ""
     subject: str = ""

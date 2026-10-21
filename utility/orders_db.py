@@ -18,6 +18,7 @@ DB_PATH = APP_DATA_DIR / "data" / "planning_orders.sqlite3"
 
 
 def _connect(path: Path = DB_PATH) -> sqlite3.Connection:
+    """Open the orders SQLite database (creating the folder and the orders table when missing) with rows accessible by name."""
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path, timeout=10)
     conn.row_factory = sqlite3.Row
@@ -48,6 +49,9 @@ def _key(value: Any) -> str:
 
 
 def sync_rows(source_file: Path, sheet_name: str, rows: Iterable[dict[str, Any]], db_path: Path = DB_PATH) -> int:
+    """Mirror the rows of a shared-Excel sheet into SQLite, keyed by (file, sheet, Partita Col); an existing row is updated and re-opened.
+    Returns how many rows were written.
+    """
     now = datetime.now().isoformat(timespec="seconds")
     conn = _connect(db_path)
     count = 0
@@ -71,6 +75,9 @@ def sync_rows(source_file: Path, sheet_name: str, rows: Iterable[dict[str, Any]]
 
 
 def archive(source_file: Path, sheet_name: str, partita_cols: Iterable[Any], reason: str = "deleted", db_path: Path = DB_PATH) -> int:
+    """Mark the given Partita Col rows of a sheet as archived (with a reason and time) instead of deleting them.
+    Returns how many rows changed.
+    """
     keys = [_key(value) for value in partita_cols if _key(value)]
     if not keys:
         return 0

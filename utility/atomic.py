@@ -14,6 +14,7 @@ from pathlib import Path
 
 
 def atomic_write_bytes(path: Path | str, data: bytes) -> None:
+    """Write a file atomically: the bytes go to a temporary file in the same folder, are flushed to disk, and then replace the target in one step; the temporary file is removed on any error."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)

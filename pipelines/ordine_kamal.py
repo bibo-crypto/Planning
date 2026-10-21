@@ -24,7 +24,7 @@ import re
 
 from calculate.abbina_calculator import MACHINE_CODES, _smallest_fitting_machine, split_into_batches
 from calculate.bagno import sequence_bagno
-from parsers.dfm_lookup import find_articolo_by_titolo
+from parsers.dfm_lookup import find_articolo_by_titolo, lookup_dfm_color_by_name
 from parsers.kamal_parser import KamalOrderRow
 from pipelines.ordini_elvy import (
     CONSEGNA_LEAD_DAYS,
@@ -158,6 +158,34 @@ def assign_bagno_prepostato(rows: list[OrdineKamalRow], first_bagno: str | None)
         row.bagno_proposto = value
 
 
+def resolve_kamal_colours(rows: list[KamalOrderRow], dfm_c170_entries: list[dict]) -> int:
+    """Look every row's colour NAME up in the DFM (C170) and, when found, take
+    COLOREDFM and the colour name from DFM -- in place, so the raw sheet, the
+    Ordine Kamal sheet and the ERP file all agree.
+
+    Not found: the PDF's own name stays, and COLOREDFM stays as the PDF gave it
+    (blank in practice) for manual entry -- nothing is guessed.  Safe to call
+    twice: a name already taken from DFM resolves to itself.
+    Returns how many rows were resolved from DFM.
+    """
+    resolved = 0
+    missing: list[str] = []
+    for r in rows:
+        name = clean_text(r.colore_name)
+        if not name:
+            continue
+        articolo = find_articolo_by_titolo(dfm_c170_entries, r.titolo) if r.titolo else ""
+        code, dfm_name = lookup_dfm_color_by_name(name, dfm_c170_entries, articolo)
+        if code:
+            r.coloredfm, r.colore_name = code, dfm_name
+            resolved += 1
+        elif name not in missing:
+            missing.append(name)
+    if missing:
+        logger.warning("Ordine Kamal: %d colour name(s) not found in DFM: %s", len(missing), ", ".join(missing))
+    return resolved
+
+
 def build_ordine_kamal_rows(
     rows: list[KamalOrderRow],
     dfm_c170_entries: list[dict],
@@ -168,6 +196,8 @@ def build_ordine_kamal_rows(
     passed in rather than loaded here so the caller only loads it once per
     conversion run.
     """
+    resolve_kamal_colours(rows, dfm_c170_entries)
+
     # Dates are written as real Excel dates -- midnight, no time of day.
     today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     data_consegna_dt = today + timedelta(days=CONSEGNA_LEAD_DAYS)

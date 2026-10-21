@@ -121,6 +121,12 @@ def get_conn():
 
 
 def init_db():
+    """Create the SQLite schema and apply the small in-place migrations.
+
+    Switches the database to WAL mode, runs the schema script, then adds the columns
+    introduced later (fingerprint, column metadata, payload, custom) -- each ALTER
+    is ignored when the column already exists, so this is safe on every start.
+    """
     conn = get_conn()
     # WAL is persistent database configuration; set once at initialization,
     # not on each short-lived read connection (which can add lock/IO overhead).
@@ -170,6 +176,7 @@ def init_db():
 
 
 def save_upload(source_name, file_name, row_count, status, message, data_json=None, file_path=None):
+    """Record the last upload of a source (file, row count, status, message) in upload_log; one row per source, replaced on every upload."""
     conn = get_conn()
     conn.execute(
         """INSERT INTO upload_log (source_name, file_name, file_path, uploaded_at, row_count, status, message, data_json)

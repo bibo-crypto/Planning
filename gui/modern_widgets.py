@@ -11,6 +11,7 @@ class RoundedButton(tk.Canvas):
     """A compact pill-shaped button with the same command API as ttk.Button."""
 
     def __init__(self, master, text="", command=None, width=None, min_width=130, **kwargs):
+        """Create the custom rounded button: text, command, minimum width, font and the optional danger (red) style."""
         self._text = str(text)
         self._command = command
         self._state = "normal"
@@ -56,6 +57,7 @@ class RoundedButton(tk.Canvas):
             return ttk.Style(master).lookup("TFrame", "background") or "#f0f0f0"
 
     def _draw(self):
+        """Draw the button for its current state (normal, hovered or disabled) with its colours and centred text."""
         self.delete("all")
         draw_width = max(self._width, self.winfo_width())
         draw_height = max(self._height, self.winfo_height())

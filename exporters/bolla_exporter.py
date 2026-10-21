@@ -158,6 +158,7 @@ class BollaExporter:
         self.output_path = output_path
 
     def export(self) -> None:
+        """Write the Bolla workbook: a "Summary" sheet (rows grouped by lot) and a "Totals" sheet."""
         grouped = group_rows_by_lot(list(self.rows))
 
         logger.info(

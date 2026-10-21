@@ -20,6 +20,7 @@ from utility.prezzi_cache import load_prezzi_cache, save_prezzi_cache
 from utility.excel_io import safe_save_workbook
 from utility.path_manager import save_source
 from utility.utils import keep_window_on_top, logger, bind_escape_to_close
+from utility.ui_thread import post_to_ui
 
 COLUMNS = logic.DISPLAY_COLUMNS
 HEADERS = logic.HEADERS
@@ -27,6 +28,7 @@ MAX_RENDER_ROWS = 1500
 
 
 def _filter_color_code(df: pd.DataFrame, query: str) -> pd.DataFrame:
+    """Keep the Listini rows whose colour code matches the query; numeric codes compare without leading zeros."""
     code = query.strip()
     if not code:
         return df
@@ -48,6 +50,7 @@ class PrezziTab(ttk.Frame):
     """Embeddable 'Prezzi' tab."""
 
     def __init__(self, master, on_shared_cache_changed=None, on_notification=None, on_notifications=None):
+        """Create the Prezzi page: the Listini frames and state, the notification callbacks and the widgets, then restore the saved Listini from SQLite."""
         super().__init__(master)
         self._on_shared_cache_changed = on_shared_cache_changed
         self._on_notification = on_notification
@@ -76,6 +79,7 @@ class PrezziTab(ttk.Frame):
 
     # ------------------------------------------------------------------
     def _configure_styles(self) -> None:
+        """Configure the table styles (navy headings) used by the Prezzi page."""
         # Matches the navy heading style already used elsewhere in the app
         # (ui/gui.py sets the "clam" theme globally at startup, needed for
         # a Treeview heading's background colour to actually show).
@@ -92,6 +96,7 @@ class PrezziTab(ttk.Frame):
                   foreground=[("selected", "#ffffff")])
 
     def _build_upload_panel(self) -> None:
+        """Build the upload panel: the Upload Listini button, its status label and the search boxes."""
         panel = ttk.LabelFrame(self, text="1) Upload Listini")
         panel.pack(side="top", fill="x", padx=8, pady=6)
 
@@ -125,6 +130,7 @@ class PrezziTab(ttk.Frame):
         self._btn_price_changes.pack(side="right", padx=(0, 8))
 
     def _build_treeview(self) -> None:
+        """Build the Listini table with sortable column headings."""
         frame = ttk.Frame(self)
         frame.pack(side="top", fill="both", expand=True, padx=8, pady=6)
 
@@ -159,6 +165,11 @@ class PrezziTab(ttk.Frame):
         self._load_path(path, save_cache=True)
 
     def _restore_from_cache(self, force: bool = False) -> None:
+        """Restore the Listini snapshot saved in SQLite (runs after the window is built).
+
+        Skipped when something is already loading/loaded, unless force=True, which
+        reapply_categories() uses to re-run the category rules on the rows already here.
+        """
         # force=True is for reapply_categories(): it must re-run the category
         # rules on the rows that are already loaded, so the "something is
         # already loaded" guard below applies only to the deferred startup restore.
@@ -210,6 +221,14 @@ class PrezziTab(ttk.Frame):
             self._load_path(source_path, save_cache=False)
 
     def _load_path(self, path: str, save_cache: bool, force: bool = False, on_done=None) -> None:
+        """Load a Listini file on a worker thread and show it.
+
+        Does nothing when the same file is already loaded (unless force).  On success
+        the frame becomes the shared Prezzi data, price validation issues are turned
+        into notifications (and fixed ones are closed), and -- when save_cache is set --
+        the file is remembered as the "listini" source and its snapshot saved in SQLite.
+        on_done() is called at the end either way.
+        """
         normalized_path = str(Path(path).resolve())
         if (
             not force and self._base_df is not None and not self._base_df.empty
@@ -224,6 +243,9 @@ class PrezziTab(ttk.Frame):
         self.status_var.set(f"Loading {Path(path).name}…")
 
         def worker():
+            """Worker thread of _load_path: read and validate the Listini file, then hand
+            the frame and the validation issues to apply_result.
+            """
             try:
                 df, errors = logic.load_prezzi(path)
             except Exception as exc:  # noqa: BLE001
@@ -238,6 +260,9 @@ class PrezziTab(ttk.Frame):
                     validation_error = exc
 
             def apply_result():
+                """UI-thread end of _load_path: publish the loaded frame, raise/resolve the
+                price notifications, persist the source when asked, refresh the table.
+                """
                 self._uploading = False
                 self._btn_upload.config(state="normal")
                 if df is None:
@@ -295,7 +320,7 @@ class PrezziTab(ttk.Frame):
                 if on_done:
                     on_done()
 
-            self.after(0, apply_result)
+            post_to_ui(self, apply_result)
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -340,6 +365,7 @@ class PrezziTab(ttk.Frame):
         self._apply_search_and_sort()
 
     def _apply_search_and_sort(self) -> None:
+        """Filter the Listini by the search boxes (article, colour code ...), sort and draw the result."""
         self._filter_after_id = None
         df = self._base_df
         if df.empty:
@@ -380,6 +406,7 @@ class PrezziTab(ttk.Frame):
         self._apply_search_and_sort()
 
     def _render(self) -> None:
+        """Draw the table in chunks of rows so the window stays responsive; a newer render cancels the older one."""
         self._render_generation += 1
         generation = self._render_generation
         if self._render_after_id is not None:
@@ -394,6 +421,7 @@ class PrezziTab(ttk.Frame):
         rows = list(self.summary_df[COLUMNS].head(MAX_RENDER_ROWS).itertuples(index=False, name=None))
 
         def insert_chunk(start=0):
+            """Insert the next 150 rows into the table and schedule the following chunk (stops when a newer render started)."""
             if generation != self._render_generation:
                 return
             end = min(start + 150, len(rows))
@@ -418,6 +446,7 @@ class PrezziTab(ttk.Frame):
     # Export
     # ------------------------------------------------------------------
     def _on_export(self) -> None:
+        """Export the filtered Listini to an Excel file chosen by the user, written on a worker thread."""
         if self.summary_df.empty:
             messagebox.showinfo("No data", "Upload the Listini file first.")
             return
@@ -433,6 +462,7 @@ class PrezziTab(ttk.Frame):
         self._btn_export.config(state="disabled")
 
         def worker():
+            """Worker: write the export file and report the result back to the UI thread."""
             error = None
             try:
                 self._write_export_file(path, export_df)
@@ -447,7 +477,7 @@ class PrezziTab(ttk.Frame):
                 logger.info("Prezzi: exported to %s", path)
                 messagebox.showinfo("Completed", f"Export completed successfully:\n{path}", parent=self)
 
-            self.after(0, finish)
+            post_to_ui(self, finish)
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -525,7 +555,7 @@ class PrezziTab(ttk.Frame):
                     messagebox.showerror("Price Changes", str(error), parent=self)
                     return
                 self._show_price_anomalies(result)
-            self.after(0, finish)
+            post_to_ui(self, finish)
 
         threading.Thread(target=worker, name="prezzi-price-changes", daemon=True).start()
 
@@ -587,6 +617,7 @@ class PrezziTab(ttk.Frame):
             batch_size = 150
 
             def insert_batch(start: int = 0) -> None:
+                """Insert the next batch of price-change rows (tagged up or down) into the window's table."""
                 if not window.winfo_exists():
                     return
                 for row in rows[start:start + batch_size]:
@@ -607,6 +638,7 @@ class PrezziTab(ttk.Frame):
             insert_batch()
 
         def export_anomalies():
+            """Export the price-change table to an Excel file chosen by the user."""
             if anomalies.empty:
                 messagebox.showinfo("Price Changes", "Nothing to export.", parent=window)
                 return
@@ -632,7 +664,7 @@ class PrezziTab(ttk.Frame):
                         messagebox.showerror("Price Changes", str(error), parent=window)
                     else:
                         messagebox.showinfo("Price Changes", f"Export completed:\n{path}", parent=window)
-                window.after(0, finish)
+                post_to_ui(window, finish)
 
             threading.Thread(target=worker, name="prezzi-price-changes-export", daemon=True).start()
 

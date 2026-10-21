@@ -273,6 +273,12 @@ class BollaParser:
         self.pdf_path = Path(pdf_path)
 
     def parse(self) -> tuple[list[BollaRow], BollaTotals | None]:
+        """Parse the Bolla PDF.
+
+        Reads the Bolla number/date from the header, then every page's table rows
+        (one per pallet/box) and, when present, the totals block.
+        Returns (rows, totals) where totals is None if the PDF has no totals block.
+        """
         rows: list[BollaRow] = []
         totals: BollaTotals | None = None
         bolla_no = ""

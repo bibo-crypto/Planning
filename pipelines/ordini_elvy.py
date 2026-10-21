@@ -491,6 +491,7 @@ def match_raw_yarn(
     matches: list[RawYarnMatch] = []
 
     def _assign(idxs, batch, quantity_used, art_g):
+        """Assign a raw-yarn batch to the order rows idxs: replace PG-X in their Commento by PG-<partita>, compute the weight and cones used from the batch (by cones or by weight, depending on batch_capacity_attr) and record a RawYarnMatch."""
         for i in idxs:
             ordini_rows[i].commento = ordini_rows[i].commento.replace("PG-X", f"PG-{batch['partita']}")
         articolo_c_for_lookup = finished_articolo_for(art_g)

@@ -1818,3 +1818,78 @@ class PlanningRegressionTests(unittest.TestCase):
             with self.assertRaises(RuntimeError) as ctx:
                 download_installer(release)
         self.assertIn("corrupt", str(ctx.exception).lower())
+
+
+# ----------------------------------------------- Prezzo Ord. without a Listini price
+
+class PriceMissingFromListiniTests(unittest.TestCase):
+    """A Prezzo Ord. with no Prezzo Listini must be listed in "errori prezzi
+    colori" and shown red in Situazione Generale, like any other price error."""
+
+    @staticmethod
+    def _frame():
+        return pd.DataFrame([
+            # priced in Wincoint, no Listini price  -> ERROR (the reported bug)
+            {"cliente": "A", "articolo": "ART1", "codice": "790001", "colore": "KA-OPTICAL", "prezzo": "5,50", "prezzo_lisini": ""},
+            # priced and matching                    -> fine
+            {"cliente": "A", "articolo": "ART1", "codice": "790002", "colore": "KA-BEG 7", "prezzo": "6.00", "prezzo_lisini": "6.00"},
+            # priced but different                   -> ERROR (already worked)
+            {"cliente": "A", "articolo": "ART1", "codice": "790003", "colore": "KA-GRY 9", "prezzo": "7.00", "prezzo_lisini": "6.00"},
+            # Wincoint left it blank, Listini has it -> fine
+            {"cliente": "A", "articolo": "ART1", "codice": "790004", "colore": "KA-SMO 6", "prezzo": "", "prezzo_lisini": "6.00"},
+            # neither side has a price               -> fine
+            {"cliente": "A", "articolo": "ART1", "codice": "790005", "colore": "KA-ORG 7", "prezzo": "", "prezzo_lisini": ""},
+            # price 0 and no Listini                 -> fine (same as the notifications)
+            {"cliente": "A", "articolo": "ART1", "codice": "790006", "colore": "KA-GRY 7", "prezzo": "0", "prezzo_lisini": ""},
+            # the 0.01 placeholder                   -> ERROR
+            {"cliente": "A", "articolo": "ART1", "codice": "790007", "colore": "KA-FUNGI", "prezzo": "0.01", "prezzo_lisini": "6.00"},
+            # blank row with a stray price           -> ignored
+            {"cliente": "A", "articolo": "", "codice": "790008", "colore": "X", "prezzo": "9", "prezzo_lisini": ""},
+        ])
+
+    def test_price_missing_from_listini_is_listed(self):
+        from calculate.situazione import find_price_anomalies
+        found = {a["codice"]: a["issue"] for a in find_price_anomalies(self._frame())}
+        self.assertEqual(set(found), {"790001", "790003", "790007"})
+        self.assertIn("senza Prezzo Listini", found["790001"])
+        self.assertIn("diverso", found["790003"])
+        self.assertIn("sospetto", found["790007"])
+
+    def test_nothing_is_missing_while_listini_is_not_loaded_at_all(self):
+        """A fully blank Prezzo Listini column = Listini not uploaded yet, not
+        "every colour is unpriced": it must not flood the list or turn the table red."""
+        from calculate.situazione import find_price_anomalies, listini_loaded
+        frame = self._frame()
+        frame["prezzo_lisini"] = ""
+        self.assertFalse(listini_loaded(frame))
+        self.assertEqual([a["codice"] for a in find_price_anomalies(frame)], ["790007"])  # only the placeholder
+
+    def test_price_issue_rules_and_parsing(self):
+        from calculate.situazione import parse_price, price_issue
+        self.assertEqual(parse_price("$ 5,5"), 5.5)
+        self.assertEqual(parse_price(" "), None)
+        self.assertEqual(parse_price("abc"), None)
+        self.assertIsNone(price_issue("5.50", "5.505"))            # within a cent
+        self.assertIsNone(price_issue("", "5"))
+        self.assertIsNotNone(price_issue("5", ""))
+        self.assertIsNone(price_issue("5", "", listini_available=False))
+        self.assertIsNotNone(price_issue("0.01", "", listini_available=False))
+
+    def test_situazione_tree_marks_the_same_rows_red(self):
+        """The Treeview highlight and the error list use one rule."""
+        import tkinter as tk
+        from calculate.situazione import find_price_anomalies
+        from gui.tabs.situazione_tab import SituazioneTab
+        try:
+            root = tk.Tk()
+        except tk.TclError:
+            self.skipTest("no display")
+        self.addCleanup(root.destroy)
+        tab = SituazioneTab(root)
+        frame = self._frame()
+        tab.current_df = frame
+        tab._render_tree(frame)
+        for _ in range(20):
+            root.update()
+        red = {tab.tree.set(i, "codice") for i in tab.tree.get_children() if "price_error" in tab.tree.item(i, "tags")}
+        self.assertEqual(red, {a["codice"] for a in find_price_anomalies(frame)})

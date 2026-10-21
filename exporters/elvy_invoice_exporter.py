@@ -58,6 +58,11 @@ class ElvyInvoiceExporter:
         self.output_path = output_path
 
     def export(self) -> None:
+        """Write the parsed Elvy invoice rows to the "Elvy Invoice" sheet and save the file.
+
+        One styled header row, then one row per invoice line; text, integer and number
+        columns are typed as declared in COLUMNS.
+        """
         logger.info(
             "Exporting %d Elvy invoice row(s) -> %s",
             len(self.rows), self.output_path.name,

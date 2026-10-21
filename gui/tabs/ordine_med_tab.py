@@ -22,10 +22,16 @@ ordine_med = LazyModule("pipelines.ordine_med")
 from utility.densita_cache import load_densita_cache, save_densita_cache
 from utility.magazino_cache import load_magazino_cache, save_magazino_cache
 from utility.path_manager import save_source, source_path
+from utility.ui_thread import post_to_ui
 
 
 class OrdineMedTab(ttk.Frame):
+    """The "Ordine Med" page: reads the MED order file and creates the Ordine MED
+    workbook (orders to create, system-import sheet, filato availability) using the
+    shared Articoli, Listini and Magazino data.
+    """
     def __init__(self, parent, situazione_tab=None, prefs: dict | None = None, save_prefs=None, logger=None, on_shared_cache_changed=None, on_notification=None):
+        """Create the Ordine Med page: keep the preferences and callbacks, the file/folder state, then build the widgets and restore the saved paths."""
         super().__init__(parent)
         self._situazione_tab = situazione_tab
         self._prefs = prefs or {}
@@ -48,6 +54,9 @@ class OrdineMedTab(ttk.Frame):
 
     # ------------------------------------------------------------------ UI
     def _build_ui(self):
+        """Build the page: Ordine file and output-folder pickers, the shared-data status
+        line, the bagno options and the Convert button with its status label.
+        """
         self.columnconfigure(0, weight=1)
 
         sel_frame = ttk.LabelFrame(self, text="Input", padding=6)
@@ -170,6 +179,7 @@ class OrdineMedTab(ttk.Frame):
             self._on_shared_cache_changed()
 
     def _on_select_densita(self):
+        """Pick the density workbook, remember it and save its data as the shared density source."""
         path = filedialog.askopenfilename(filetypes=[("Excel files", "*.xlsx;*.xlsm"), ("All files", "*.*")])
         if not path:
             return
@@ -190,6 +200,7 @@ class OrdineMedTab(ttk.Frame):
             self._on_shared_cache_changed()
 
     def _restore_saved_paths(self):
+        """Restore the saved output folder, ERP folder and other paths that still exist, and show them in the labels."""
         output_str = self._prefs.get("ordine_med_output_dir") or self._prefs.get("ordine_med_output_path")
         if output_str:
             candidate = Path(output_str)
@@ -242,7 +253,7 @@ class OrdineMedTab(ttk.Frame):
 
     def _set_status(self, msg: str):
         color = "#b00020" if msg.startswith("Error") else ("grey" if "..." in msg else "green")
-        self.after(0, lambda: self._lbl_status.config(text=msg, foreground=color))
+        post_to_ui(self, lambda: self._lbl_status.config(text=msg, foreground=color))
 
     def _reset_bagno_controls(self):
         """Clear one-shot MED sequencing input after a conversion attempt."""
@@ -263,6 +274,10 @@ class OrdineMedTab(ttk.Frame):
         threading.Thread(target=self._worker, daemon=True).start()
 
     def _worker(self):
+        """The Ordine MED conversion (worker thread): load the order, compute MC and
+        group, optional bagno, Titolo, Cliente, Commento and Prezzo, check the filato
+        availability and write the workbook; the result is reported through post_to_ui().
+        """
         try:
             from exporters.biglietti_exporter import (
                 load_articoli_marca_lookup,
@@ -342,11 +357,11 @@ class OrdineMedTab(ttk.Frame):
             shortage_count = sum(1 for a in availability if a.disponibilita == "NO")
             extra = f" — {shortage_count} short" if shortage_count else ""
             self._set_status(f"✅ Done — {len(records)} row(s){extra}")
-            self.after(0, lambda: messagebox.showinfo("Ordine MED", f"Created:\n{output_file}{extra}"))
+            post_to_ui(self, lambda: messagebox.showinfo("Ordine MED", f"Created:\n{output_file}{extra}"))
         except Exception as exc:
             if self._logger:
                 self._logger.exception("Ordine MED conversion failed")
             self._set_status(f"Error: {exc}")
-            self.after(0, lambda exc=exc: messagebox.showerror("Conversion error", str(exc)))
+            post_to_ui(self, lambda exc=exc: messagebox.showerror("Conversion error", str(exc)))
         finally:
-            self.after(0, lambda: (self._btn_convert.config(state="normal"), self._reset_bagno_controls()))
+            post_to_ui(self, lambda: (self._btn_convert.config(state="normal"), self._reset_bagno_controls()))

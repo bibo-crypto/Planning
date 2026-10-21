@@ -18,9 +18,14 @@ from .biglietti_exports import (
     load_create_excel_records,
     sync_workbook_history,
 )
+from utility.ui_thread import post_to_ui
 
 
 class SharedOrdersWindowMixin:
+    """The "Select Orders for Biglietti" window, mixed into BigliettiTab: loads the
+    shared Excel (Orders and PG-X sheets) in the background and shows it in a
+    filterable table where the user selects the rows to print or edit.
+    """
     def _show_shared_orders(self):
         if not self.shared_excel_path or not self.shared_excel_path.is_file():
             return messagebox.showwarning("Missing Shared Excel", "Select the shared Excel file first.")
@@ -124,6 +129,7 @@ class SharedOrdersWindowMixin:
         buttons.grid(row=3, column=0, columnspan=2, sticky="ew")
 
         def export():
+            """Export the shipped/invoiced history to an Excel file chosen by the user."""
             path = filedialog.asksaveasfilename(
                 title="Export to Excel", defaultextension=".xlsx",
                 filetypes=[("Excel files", "*.xlsx")], initialfile="Shipped_Invoiced_History.xlsx",
@@ -254,9 +260,9 @@ class SharedOrdersWindowMixin:
                 "Orders": load_create_excel_records(path, sheet_name="Orders"),
                 "PG-X": load_create_excel_records(path, sheet_name="PG-X"),
             }
-            self.after(0, lambda: self._finish_shared_orders_load(datasets, loading))
+            post_to_ui(self, lambda: self._finish_shared_orders_load(datasets, loading))
         except Exception as exc:
-            self.after(0, lambda exc=exc: self._finish_shared_orders_error(exc, loading))
+            post_to_ui(self, lambda exc=exc: self._finish_shared_orders_error(exc, loading))
     def _finish_shared_orders_error(self, exc: Exception, loading: tk.Toplevel):
         self._orders_loading = False
         if loading.winfo_exists():
@@ -270,6 +276,12 @@ class SharedOrdersWindowMixin:
             return messagebox.showinfo("Show Orders", "The shared Excel has no orders yet.")
         self._open_shared_orders_window(datasets)
     def _open_shared_orders_window(self, datasets):
+        """Build and run the shared orders window for the loaded datasets.
+
+        Two tabs (Orders, PG-X) share one table with search, selection, row editing,
+        Partita GG assignment, upload, automatic match, shipped-colour deletion and the
+        Biglietti printing buttons; the inner functions below are the window's handlers.
+        """
 
         window = tk.Toplevel(self)
         bind_escape_to_close(window)
@@ -369,6 +381,10 @@ class SharedOrdersWindowMixin:
                     sheet_by_iid[iid] = sheet_name
 
         def values_for(record, iid):
+            """Return the table cell values of one order record (customer, article, colour,
+            quantities, batch, delivery, price, density ...), with the dates formatted for
+            display; for MED orders the POLMON part of the additional text is extracted.
+            """
             polmon = ""
             if record.customer_code == "3004":
                 parts = [part.strip() for part in str(record.additional_raw or "").split("-")]
@@ -387,6 +403,7 @@ class SharedOrdersWindowMixin:
             }
 
             def display_value(name, value):
+                """Format a Consegna / Delivery Date value as dd/mm/yyyy; other columns are returned unchanged."""
                 if name not in {"Consegna", "Delivery Date"} or value in (None, ""):
                     return value
                 if isinstance(value, datetime):
@@ -419,6 +436,7 @@ class SharedOrdersWindowMixin:
             rebuild()
 
         def rebuild(*_args):
+            """Redraw the table for the current sheet, keeping only the rows that match the search text."""
             query = search_var.get().strip().casefold()
             for iid in tree.get_children(""):
                 tree.delete(iid)
@@ -470,6 +488,9 @@ class SharedOrdersWindowMixin:
             self._save_pg_x_in_background(window, partita_col, partita_gg, datasets, refresh_records, rebuild, partita_gg_var, allow_article_mismatch)
 
         def edit_pg_x_row(event):
+            """Open a modal editor for the clicked row of the Orders / PG-X sheet so its
+            fields can be corrected, and save the change into the shared Excel.
+            """
             if current_sheet["name"] not in ("PG-X", "Orders"):
                 return
             iid = tree.identify_row(event.y)
@@ -537,6 +558,7 @@ class SharedOrdersWindowMixin:
                     return text.casefold()
 
             def refresh_availability(*_args):
+                """Check the Partita GG typed in the editor against Magazino (and the expected raw article) and show the availability message."""
                 key = normal_partita(entries["Partita GG"].get())
                 article = entries["Articolo"].get().strip().upper()
                 expected = raw_articolo_for(article)
@@ -610,6 +632,7 @@ class SharedOrdersWindowMixin:
                     sync_state["busy"] = False
 
             def load_stock():
+                """Load the Magazino stock and the article titles used by the editor, off the UI thread."""
                 try:
                     _codes, _density, _vmm, _prices, summary = self._load_common_sources()
                     try:
@@ -634,9 +657,9 @@ class SharedOrdersWindowMixin:
                                 articolo_choices.add(finished_articolo_for(article) if article.startswith("G") else article)
                             if partita:
                                 partita_choices_by_article.setdefault(article, set()).add(partita)
-                    self.after(0, lambda: (availability_state.update(ready=True), refresh_articolo_choices(), refresh_partita_choices(), refresh_availability()))
+                    post_to_ui(self, lambda: (availability_state.update(ready=True), refresh_articolo_choices(), refresh_partita_choices(), refresh_availability()))
                 except Exception as exc:
-                    self.after(0, lambda exc=exc: availability_var.set(f"Magazino error: {exc}"))
+                    post_to_ui(self, lambda exc=exc: availability_var.set(f"Magazino error: {exc}"))
 
             entries["Partita GG"].bind("<KeyRelease>", refresh_availability)
             entries["Partita GG"].bind("<<ComboboxSelected>>", refresh_availability)
@@ -652,6 +675,7 @@ class SharedOrdersWindowMixin:
             threading.Thread(target=load_stock, daemon=True).start()
 
             def save_from_editor():
+                """Collect the editor fields, complete the Titolo from the article map and save the row."""
                 values = {label: entry.get().strip() for label, entry in entries.items()}
                 try:
                     title_map = load_articoli_marca_lookup() or load_articoli_titolo_map()
@@ -697,6 +721,7 @@ class SharedOrdersWindowMixin:
         pending_toggle = {"after_id": None}
 
         def toggle(_event=None):
+            """Toggle the print checkbox of the clicked row (first column); the change is applied after a short delay so a double-click can still open the editor."""
             iid = tree.identify_row(_event.y) if _event is not None else ""
             column = tree.identify_column(_event.x) if _event is not None else ""
             if not iid or column != "#1":
@@ -734,6 +759,7 @@ class SharedOrdersWindowMixin:
             button_bar.columnconfigure(col, weight=1)
         ttk.Label(actions, text="Click Print to select or unselect each color.").grid(row=1, column=0, sticky="w", pady=(5, 0))
         def pg_x_action(action):
+            """Run the chosen action (move to Orders / delete) on the selected PG-X row, after checking that the PG-X page and a row are selected."""
             if current_sheet["name"] != "PG-X":
                 return messagebox.showwarning("PG-X Only", "This action is available only on the PG-X page.", parent=window)
             selection = tree.selection()

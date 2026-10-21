@@ -59,6 +59,9 @@ def _s(series):
 
 
 def _load_with_header(path, required_cols, sheet_name=0):
+    """Read a sheet whose header row is not necessarily the first line.
+    Finds the row holding the required columns, uses it as the header, drops a repeated header row and returns (DataFrame | None, [error messages]).
+    """
     raw = _read_raw(path, sheet_name=sheet_name)
     header_row = _find_header_row(raw, required_cols)
     if header_row is None:
@@ -180,6 +183,7 @@ def load_schedulato(path):
     df["RowID"] = df.groupby("Machine").cumcount()
 
     def plan_date_for(group):
+        """Planned dates of one batch group, in RowID order: row 0 is "IN MACC.", the others are the batch start date plus RowID // 2 days, pushed one day for every Friday crossed."""
         group = group.sort_values("RowID").reset_index(drop=True)
         start_date = group.loc[0, "BatchDT"]
         dates = []

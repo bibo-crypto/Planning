@@ -66,6 +66,7 @@ def _polmoni_multiplier(polmoni_text: str) -> int:
 
 @dataclass
 class OrdineMedRow:
+    """One row of the MED order file plus the values computed for it (MC, group, titolo, cliente, commento, prezzo, bagno ...)."""
     riga: int
     code_org: str
     titolo: str
@@ -151,6 +152,7 @@ def _to_date_value(value: Any) -> Any:
 
 
 def load_ordine(path: Path) -> list[OrdineMedRow]:
+    """Read the MED order workbook (sheet ORDINE, else the first sheet) into OrdineMedRow objects, one per row that has an ARTICOLO."""
     wb = openpyxl.load_workbook(path, data_only=True, read_only=True)
     try:
         sheet = "ORDINE" if "ORDINE" in wb.sheetnames else wb.sheetnames[0]
@@ -784,6 +786,12 @@ def export_ordine_med_workbook(
     records: list[OrdineMedRow],
     availability: list[FilatoAvailabilityRow],
 ) -> None:
+    """Write the Ordine MED workbook and save it (no backup kept).
+
+    Three styled sheets: "Ordine da creare", the system-import sheet
+    "Dati sistema (B-N)", and "Filato X Tinturia" where every row whose
+    Disponibilita' is NO is shown in red.
+    """
     from openpyxl import Workbook
     from openpyxl.formatting.rule import FormulaRule
     from openpyxl.styles import PatternFill

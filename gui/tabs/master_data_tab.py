@@ -38,6 +38,7 @@ class MasterDataTab(ttk.Frame):
         self._build()
 
     def _build(self):
+        """Build the Master Data page: a notebook with one editable table per master schema, plus the category review."""
         self.columnconfigure(0, weight=1); self.rowconfigure(0, weight=1)
         book = ttk.Notebook(self); book.grid(row=0, column=0, sticky="nsew", padx=8, pady=8)
         self.book = book
@@ -75,6 +76,7 @@ class MasterDataTab(ttk.Frame):
         for item in self._data[key]: tree.insert("", "end", values=[item.get(c, "") for c in columns])
 
     def _edit(self, key):
+        """Open a dialog to add or edit the selected row of a master table (one entry per column) and save it."""
         label, columns = next((label, schema[1]) for label, schema in self.SCHEMAS.items() if schema[0] == key)
         tree = self._trees[key]; selected = tree.selection()
         old = self._data[key][tree.index(selected[0])] if selected else {}
@@ -104,6 +106,10 @@ class MasterDataTab(ttk.Frame):
         del self._data[key][tree.index(selected[0])]; master_data.save(self._data); self._refresh(key); self._on_data_changed()
 
     def _build_category_review(self, book):
+        """Build the "category review" section: the table of articles whose price
+        category could not be decided automatically, the controls to assign one
+        (Assign category / Refresh) and the table of the manual overrides.
+        """
         frame = ttk.Frame(book, padding=8)
         frame.columnconfigure(0, weight=1)
         frame.rowconfigure(1, weight=3)
@@ -159,6 +165,7 @@ class MasterDataTab(ttk.Frame):
         book.add(frame, text="Category Review")
 
     def _refresh_category_review(self):
+        """Refill the review table with the articles whose category is still undecided (article, description, customer, colours, suggestion, evidence) from the loaded Listini."""
         if not hasattr(self, "_review_tree"):
             return
         df = getattr(self._prezzi_tab, "prezzi_df", None)
@@ -191,6 +198,7 @@ class MasterDataTab(ttk.Frame):
             self._review_category.set(self._review_tree.set(selected[0], "suggestion"))
 
     def _assign_category(self):
+        """Assign the typed/chosen category to the selected article as a manual override, then refresh the review and the Prezzi page."""
         selected = self._review_tree.selection()
         if not selected:
             messagebox.showinfo("Category Review", "Select an article first.", parent=self)
@@ -220,6 +228,7 @@ class MasterDataTab(ttk.Frame):
         self._apply_category_change()
 
     def _remove_override(self):
+        """After a confirmation, remove the manual category of the selected article and refresh."""
         selected = self._override_tree.selection()
         if not selected:
             return

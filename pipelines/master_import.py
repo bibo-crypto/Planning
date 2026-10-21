@@ -22,6 +22,7 @@ import openpyxl
 
 from utility.path_manager import save_source
 from utility.file_cache import CACHE_DIR
+from utility.ui_thread import post_to_ui
 
 SHEET_CANDIDATES: dict[str, list[str]] = {
     "dfm": ["dfm"],
@@ -108,6 +109,7 @@ def find_files_in_directory(dir_path: str | Path) -> dict[str, Path]:
     claimed: set[Path] = set()
 
     def try_match(exact: bool) -> None:
+        """One matching pass over the folder's files: for every expected source not found yet, take the first unclaimed file whose normalised name equals (exact) or contains (loose) one of its candidate names."""
         for key, candidates in DIRECTORY_FILE_CANDIDATES.items():
             if key in found:
                 continue
@@ -138,6 +140,12 @@ def find_files_in_directory(dir_path: str | Path) -> dict[str, Path]:
 
 
 def _content_match_ordine_files(files: list[Path], claimed: set[Path], found: dict[str, Path]) -> None:
+    """Identify the Ordine input files by their CONTENT when file names are not enough.
+
+    Opens each unclaimed file, compares its header rows with the known signatures
+    (order data, Kamal sheet, Dispo) and records the match in found[...] / claimed.
+    Unreadable files are skipped.
+    """
     for f in files:
         if f in claimed:
             continue
@@ -400,9 +408,9 @@ def _route(
         if prezzi_tab is not None:
             try:
                 if hasattr(prezzi_tab, "_load_path"):
-                    prezzi_tab.after(0, lambda: prezzi_tab._load_path(master_path, save_cache=False))
+                    post_to_ui(prezzi_tab, lambda: prezzi_tab._load_path(master_path, save_cache=False))
                 elif hasattr(prezzi_tab, "load_file"):
-                    prezzi_tab.after(0, lambda: prezzi_tab.load_file(master_path))
+                    post_to_ui(prezzi_tab, lambda: prezzi_tab.load_file(master_path))
             except Exception:
                 pass
         if biglietti_tab is not None and hasattr(biglietti_tab, "_restore"):
@@ -442,7 +450,7 @@ def _route(
         if biglietti_tab is not None:
             biglietti_tab.densita_path = Path(master_path)
             if hasattr(biglietti_tab, "densita_label"):
-                biglietti_tab.after(0, lambda: biglietti_tab.densita_label.config(text=str(master_path), foreground="#111827"))
+                post_to_ui(biglietti_tab, lambda: biglietti_tab.densita_label.config(text=str(master_path), foreground="#111827"))
             if hasattr(biglietti_tab, "_restore"):
                 try:
                     biglietti_tab._restore()
@@ -452,7 +460,7 @@ def _route(
         if ordine_med_tab is not None:
             ordine_med_tab.densita_path = Path(master_path)
             if hasattr(ordine_med_tab, "_lbl_densita"):
-                ordine_med_tab.after(0, lambda: ordine_med_tab._lbl_densita.config(text=str(master_path), foreground="black"))
+                post_to_ui(ordine_med_tab, lambda: ordine_med_tab._lbl_densita.config(text=str(master_path), foreground="black"))
 
     elif key == "data_ordine":
         save_source("data_ordine", master_path)

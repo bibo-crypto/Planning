@@ -25,6 +25,7 @@ from utility.utils import keep_window_on_top, logger, bind_escape_to_close
 from utility.excel_io import safe_save_workbook
 from .situazione_sources import SOURCE_BUTTON_NAMES, SOURCE_ORDER, SituationSourcesMixin
 from .situazione_refresh import SituationRefreshMixin
+from utility.ui_thread import post_to_ui
 
 STATUS_COLORS = {
     "Filato": "#e0e0e0",
@@ -126,6 +127,10 @@ class SituazioneTab(SituationSourcesMixin, SituationRefreshMixin, ttk.Frame):
     """Embeddable 'Situazione' tab — hosted inside gui.py's main Notebook."""
 
     def __init__(self, master, on_shared_cache_changed: Callable[[], None] | None = None, on_notification=None):
+        """Create the Situazione Generale page: styles, state (loaded frames, sort state,
+        render generation), the child widgets and the deferred SQLite restore, which is
+        scheduled after the first paint so the window never waits for the database.
+        """
         super().__init__(master)
 
         self._configure_styles()
@@ -179,6 +184,9 @@ class SituazioneTab(SituationSourcesMixin, SituationRefreshMixin, ttk.Frame):
         self._db_restore_scheduled = True
 
         def worker():
+            """Worker of the startup restore: initialise the database and read all saved
+            partita states, then give the frame (or the error) to apply_result.
+            """
             try:
                 db.init_db()
                 # Source snapshots (including Copertura) are restored once by
@@ -218,7 +226,7 @@ class SituazioneTab(SituationSourcesMixin, SituationRefreshMixin, ttk.Frame):
                     except Exception as exc:  # noqa: BLE001
                         logger.warning("Situazione: could not update dependent view: %s", exc)
 
-            self.after(0, apply_result)
+            post_to_ui(self, apply_result)
 
         threading.Thread(target=worker, name="planning-situazione-sqlite-restore", daemon=True).start()
 
@@ -698,27 +706,21 @@ class SituazioneTab(SituationSourcesMixin, SituationRefreshMixin, ttk.Frame):
         rows = list(display_df.itertuples(index=False, name=None))
         prezzo_idx = self.columns.index("prezzo") if "prezzo" in self.columns else None
         prezzo_lisini_idx = self.columns.index("prezzo_lisini") if "prezzo_lisini" in self.columns else None
+        articolo_idx = self.columns.index("articolo") if "articolo" in self.columns else None
+        # "Missing from Listini" only counts once Listini is loaded at all.  It is
+        # judged on the FULL table, so a search filter cannot change the verdict.
+        listini_available = business_logic.listini_loaded(self.current_df)
 
         def _is_price_error(row_vals):
+            """Same rule as the "errori prezzi colori" table (price_issue), so a row
+            is red here exactly when it is listed there."""
             if prezzo_idx is None or prezzo_lisini_idx is None:
                 return False
-            p_val, pl_val = row_vals[prezzo_idx], row_vals[prezzo_lisini_idx]
-            try:
-                p_clean = str(p_val or "").replace("$", "").replace("USD", "").replace("usd", "").strip().replace(",", ".")
-                p_num = float(p_clean) if p_clean else None
-            except (TypeError, ValueError):
-                p_num = None
-            try:
-                pl_clean = str(pl_val or "").replace("$", "").replace("USD", "").replace("usd", "").strip().replace(",", ".")
-                pl_num = float(pl_clean) if pl_clean else None
-            except (TypeError, ValueError):
-                pl_num = None
-
-            if p_num is not None and abs(p_num - 0.01) < 1e-9:
-                return True
-            if p_num is not None and pl_num is not None and abs(p_num - pl_num) > 0.01:
-                return True
-            return False
+            if articolo_idx is not None and not str(row_vals[articolo_idx] or "").strip():
+                return False  # nothing to price-check on a blank row
+            return business_logic.price_issue(
+                row_vals[prezzo_idx], row_vals[prezzo_lisini_idx], listini_available
+            ) is not None
 
         def insert_chunk(start=0):
             if generation != self._tree_render_generation:
@@ -781,6 +783,10 @@ class SituazioneTab(SituationSourcesMixin, SituationRefreshMixin, ttk.Frame):
         self._apply_filter()
 
     def _open_abbina(self):
+        """Open the "Da abbinare" window: the suggestions of partite that can be matched
+        (same Codice/Colore, compatible Titolo, extra quantity up to 20%), with a
+        search box and the export button.
+        """
         if self._focus_child_window("abbina"):
             return
         suggestions = build_suggestions(self.current_df, max_extra_percent=0.20)
@@ -860,6 +866,7 @@ class SituazioneTab(SituationSourcesMixin, SituationRefreshMixin, ttk.Frame):
         render()
 
     def _export_abbina(self, suggestions):
+        """Export the "Da abbinare" suggestions to a styled Excel file chosen by the user."""
         if suggestions.empty:
             messagebox.showinfo("Da abbinare", "Non ci sono combinazioni entro il limite del 20%.")
             return
@@ -994,6 +1001,11 @@ class SituazioneTab(SituationSourcesMixin, SituationRefreshMixin, ttk.Frame):
             return None
 
     def _on_export(self):
+        """Export the Situazione Generale table to a styled Excel file.
+
+        Exports exactly the rows currently visible after the search, with header
+        styling and conditional formatting.
+        """
         if self.current_df.empty:
             messagebox.showinfo("No data", "Refresh the data before exporting.")
             return

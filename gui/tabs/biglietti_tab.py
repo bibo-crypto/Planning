@@ -45,6 +45,8 @@ from utility.email_compose import (
     open_outlook_email,
 )
 from utility.utils import keep_window_on_top, bind_escape_to_close
+from utility.output_cleanup import clear_previous_outputs
+from utility.ui_thread import post_to_ui
 
 # Filato x Tinturia here follows the same convention as Ordine Kamal/Ordine
 # ELVY: a fixed filename, cleared and rewritten with only this run's rows
@@ -62,43 +64,10 @@ def _split_pg_x_records(records):
 def _clear_previous_client_outputs(
     output_dir: Path, customer: str, keep: set[Path] | None = None
 ) -> None:
-    """Remove only the previous generated files for one customer.
-
-    This prevents a previous order from remaining beside the current one for
-    ELVY, MED, or EL KAMAL. Current paths are protected, and unrelated files
-    in the selected folder are never touched.
-    """
-    keep = {path.resolve() for path in (keep or set())}
-    if not output_dir.is_dir():
-        return
-    # Each pattern is anchored to the exact file-name shape that customer's
-    # export produces, so a shared output folder never loses another
-    # customer's (or another tab's) files:
-    #   * MED stems are always "MED-D-<n>-<year>" / "MED-<year>" -- anchoring on
-    #     "MED-" keeps the Ordine MED tab's own "Ordine_MED.xlsx" safe.
-    #   * Kamal tickets are "D-<n>-KAMAL-<year>_Biglietti.docx" or
-    #     "KAMAL-<year>_Biglietti.docx" -- a bare "*_Biglietti.docx" would also
-    #     match ELVY's and MED's ticket files.
-    patterns_by_customer = {
-        "ELVY": ("*_ELVY.xlsx", "*_ELVY_Biglietti.docx", "*_ELVY_Biglietti-pg-x.docx"),
-        "MED": ("MED-*_MED.xlsx", "MED-*_MED_Biglietti.docx", "MED-*_MED_Biglietti-pg-x.docx"),
-        "EL_KAMAL": (
-            "*_EL_KAMAL.xlsx",
-            "D-*-KAMAL-*_Biglietti.docx",
-            "KAMAL-*_Biglietti.docx",
-        ),
-    }
-    patterns = patterns_by_customer.get(customer.upper(), ())
-    for pattern in patterns:
-        for path in output_dir.glob(pattern):
-            if path.resolve() in keep:
-                continue
-            try:
-                path.unlink()
-            except OSError:
-                # The actual export will report a useful error if a file is
-                # locked by Excel/Word; cleanup should not hide that error.
-                pass
+    """Remove only the previous generated files for one customer (ELVY, MED or
+    EL KAMAL); the current paths in ``keep`` and unrelated files are never touched.
+    The file-name rules live in utility.output_cleanup."""
+    clear_previous_outputs(output_dir, customer, keep)
 
 
 def _clear_previous_kamal_outputs(output_dir: Path, keep: set[Path] | None = None) -> None:
@@ -107,7 +76,17 @@ def _clear_previous_kamal_outputs(output_dir: Path, keep: set[Path] | None = Non
 
 
 class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame):
+    """The "Create (EXCEL+Biglietti)" page.
+
+    Takes the order data (and Dispo) Excel files, then produces, per customer
+    (ELVY, MED, EL KAMAL): the Excel workbook, the Word tickets (Biglietti) and the
+    filato file, optionally e-mailing them through Outlook.  Also hosts the shared
+    orders window and its actions through SharedOrdersWindowMixin and
+    SharedOrdersActionsMixin.  Conversion runs on a worker thread; results come
+    back through post_to_ui().
+    """
     def __init__(self, parent: tk.Misc, prefs: dict, save_prefs, logger, on_shared_cache_changed=None, on_notification=None):
+        """Create the Create (EXCEL+Biglietti) page: keep the preferences, the notification callbacks and the file/folder state, then build the widgets and restore the saved paths."""
         super().__init__(parent, padding=12)
         self._prefs = prefs
         self._save_prefs = save_prefs
@@ -139,6 +118,10 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
         self.after(60000, self._run_pgx_report_schedule)
 
     def _build(self):
+        """Build the page: a scrollable canvas holding the title, the input pickers
+        (order data, Dispo, template, Articoli, Listini, Magazino ...), the output
+        folders per customer, the options and the Convert / e-mail buttons.
+        """
         # This page is taller than the available client area on smaller
         # screens. Keep the page itself scrollable so the lower controls are
         # reachable without forcing the whole application to a fixed size.
@@ -253,6 +236,7 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
             self._canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
 
     def _build_folder_row(self, parent, row_idx, kind, btn_text, with_checkbox=False, show_email_buttons=False):
+        """Build one "output folder" row (button + path label) for a customer, with the optional Filato checkbox and e-mail buttons."""
         btn_frame = ttk.Frame(parent)
         btn_frame.grid(row=row_idx, column=0, sticky="w", pady=4)
         ttk.Button(btn_frame, text=btn_text, command=lambda: self._pick_output_dir(kind), width=24).pack(side="left")
@@ -377,6 +361,9 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
         self._save_prefs(email_addresses=merged[-200:])
 
     def _choose_sender_email(self, label=None) -> None:
+        """Show a dialog to pick which connected Outlook account sends the e-mail,
+        with a button to add another account.  The choice is stored in the preferences.
+        """
         try:
             accounts = get_outlook_accounts()
         except Exception as exc:  # noqa: BLE001
@@ -407,6 +394,9 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
         ).pack(anchor="w", pady=(6, 0))
 
         def add_account():
+            """Open the "Add / connect email account" dialog: asks for the address and then
+            launches Outlook's own sign-in, so the app never sees or stores the password.
+            """
             try:
                 add_window = tk.Toplevel(window)
                 bind_escape_to_close(add_window)
@@ -429,6 +419,7 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
                 ).pack(anchor="w", pady=(8, 10))
 
                 def launch_setup():
+                    """Check that an e-mail address was typed, then open Outlook's account setup and show the instructions to finish connecting it."""
                     if not new_email.get().strip() or "@" not in new_email.get():
                         messagebox.showwarning("Email required", "Enter a valid email address first.", parent=add_window)
                         return
@@ -464,6 +455,10 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
         ttk.Button(form, text="Save", command=save_sender).pack(anchor="e", pady=(10, 0))
 
     def _restore(self):
+        """Restore the saved state of the page at startup: the last order/Dispo files, the
+        Biglietti.docx template (saved path, Desktop or next to the app), and the
+        output folder of each customer -- each only when it still exists on disk.
+        """
         for key, attr, source in [("biglietti_data_path", "data_path", "data_ordine"), ("biglietti_dispo_path", "dispo_path", "dispo_bagno")]:
             p = self._prefs.get(key) or (str(source_path(source)) if source_path(source) else "")
             if p and Path(p).is_file():
@@ -611,6 +606,10 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
 
 
     def _pick_articoli(self):
+        """Let the user pick Articoli.xlsx and read it twice: the Marca (brand) map used
+        for price categories and the Titolo codes used on the tickets.  The file is
+        remembered as the shared "articoli" source and a summary is shown.
+        """
         p = self._pick_file("Select Articoli.xlsx")
         if not p:
             return
@@ -652,6 +651,7 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
             self._on_shared_cache_changed()
 
     def _pick_densita(self):
+        """Pick Densita' Query.xlsx, remember it and save its data as the shared density source."""
         p = self._pick_file("Select Densita' Query.xlsx")
         if p:
             self.densita_path = Path(p)
@@ -673,9 +673,12 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
     def _set_status(self, msg: str):
         color = "#C62828" if "Error" in msg else ("#1565C0" if "progress" in msg or "Converting" in msg else "#2E7D32")
         prefix = "✖ " if "Error" in msg else ("⏳ " if "progress" in msg or "Converting" in msg else "✔ ")
-        self.after(0, lambda: self.status.config(text=f"{prefix}{msg}", foreground=color))
+        post_to_ui(self, lambda: self.status.config(text=f"{prefix}{msg}", foreground=color))
 
     def _load_common_sources(self):
+        """Load what every conversion needs: the Articoli codes map, the density map, the VMM22 ratios, the price lookup and the magazino summary.
+        Returns (codes_map, densita_map, vmm_ratio_map, price_lookup, magazino_summary).
+        """
         codes_map = load_articoli_marca_lookup() or load_articoli_titolo_map()
         densita_map, _errors = load_densita_query(self.densita_path if self.densita_path and self.densita_path.is_file() else None)
         vmm_ratio_map, _errors = load_vmm22_ratio_from_magazino(None)
@@ -703,6 +706,12 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
         return codes_map, densita_map, vmm_ratio_map, price_lookup, magazino_summary
 
     def _run_convert(self):
+        """Validate the inputs, then start the conversion on a worker thread.
+
+        Checks the order file, detects its format (ELVY/MED order dump or EL KAMAL),
+        makes sure the needed output folders exist (asking for them when missing) and
+        that the file contains customer rows (3004, 3009 or 3019).
+        """
         if not self.data_path or not self.data_path.is_file():
             return messagebox.showwarning("Missing Input", "Please select the Order Data file first.")
         try:
@@ -747,6 +756,13 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
         threading.Thread(target=self._worker_convert, daemon=True).start()
 
     def _worker_convert(self):
+        """The conversion itself (runs on a worker thread).
+
+        Loads the shared sources (codes, densities, prices, magazino), then for each
+        customer present: clears the previous outputs, enriches the records, writes the
+        Excel workbook and the Word tickets, and finally reports what was created back
+        to the UI thread.  EL KAMAL uses its own loader and file names.
+        """
         created_items: list[str] = []
         self._last_client_files = {"elvy": [], "med": [], "el_kamal": []}
         try:
@@ -837,10 +853,10 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
                     created_items.append(f"• Raw Yarn (Filato): {filato_file.name} ({n} rows)\n   ↳ Saved to: {filato_file}")
             summary_text = "\n\n".join(created_items)
             self._set_status("Completed — All order workbooks and dyeing tickets generated successfully.")
-            self.after(0, lambda: messagebox.showinfo("Conversion Complete", f"Conversion completed successfully!\n\n{summary_text}"))
+            post_to_ui(self, lambda: messagebox.showinfo("Conversion Complete", f"Conversion completed successfully!\n\n{summary_text}"))
         except Exception as exc:
             self._logger.exception("Biglietti conversion failed")
             self._set_status(f"Error: {exc}")
-            self.after(0, lambda exc=exc: messagebox.showerror("Conversion Error", str(exc)))
+            post_to_ui(self, lambda exc=exc: messagebox.showerror("Conversion Error", str(exc)))
         finally:
-            self.after(0, lambda: self.convert_btn.config(state="normal"))
+            post_to_ui(self, lambda: self.convert_btn.config(state="normal"))

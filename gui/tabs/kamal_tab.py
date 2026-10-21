@@ -51,12 +51,14 @@ from utility.magazino_cache import load_magazino_cache, save_magazino_cache
 from utility.lotti_cache import load_lotti_cache, save_lotti_cache
 from utility.utils import find_pdfs, logger, load_settings, save_settings
 from typing import Callable
+from utility.ui_thread import post_to_ui
 
 
 class KamalTab(ttk.Frame):
     """Embeddable 'Ordine Kamal' tab."""
 
     def __init__(self, master, on_shared_cache_changed: Callable[[], None] | None = None):
+        """Create the Ordine Kamal page: the state (selected PDFs, folders, output, options as Tk variables) and the widgets, then restore the saved paths."""
         super().__init__(master)
         self._pdf_paths: list[Path] = []
         self._pdf_folder_path: Path | None = None
@@ -92,6 +94,10 @@ class KamalTab(ttk.Frame):
 
     # ------------------------------------------------------------------ UI
     def _build_ui(self):
+        """Build the Ordine Kamal page: PDF / PDF-folder / output pickers, the DFM and
+        raw-yarn status lines, the options (update ERP/filato files, first bagno,
+        order number) and the Convert button with its status label.
+        """
         self.columnconfigure(0, weight=1)
         sel_frame = ttk.LabelFrame(self, text="Input", padding=6)
         sel_frame.grid(row=0, column=0, sticky="ew", padx=4, pady=(4, 2))
@@ -293,6 +299,9 @@ class KamalTab(ttk.Frame):
         save_settings(self._prefs)
 
     def _restore_saved_paths(self) -> None:
+        """Restore the saved options (checkboxes, first bagno, order number) and the last
+        PDF folder, raw-yarn file and other paths that still exist.
+        """
         # Restore the ERP update checkbox together with the saved file path.
         # The variable trace persists user changes; this restores the value
         # on the next application launch.
@@ -383,6 +392,11 @@ class KamalTab(ttk.Frame):
         self._save_prefs(kamal_lotti_path=str(self._lotti_path), kamal_last_dir=str(self._lotti_path.parent))
 
     def _on_convert(self):
+        """Convert button handler: checks that PDFs, an output file and the shared DFM
+        reference are available, snapshots the Tk variables (they must not be read
+        from the worker thread), validates the first bagno, then runs the conversion
+        on a worker thread.
+        """
         pdf_paths = list(self._pdf_paths)
         if self._pdf_folder_path is not None:
             pdf_paths = find_pdfs(self._pdf_folder_path)
@@ -433,9 +447,16 @@ class KamalTab(ttk.Frame):
 
     def _set_status(self, text: str):
         """Thread-safe status label update — safe to call from the background conversion thread."""
-        self.after(0, lambda: self._lbl_status.config(text=text, foreground="grey"))
+        post_to_ui(self, lambda: self._lbl_status.config(text=text, foreground="grey"))
 
     def _run_conversion(self, pdf_paths: list[Path] | None = None):
+        """The Kamal conversion (worker thread).
+
+        Parses every PDF, loads the C170 entries of the shared DFM reference, builds the
+        Ordine Kamal rows (colour looked up in DFM), assigns machines/bagno, matches
+        raw yarn and lots, then writes the Kamal workbook and, when ticked, the ERP and
+        filato files.  Problems are collected and shown when it finishes.
+        """
         errors: list[str] = []
         all_rows = []
         pdf_paths = pdf_paths if pdf_paths is not None else list(self._pdf_paths)
@@ -554,9 +575,10 @@ class KamalTab(ttk.Frame):
                     except Exception as exc:  # noqa: BLE001
                         errors.append(f"Error extracting {filato_path.name}: {exc}")
 
-        self.after(0, self._on_conversion_done, errors, len(all_rows))
+        post_to_ui(self, self._on_conversion_done, errors, len(all_rows))
 
     def _on_conversion_done(self, errors: list[str], row_count: int):
+        """UI-thread end of the conversion: re-enable the button, clear the one-shot inputs (first bagno, order number) and show the result or the errors."""
         self._btn_convert.config(state="normal")
         # First bagno is a one-shot input: clear it after every conversion.
         self._kamal_bagno_start.set("")

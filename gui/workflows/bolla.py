@@ -7,10 +7,17 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from utility.utils import find_pdfs, logger, make_output_path
+from utility.ui_thread import post_to_ui
 
 
 class BollaWorkflowMixin:
+    """The "Bolla Med" page of the main window: pick Bolla (delivery note) PDFs,
+    choose the output folder, convert on a worker thread and show the status.
+    """
     def _build_bolla_tab(self, parent: ttk.Frame) -> None:
+        """Build the page: an explanation of what is extracted, the Input (PDFs / folder),
+        the Output folder and the "one Excel per file" option, and the Convert button.
+        """
         parent.columnconfigure(0, weight=1)
 
         info = ttk.Label(
@@ -158,6 +165,10 @@ class BollaWorkflowMixin:
         output_dir: Path,
         one_per_file: bool,
     ) -> None:
+        """Convert the Bolla PDFs (worker thread): parse each one (errors are collected,
+        not fatal), then write either one Excel per PDF or one merged Excel, and report
+        the result back to the UI thread.
+        """
         from exporters.bolla_exporter import BollaExporter
         from parsers.bolla_parser import BollaParser, BollaRow, BollaTotals
         errors: list[str] = []
@@ -196,7 +207,7 @@ class BollaWorkflowMixin:
                 logger.error(msg)
                 errors.append(msg)
 
-        self.after(0, self._on_bolla_conversion_done, errors, total)
+        post_to_ui(self, self._on_bolla_conversion_done, errors, total)
     def _on_bolla_conversion_done(self, errors: list[str], total: int) -> None:
         self._set_bolla_ui_enabled(True)
 
@@ -216,11 +227,11 @@ class BollaWorkflowMixin:
             )
             self._set_bolla_status(f"Done — {total} file(s) converted successfully.")
     def _set_bolla_status(self, text: str) -> None:
-        self.after(0, self._bolla_lbl_status.config, {"text": text})
+        post_to_ui(self, self._bolla_lbl_status.config, {"text": text})
     def _advance_bolla_progress(self) -> None:
         def _inc() -> None:
             self._bolla_progress["value"] += 1
-        self.after(0, _inc)
+        post_to_ui(self, _inc)
     def _set_bolla_ui_enabled(self, enabled: bool) -> None:
         state = "normal" if enabled else "disabled"
 
@@ -232,4 +243,4 @@ class BollaWorkflowMixin:
                 self._bolla_btn_convert,
             ):
                 widget.config(state=state)
-        self.after(0, _apply)
+        post_to_ui(self, _apply)

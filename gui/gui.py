@@ -53,6 +53,7 @@ from gui.workflows import (
     ElvyInvoiceWorkflowMixin,
     PurchaseOrderWorkflowMixin,
 )
+from utility.ui_thread import post_to_ui
 
 
 def _resource_path(filename: str) -> Path:
@@ -166,6 +167,10 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
     WINDOW_MIN_H = 760
 
     def __init__(self) -> None:
+        """Create the main window: title, size (about 90% of the screen, then maximised),
+        global Escape-to-close handling, the window icon, and the startup splash; the
+        heavy page construction is deferred to _build_ui so the window appears at once.
+        """
         super().__init__()
         self.title(self.WINDOW_TITLE)
         self.minsize(self.WINDOW_MIN_W, self.WINDOW_MIN_H)
@@ -293,11 +298,12 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
         if not getattr(sys, "frozen", False):
             return
         check_for_updates_async(
-            lambda release: self.after(0, self._show_update_prompt, release),
+            lambda release: post_to_ui(self, self._show_update_prompt, release),
             logger=logger,
         )
 
     def _show_update_prompt(self, release: ReleaseInfo | None) -> None:
+        """Ask whether to install a newer release (shows the versions and the first part of the release notes); does nothing when there is no release or no installer."""
         if release is None or not self.winfo_exists():
             return
         notes = release.notes[:800] + ("…" if len(release.notes) > 800 else "")
@@ -314,6 +320,7 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
             self._start_update(release)
 
     def _start_update(self, release: ReleaseInfo) -> None:
+        """Show the "Updating Planning" window with a progress bar and download the installer in the background."""
         self._pending_update_version = release.version
         update_window = tk.Toplevel(self)
         self._update_window = update_window
@@ -334,11 +341,11 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
             try:
                 installer = download_installer(
                     release,
-                    progress=lambda percent: self.after(0, self._update_download_progress, percent),
+                    progress=lambda percent: post_to_ui(self, self._update_download_progress, percent),
                 )
-                self.after(0, self._finish_update, installer)
+                post_to_ui(self, self._finish_update, installer)
             except Exception as exc:  # noqa: BLE001
-                self.after(0, lambda exc=exc: self._update_failed(str(exc)))
+                post_to_ui(self, lambda exc=exc: self._update_failed(str(exc)))
 
         import threading
         threading.Thread(target=worker, name="planning-update-download", daemon=True).start()
@@ -356,6 +363,7 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
         messagebox.showerror("Planning update", error, parent=self)
 
     def _finish_update(self, installer: Path) -> None:
+        """After the download: run the installer into the application folder (install_update) and close the app so the update can replace it; shows an error if it fails."""
         try:
             self._update_status.config(text="Installing update…")
             self._update_progress_bar["value"] = 100
@@ -406,13 +414,20 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
     # ------------------------------------------------------------------
 
     def _build_ui(self) -> None:
+        """Build the whole UI: initialise the SQLite schema, create the notification bar
+        and the main notebook, and add every page (Overview, Create, Ordine, Invoice,
+        Situazione, Magazino Filato, Prezzi, Master Data, Log).
+
+        Only the pages needed by the landing dashboard are imported here; the heavy
+        order/conversion pages load their parser/export stacks the first time they are
+        opened, which keeps startup fast.
+        """
         # SQLite must be initialized before any tab tries to restore runtime
         # state. A clean installation has no database file yet, so every
         # schema used by the UI must exist before Situazione/DFM are created.
         from utility import situazione_db
         situazione_db.init_db()
 
-        """Build all widgets."""
         # Only the pages needed for the landing dashboard are imported on the
         # critical startup path. Heavy order/conversion pages import their
         # parser/export stacks only when first opened.
@@ -728,6 +743,7 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
         notebook.select(0)
 
         def _on_any_tab_changed(_event=None) -> None:
+            """When a tab is selected, build its page if it was left lazy (heavy pages are created on first visit, not at startup) and give it focus."""
             # Materialize only the page the operator actually selected.
             # Building a page may import pandas/openpyxl/pdfplumber and may
             # restore caches, so none of that belongs on the first-paint path.
@@ -821,6 +837,7 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
         self._shared_refresh_after_id = self.after(75, self._refresh_shared_cache_changed_now)
 
     def _refresh_shared_cache_changed_now(self) -> None:
+        """Tell every page that depends on the shared data (Magazino status, Situazione, weekly, Kamal ...) to re-read it after a shared source changed."""
         self._shared_refresh_after_id = None
         self._refresh_magazino_status()
         if hasattr(self, "_situazione_tab"):
@@ -852,13 +869,13 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
             notifications.add(key, title, message, page, severity, partita_colore=partita_colore,
                               ordine=ordine, riga=riga)
             self._refresh_notification_badge()
-        self.after(0, add_now)
+        post_to_ui(self, add_now)
 
     def _add_notifications(self, entries: list[dict]) -> None:
         def add_now():
             notifications.add_many(entries)
             self._refresh_notification_badge()
-        self.after(0, add_now)
+        post_to_ui(self, add_now)
 
     def _refresh_notification_badge(self) -> None:
         if not hasattr(self, "_notification_button"):
@@ -870,6 +887,9 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
         )
 
     def _open_notifications(self) -> None:
+        """Open the Notifications window: a category filter and a table of the open
+        notifications, with Mark Resolved, Snooze 24h, Extract to Excel and Refresh.
+        """
         win = tk.Toplevel(self)
         bind_escape_to_close(win)
         win.title("Notifications")
@@ -913,6 +933,7 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
             for iid in tree.selection(): notifications.snooze(iid, 24)
             refresh()
         def export_excel():
+            """Export the open notifications to an Excel file chosen by the user."""
             items = notifications.list_open()
             if not items:
                 messagebox.showinfo("Notifications", "There are no open notifications to export.", parent=win)
@@ -944,6 +965,7 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
         refresh()
 
     def _create_backup(self) -> None:
+        """Ask where to save and create a backup ZIP of the settings and cached data."""
         from utility.backup import BACKUP_PREFIX
 
         backup_dir = APP_DATA_DIR / "backups"
@@ -963,6 +985,7 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
             messagebox.showerror("Backup failed", str(exc), parent=self)
 
     def _restore_backup(self) -> None:
+        """Restore a backup ZIP chosen by the user after a confirmation (current settings and caches may be replaced)."""
         path = filedialog.askopenfilename(
             title="Restore Planning Backup", filetypes=[("Planning backup", "*.zip")],
         )
@@ -1124,6 +1147,7 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
         self._refresh_elvy_tree()
 
     def _on_elvy_save(self) -> None:
+        """Save the Articolo Elvy -> Articolo Delta mapping entered in the form (the Elvy code is required) and refresh the mapping table."""
         from parsers.elvy_mapping import add_elvy_mapping, delete_elvy_mapping
         elvy_code = self._elvy_entry_elvy.get().strip()
         delta_code = self._elvy_entry_delta.get().strip()
@@ -1177,6 +1201,7 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
     # ------------------------------------------------------------------
 
     def _build_log_area(self, parent: ttk.Frame) -> None:
+        """Build the Log page: a read-only text area showing the application's activity log."""
         log_frame = ttk.LabelFrame(parent, text="Application activity", padding=8)
         log_frame.pack(fill="both", expand=True, padx=10, pady=10)
         parent.columnconfigure(0, weight=1)

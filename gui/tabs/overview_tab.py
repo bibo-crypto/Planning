@@ -51,6 +51,7 @@ from openpyxl.worksheet.table import Table, TableStyleInfo
 from utility.utils import load_settings, parse_number, bind_escape_to_close
 from utility import notifications
 import calculate.situazione as business_logic
+from utility.ui_thread import post_to_ui
 
 
 def _focus_entry_when_ready(window: tk.Toplevel, entry: ttk.Entry) -> None:
@@ -270,6 +271,7 @@ def export_dataframe_fast(df: pd.DataFrame, default_filename: str, parent: tk.Wi
     snapshot = df.copy()
 
     def worker():
+        """Worker: write the table behind a dashboard card to the Excel file (pandas, one pass) and report success or the error."""
         error = None
         try:
             # pandas/openpyxl writes the report in one pass and avoids the
@@ -284,7 +286,7 @@ def export_dataframe_fast(df: pd.DataFrame, default_filename: str, parent: tk.Wi
             else:
                 messagebox.showinfo("Export Completed", f"Exported to:\n{path}", parent=parent)
         if parent is not None and parent.winfo_exists():
-            parent.after(0, done)
+            post_to_ui(parent, done)
 
     threading.Thread(target=worker, name="planning-excel-export", daemon=True).start()
 
@@ -414,6 +416,7 @@ class OverviewTab(ttk.Frame):
     CARD_GRID_COLUMNS = 20
 
     def __init__(self, master, situazione_tab, magazino_tab, biglietti_tab=None, prezzi_tab=None, save_prefs=None, prefs=None, on_shared_cache_changed=None, settimana_tab=None, ensure_heavy_tabs=None):
+        """Create the Overview page, holding the other pages it summarises and synchronises (Situazione, Magazino, Create, Prezzi, weekly), then build the dashboard."""
         super().__init__(master)
         self.situazione_tab = situazione_tab
         self.magazino_tab = magazino_tab
@@ -437,6 +440,9 @@ class OverviewTab(ttk.Frame):
     # UI scaffolding
     # ------------------------------------------------------------------
     def _build_ui(self) -> None:
+        """Build the dashboard: the ttk styles for cards and tables, the header with the
+        sync button and status, and the frames that _render fills with cards and tables.
+        """
         style = ttk.Style(self)
         style.configure("Overview.Card.TFrame", background="#ffffff", relief="solid", borderwidth=1)
         style.configure("Overview.CardTitle.TLabel", background="#ffffff", foreground="#526173",
@@ -578,6 +584,7 @@ class OverviewTab(ttk.Frame):
         )
 
     def _on_choose_data_folder(self) -> None:
+        """Choose the master data folder (the factory files: Articoli, DFM, WINCOINT ...) and remember it in the preferences."""
         initial = str(self._data_folder) if self._data_folder else None
         path = filedialog.askdirectory(
             title="Select Data Folder containing factory files (Articoli, DFM, WINCOINT, etc.)",
@@ -598,6 +605,12 @@ class OverviewTab(ttk.Frame):
         self._lbl_sync_status.config(text="● Folder saved — press Update All Data", foreground="#1565C0")
 
     def _on_sync_all_data(self) -> None:
+        """Import every file found in the master data folder into the other pages.
+
+        Makes sure the lazily-built pages exist, remembers the chosen folder, then runs
+        master_import on a worker thread and, when it ends, refreshes Situazione and the
+        status line.  Order input files are never auto-selected here.
+        """
         from tkinter import messagebox
         # Master-data synchronization needs the Create/Order consumers. They
         # are intentionally lazy at startup, so materialize them only for
@@ -632,6 +645,9 @@ class OverviewTab(ttk.Frame):
         import pipelines.master_import as master_import
 
         def worker():
+            """Worker thread of the sync: run master_import.import_master_directory for the
+            folder and pass what was loaded / skipped (or the error) to apply_result.
+            """
             try:
                 loaded, skipped = master_import.import_master_directory(
                     self._data_folder,
@@ -649,6 +665,9 @@ class OverviewTab(ttk.Frame):
                 loaded, skipped, err = [], [], str(exc)
 
             def apply_result():
+                """UI-thread end of the sync: show the result (or the error), re-enable the
+                button and, when every source Situazione needs came through, refresh it too.
+                """
                 self._btn_sync.config(state="normal")
                 if err:
                     self._lbl_sync_status.config(text=f"✖ Sync error: {err}", foreground="#C62828")
@@ -698,7 +717,7 @@ class OverviewTab(ttk.Frame):
                 messagebox.showinfo("Data Synchronization Complete", summary)
                 self.refresh(force=True)
 
-            self.after(0, apply_result)
+            post_to_ui(self, apply_result)
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -730,6 +749,12 @@ class OverviewTab(ttk.Frame):
     # Rendering
     # ------------------------------------------------------------------
     def _render(self, df: pd.DataFrame, magazino: pd.DataFrame) -> None:
+        """Rebuild the dashboard from the Situazione and Magazino data.
+
+        Computes the groups behind each card (shortages marked PG-X, Q.C delays,
+        delivery delays, Elvy colours, price errors, price changes ...) and draws the
+        cards and the clickable tables.
+        """
         for frame in (self._cards_frame, self._tables_frame):
             for widget in frame.winfo_children():
                 widget.destroy()
@@ -1050,6 +1075,7 @@ class OverviewTab(ttk.Frame):
 
     def _add_card(self, col: int, title: str, value: str, alert: bool = False, danger: bool = False,
                   on_click=None) -> None:
+        """Add one dashboard card (title, value, alert/danger styling) at its grid position, five per row; clicking it runs on_click."""
         card_style = "Overview.AlertCard.TFrame" if alert else "Overview.Card.TFrame"
         title_style = "Overview.AlertCardTitle.TLabel" if alert else "Overview.CardTitle.TLabel"
         value_style = "Overview.DangerCardValue.TLabel" if danger else ("Overview.AlertCardValue.TLabel" if alert else "Overview.CardValue.TLabel")

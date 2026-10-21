@@ -98,6 +98,13 @@ def _yes(answer: str, default: bool) -> bool:
 
 def main(argv: list[str] | None = None, *, ask: Callable[[str], str] = input,
          out: Callable[[str], None] = print, root: Path = ROOT) -> int:
+    """Command-line entry of the GitHub publish helper (python publish.py).
+
+    Shows the folder, branch and remote status, lists the changes, builds the commit
+    message, commits and pushes -- asking for confirmation unless --yes is given, and
+    not touching anything with --dry-run.  ask/out/root are injectable so it can be
+    tested without a console or a real repository.  Returns the process exit code.
+    """
     args = _parse_args(argv)
     interactive = not (args.yes or args.dry_run)
 

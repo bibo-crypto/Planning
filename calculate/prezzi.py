@@ -202,6 +202,9 @@ def _reference_category_map() -> dict[str, str]:
 
 
 def _load_category_overrides() -> dict[str, str]:
+    """Read the manual article -> category assignments (JSON object) as {ARTICLE: category}.
+    A missing or invalid file gives {} (the problem is logged).
+    """
     path = _CATEGORY_OVERRIDES_PATH
     if not path.exists():
         return {}
@@ -226,6 +229,9 @@ def load_category_overrides() -> dict[str, str]:
 
 
 def save_category_override(article: str, category: str) -> None:
+    """Store a manual category for an article (both are required).
+    Written through a temporary file and replaced in one step, so a crash cannot leave a half-written file.
+    """
     article_key = clean_text(article).upper()
     category_value = _format_category(category)
     if not article_key or not category_value:
@@ -243,6 +249,7 @@ def save_category_override(article: str, category: str) -> None:
 
 
 def remove_category_override(article: str) -> None:
+    """Remove the manual category of an article, if it has one (same safe write as save_category_override)."""
     article_key = clean_text(article).upper()
     if not article_key:
         return
@@ -418,6 +425,9 @@ def _load_articoli_marca_lookup() -> dict[str, str]:
 
 
 def _category_customer_map(article_categories: dict[str, str]) -> dict[str, str]:
+    """Map an article family (first 4 characters) to its customer, taken from the reference categories.
+    A family claimed by more than one customer is dropped (with a warning) so it is never used to infer categories.
+    """
     customers: dict[str, str] = {}
     ambiguous: set[str] = set()
     for article, category in article_categories.items():
@@ -451,6 +461,15 @@ def _signature_number(value):
 
 
 def enrich_categories(df: pd.DataFrame) -> pd.DataFrame:
+    """Give every Listini row a CATEGORY (customer - brand) and flag the unsure ones.
+
+    Category sources, strongest first: manual overrides, the reference category map,
+    the category already in the file, then customer + Marca from Articoli.xlsx.
+    Articles still unplaced are inferred from "peer" rows with the same customer,
+    colour, level and price; an inference needs MIN_CATEGORY_EVIDENCE agreeing
+    colours, otherwise the article is marked _CATEGORY_REVIEW for a person to decide.
+    Returns a new DataFrame; the input is not modified.
+    """
     # Review flags describe the previous pass. A frame that is enriched again (restored
     # from SQLite, or after a category was assigned) must not keep a stale "needs review"
     # on an article that has been placed meanwhile: when nothing is unplaced any more the
@@ -562,6 +581,7 @@ def enrich_categories(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _normalize_prezzi_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Rename the accepted header spellings of the Listini file (e.g. "Articolo", "Codice Colore", "Prezzo") to the internal column names."""
     aliases = {
         "DATAFINEVAL": ("DATAFINEVAL", "Data Fine Val"),
         "DATAINIZIOVAL": ("DATAINIZIOVAL", "Data Inizio Val"),
@@ -632,6 +652,9 @@ def _modal_category_references(usable: pd.DataFrame, group_keys: list[str]) -> p
 
 
 def load_prezzi(path: str | Path) -> tuple[pd.DataFrame | None, list[str]]:
+    """Load a Listini file, using an in-memory cache keyed on the file (path, time, size) and on every source of the category rules, so the cache can never serve stale categories.
+    Returns (DataFrame | None, [error messages]); a cache hit returns a deep copy.
+    """
     fingerprint = None
     try:
         source = Path(path).resolve()
@@ -668,6 +691,13 @@ def load_prezzi(path: str | Path) -> tuple[pd.DataFrame | None, list[str]]:
 
 
 def _load_prezzi_uncached(path: str | Path) -> tuple[pd.DataFrame | None, list[str]]:
+    """Read the Listini (price list) Excel file without using the cache.
+
+    Checks the required columns, drops expired rows (DATAFINEVAL filled) and rows
+    without a colour, removes exact duplicates keeping the latest start date, and
+    normalises codes, levels and prices to the display columns.
+    Returns (DataFrame | None, [error messages]).
+    """
     try:
         df = _normalize_prezzi_columns(pd.read_excel(path, dtype=object))
     except Exception as exc:  # noqa: BLE001
@@ -998,6 +1028,15 @@ def validate_price_data(df: pd.DataFrame) -> list[dict[str, str]]:
 
 
 def build_price_lookup(df: pd.DataFrame) -> dict[tuple[str, str], tuple]:
+    """Build the price lookup used by every screen that needs an expected price.
+
+    Main entries are (ARTICOLO, COLORE code) -> (livello, prezzo); the last row of a
+    key wins because rows arrive oldest first, and C/G twin articles share prices.
+    Extra entries in the same dict: ("__ARTICLE_CATEGORY__", articolo) -> category
+    (majority vote, ties broken by name) and ("__CATEGORY__", colore, category) ->
+    (livello, prezzo) for colours priced alike across a category.
+    Returns an empty dict for an empty frame.
+    """
     lookup: dict[tuple[str, str], tuple] = {}
     if df is None or df.empty:
         return lookup

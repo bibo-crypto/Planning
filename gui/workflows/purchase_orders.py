@@ -8,10 +8,18 @@ from tkinter import filedialog, messagebox, ttk
 
 from utility.magazino_cache import save_magazino_cache
 from utility.utils import find_pdfs, logger, make_output_path
+from utility.ui_thread import post_to_ui
 
 
 class PurchaseOrderWorkflowMixin:
+    """The Purchase Order ("Ordine Elvy") page of the main window: convert Purchase
+    Order PDFs to the order Excel, looking each colour up in the DFM reference and
+    the price list; the conversion runs on a worker thread.
+    """
     def _build_po_tab(self, parent: ttk.Frame) -> None:
+        """Build the page: PDF / folder / output pickers, the DFM, Listini and raw-yarn
+        status lines, the options and the Convert button with its status label.
+        """
         parent.columnconfigure(0, weight=1)
 
         # ── Input ────────────────────────────────────────────────────
@@ -433,7 +441,7 @@ class PurchaseOrderWorkflowMixin:
                     errors.append(msg)
 
         self._po_last_export_path = last_export_path
-        self.after(0, self._on_po_conversion_done, errors, total)
+        post_to_ui(self, self._on_po_conversion_done, errors, total)
     def _reset_po_bagno_controls(self) -> None:
         """First bagno is a one-shot input: clear it after every conversion."""
         self._po_bagno_start.set("")
@@ -461,11 +469,11 @@ class PurchaseOrderWorkflowMixin:
             )
             self._set_po_status(f"Done — {total} file(s) converted successfully.")
     def _set_po_status(self, text: str) -> None:
-        self.after(0, self._po_lbl_status.config, {"text": text})
+        post_to_ui(self, self._po_lbl_status.config, {"text": text})
     def _advance_po_progress(self) -> None:
         def _inc() -> None:
             self._po_progress["value"] += 1
-        self.after(0, _inc)
+        post_to_ui(self, _inc)
     def _set_po_ui_enabled(self, enabled: bool) -> None:
         state = "normal" if enabled else "disabled"
 
@@ -477,4 +485,4 @@ class PurchaseOrderWorkflowMixin:
                 self._po_btn_convert,
             ):
                 widget.config(state=state)
-        self.after(0, _apply)
+        post_to_ui(self, _apply)

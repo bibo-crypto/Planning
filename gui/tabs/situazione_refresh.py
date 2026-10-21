@@ -15,9 +15,15 @@ from utility import notifications
 from utility.densita_cache import load_densita_cache
 from utility.utils import logger
 from .situazione_sources import SOURCE_BUTTON_NAMES, SOURCE_ORDER
+from utility.ui_thread import post_to_ui
 
 
 class SituationRefreshMixin:
+    """The refresh logic of the Situazione page: recomputing the situation after a
+    source upload, saving it to SQLite, matching raw yarn, computing Prezzo
+    Listini / densita and raising the price notifications.  Heavy work runs off the
+    UI thread and comes back through post_to_ui().
+    """
     def _refresh_after_upload_async(self):
         """Recompute Situazione off the UI thread after a source upload.
 
@@ -35,6 +41,7 @@ class SituationRefreshMixin:
         frames = {key: value.copy(deep=True) for key, value in self.loaded_frames.items() if value is not None}
 
         def worker():
+            """Worker of Refresh: compute the situation from the uploaded frames (with the previous comments as Old Comment) off the UI thread."""
             try:
                 existing = db.get_all_states()
                 old_comments = {partita: state.get("new_comment", "") for partita, state in existing.items()}
@@ -72,11 +79,17 @@ class SituationRefreshMixin:
                     self._background_refresh_pending = False
                     self._refresh_after_upload_async()
 
-            self.after(0, apply_result)
+            post_to_ui(self, apply_result)
 
         threading.Thread(target=worker, daemon=True, name="planning-situazione-upload-refresh").start()
 
     def _on_refresh(self, preserve_comment_history=False):
+        """Refresh button: recompute the whole Situazione from the uploaded sources.
+
+        Refuses to run (and clears nothing) while WINCOINT or any other required
+        source is missing.  The previous New Comment of every Partita becomes the
+        new Old Comment, which the comment cascade uses.
+        """
         if "wincoint" not in self.loaded_frames:
             messagebox.showwarning("Missing data", "Upload the WINCOINT orders file before refreshing.")
             return
@@ -263,6 +276,7 @@ class SituationRefreshMixin:
         self._raw_match_syncing = True
 
         def worker():
+            """Worker: compute the raw-yarn match of every row and the Da abbinare suggestions off the UI thread."""
             try:
                 matches = business_logic.compute_raw_yarn_matches(
                     snapshot, magazino_snapshot, lotti_snapshot
@@ -293,7 +307,7 @@ class SituationRefreshMixin:
                 self._notify_raw_yarn_available()
                 self._notify_abbina_pending(abbina_suggestions)
 
-            self.after(0, apply_result)
+            post_to_ui(self, apply_result)
 
         threading.Thread(target=worker, daemon=True).start()
     def _recompute_prezzo_densita_for_frame(self, frame: pd.DataFrame) -> tuple[pd.DataFrame, list[tuple]]:
@@ -341,21 +355,18 @@ class SituationRefreshMixin:
             logger.warning("Situazione: Densita' Query lookup failed: %s", exc)
 
         def _prezzo_row(row):
+            """Check one row's price against Listini and prepare its notification.
+
+            Looks up the expected price (with the machine surcharge) and compares it with
+            Prezzo Ord. using parse_price(); builds a stable identity key from article,
+            code and partita so the same problem is never notified twice.
+            """
             base, used_category, category, level = biglietti_exporter.prezzo_match_for(
                 row.get("articolo", ""), row.get("codice", ""), price_lookup
             )
             expected = biglietti_exporter.apply_machine_surcharge(base, row.get("mc", ""))
-            current = row.get("prezzo", "")
-            try:
-                curr_clean = str(current or "").replace("$", "").replace("USD", "").replace("usd", "").strip().replace(",", ".")
-                current_num = float(curr_clean) if curr_clean else None
-            except (TypeError, ValueError):
-                current_num = None
-            try:
-                exp_clean = str(expected or "").replace("$", "").replace("USD", "").replace("usd", "").strip().replace(",", ".")
-                expected_num = float(exp_clean) if exp_clean else None
-            except (TypeError, ValueError):
-                expected_num = None
+            current_num = business_logic.parse_price(row.get("prezzo", ""))
+            expected_num = business_logic.parse_price(expected)
             article = str(row.get("articolo", "")).strip()
             code = str(row.get("codice", "")).strip()
             colore = str(row.get("colore", "")).strip()
@@ -425,12 +436,14 @@ class SituationRefreshMixin:
         self.current_df, pending = self._recompute_prezzo_densita_for_frame(self.current_df)
         self._fire_prezzo_notifications(pending)
     def _recompute_prezzo_densita_async(self) -> None:
+        """Recompute Prezzo Listini and densita for the whole table on a worker thread, then show them and fire the price notifications; one run at a time."""
         if self._price_densita_syncing or self.current_df.empty:
             return
         self._price_densita_syncing = True
         snapshot = self.current_df.copy()
 
         def worker():
+            """Worker: compute Prezzo Listini, densita and the pending price notifications for a snapshot of the table."""
             try:
                 result, pending = self._recompute_prezzo_densita_for_frame(snapshot)
                 error = None
@@ -450,10 +463,11 @@ class SituationRefreshMixin:
                 self._render_tree(self.current_df)
                 self._fire_prezzo_notifications(pending)  # main thread: safe to touch Tk here
 
-            self.after(0, apply_result)
+            post_to_ui(self, apply_result)
 
         threading.Thread(target=worker, daemon=True).start()
     def _load_table_from_db(self):
+        """Load the saved partita states from SQLite into the table, sorted by bagno, then start the raw-yarn match, the delivery dates and the Prezzo/Densita recompute, and notify the dependent views."""
         states = db.get_all_states()
         self.current_df = pd.DataFrame(states.values())
         self._data_revision += 1

@@ -488,6 +488,9 @@ def _matches_filters(
     hint_groups: list[tuple[str, ...]],
     name_hint: str = "",
 ) -> bool:
+    """True when a DFM entry's CLDESCR matches the wanted colour.
+    The number in CLDESCR must be the colour code exactly, or the code plus a standard 2-digit client sub-code ("440" -> "44011"); the marker, twist and name-hint filters then narrow it further.
+    """
     cldescr_upper = entry["cldescr"].upper()
 
     m = _CLDESCR_CODE_RE.match(cldescr_upper)
@@ -617,6 +620,68 @@ def lookup_dfm_color(
                     return best["coloredfm"], best["cldescr"]
 
     return _guess_new_colour(colour_code, colour_name, yarn)
+
+
+_ARABIC_LETTERS_RE = re.compile(r"[\u0600-\u06FF]")
+# A Pantone-style reference such as "13-0608 TCX" or "(17-1212 TCX)".
+_PANTONE_RE = re.compile(r"\(?\s*\d{2}\s*-\s*\d{4}\s*(?:TCX|TPX|TPG|C)?\s*\)?")
+
+
+def colour_name_key(name: str) -> str:
+    """Comparable form of a colour *name*, so that every spelling of the same
+    colour meets in one key.
+
+    DFM writes the same colour as "KA-MENT 4" or "KA-MENT 4 - 13-0608 TCX",
+    while the order PDF carries "MENT 4", sometimes with a stray Arabic letter
+    stuck to it ("صMENT 4").  Dropped before comparing: Arabic letters, the
+    "KA" customer tag, the Pantone reference and all punctuation/spacing.
+    "KA-MENT 4 - 13-0608 TCX", "KA-MENT 4", "MENT 4" and "صMENT 4" -> "MENT4".
+    """
+    text = clean_text(name).upper()
+    text = text.translate(str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789"))
+    text = _ARABIC_LETTERS_RE.sub(" ", text)
+    text = _PANTONE_RE.sub(" ", text)
+    text = re.sub(r"[^0-9A-Z]+", " ", text)
+    tokens = text.split()
+    if tokens and tokens[0] == "KA":
+        tokens = tokens[1:]
+    elif tokens and tokens[-1] == "KA":      # an RTL cell can put the tag last
+        tokens = tokens[:-1]
+    return "".join(tokens)
+
+
+def lookup_dfm_color_by_name(
+    colour_name: str,
+    entries: list[dict[str, str]],
+    articolo: str = "",
+) -> tuple[str, str]:
+    """(COLOREDFM, CLDESCR) of the DFM entry carrying this colour *name*, or
+    ("", "") when DFM has none.
+
+    Names are compared through colour_name_key(), so the PDF's short name finds
+    the DFM entry whichever of its spellings DFM uses.  Several entries can
+    share one name (other articles, other dates): the one for *articolo*
+    (when given) wins, then the most recent, then the fullest description.
+    """
+    key = colour_name_key(colour_name)
+    if not key:
+        return "", ""
+    articolo = clean_text(articolo)
+    candidates = [
+        e for e in entries
+        if clean_text(e.get("coloredfm")) and colour_name_key(e.get("cldescr", "")) == key
+    ]
+    if not candidates:
+        return "", ""
+    best = max(
+        candidates,
+        key=lambda e: (
+            bool(articolo) and e.get("articolo") == articolo,
+            e.get("date", ""),
+            len(clean_text(e.get("cldescr"))),
+        ),
+    )
+    return clean_text(best["coloredfm"]), clean_text(best["cldescr"])
 
 
 def raw_to_finished_articolo(articolo_delta) -> str | None:
