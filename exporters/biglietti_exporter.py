@@ -719,6 +719,7 @@ def _read_sheet_rows(ws) -> list[dict[str, Any]]:
                 # labels replacing the actual row-1 label.
                 rec.setdefault(headers[i], value)
                 rec.setdefault(f"__col{i + 1}", value)
+        rec["__headers"] = headers
         out.append(rec)
     return out
 
@@ -743,6 +744,19 @@ def _get(row: dict[str, Any], *names: str) -> Any:
         if _key(name) in row and _clean(row[_key(name)]):
             return row[_key(name)]
     return ""
+
+
+def _name_after_color_code(row: dict[str, Any]) -> str:
+    """The colour name: the cell right after the 'Colore' (colour code) column
+    of the uploaded order file.  Located by header, so it survives an export
+    that shifts the columns; column 7 is the fallback for the usual layout."""
+    headers = row.get("__headers") or []
+    if "colore" in headers:
+        idx = headers.index("colore")
+        name = _clean(row.get(f"__col{idx + 2}"))
+        if name:
+            return name
+    return _clean(row.get("__col7"))
 
 
 def detect_order_format(data_path: Path) -> str:
@@ -850,6 +864,11 @@ def load_order(input_path: Path, dispo_path: Path | None = None) -> tuple[list[O
         for r in dispo_rows if _clean(_get(r, "Dispo"))
     }
     raw_by_article = {_clean(_get(r, "Articolo")).upper(): r for r in raw_rows}
+    color_name_by_code: dict[str, str] = {}
+    for r in data:
+        name = _name_after_color_code(r)
+        if name:
+            color_name_by_code.setdefault(_clean(_get(r, "Colore")), name)
     result: list[OrderRecord] = []
     for row in data:
         code = _clean(_get(row, "Cliente"))
@@ -874,7 +893,15 @@ def load_order(input_path: Path, dispo_path: Path | None = None) -> tuple[list[O
                 description=additional or article,
                 additional_raw=additional,
                 color_code=_clean(_get(row, "Colore")),
-                color_name=_clean(_get(row, "__col7")) or _clean(_get(row, "Colore")),
+                # Colour name = the column right after the colour code in the
+                # uploaded order file -- never from the Dispo file, whose
+                # name is a shorter label.  A row whose own name cell is empty
+                # borrows the name of another row with the same colour code.
+                color_name=(
+                    _name_after_color_code(row)
+                    or color_name_by_code.get(_clean(_get(row, "Colore")), "")
+                    or _clean(_get(row, "Colore"))
+                ),
                 order_no=_order_number(_get(row, "Ordine")),
                 order_row=riga,
                 colored_batch=_clean(_get(row, "Partita")),

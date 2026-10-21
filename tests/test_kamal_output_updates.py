@@ -83,8 +83,8 @@ def test_kamal_previous_generated_files_are_removed_but_unrelated_files_remain(t
 
 def test_elvy_and_med_previous_generated_files_are_removed_per_customer(tmp_path):
     old_elvy = tmp_path / "PO-27_ELVY.xlsx"
-    old_med = tmp_path / "PO-27_MED_Biglietti.docx"
-    other_customer = tmp_path / "PO-27_MED.xlsx"
+    old_med = tmp_path / "MED-D-505450-2026_MED_Biglietti.docx"
+    other_customer = tmp_path / "MED-D-505450-2026_MED.xlsx"
     unrelated = tmp_path / "keep_me.xlsx"
     for path in (old_elvy, old_med, other_customer, unrelated):
         path.write_text("x", encoding="utf-8")
@@ -110,3 +110,29 @@ def test_erp_and_filato_exports_do_not_leave_previous_workbooks(tmp_path):
 
     assert not (tmp_path / "EXCEL PER ORDINE VENDITA EGITTO.previous.xlsx").exists()
     assert not (tmp_path / "Filato x Tinturia.previous.xlsx").exists()
+
+
+def test_cleanup_in_a_shared_folder_never_touches_other_customers_or_tabs(tmp_path):
+    """The three customers (and the Ordine MED tab) may share one folder."""
+    elvy_xlsx = tmp_path / "PO-27_ELVY.xlsx"
+    elvy_docx = tmp_path / "PO-27_ELVY_Biglietti.docx"
+    med_xlsx = tmp_path / "MED-D-505450-2026_MED.xlsx"
+    med_docx = tmp_path / "MED-D-505450-2026_MED_Biglietti.docx"
+    med_pgx = tmp_path / "MED-D-505450-2026_MED_Biglietti-pg-x.docx"
+    ordine_med = tmp_path / "Ordine_MED.xlsx"  # written by the Ordine MED tab
+    kamal_xlsx = tmp_path / "ORD.Nr.27-2026(LETTER 107)_EL_KAMAL.xlsx"
+    kamal_docx = tmp_path / "D-505581-KAMAL-2026_Biglietti.docx"
+    kamal_docx_no_dispo = tmp_path / "KAMAL-2026_Biglietti.docx"
+    everything = [elvy_xlsx, elvy_docx, med_xlsx, med_docx, med_pgx, ordine_med,
+                  kamal_xlsx, kamal_docx, kamal_docx_no_dispo]
+    for path in everything:
+        path.write_text("x", encoding="utf-8")
+
+    _clear_previous_kamal_outputs(tmp_path)
+    assert not kamal_xlsx.exists() and not kamal_docx.exists() and not kamal_docx_no_dispo.exists()
+    for survivor in (elvy_xlsx, elvy_docx, med_xlsx, med_docx, med_pgx, ordine_med):
+        assert survivor.exists(), survivor.name
+
+    _clear_previous_client_outputs(tmp_path, "MED")
+    assert not med_xlsx.exists() and not med_docx.exists() and not med_pgx.exists()
+    assert ordine_med.exists() and elvy_xlsx.exists() and elvy_docx.exists()

@@ -473,3 +473,32 @@ def test_biglietti_tab_routes_3019_rows_to_the_el_kamal_outputs():
     assert 'has_kamal = any(r.customer_code == "3019"' in tab
     assert "kamal_records = [r for r in records if r.customer_code == \"3019\"]" in tab
     assert 'customer="EL_KAMAL"' in tab
+
+
+def test_kamal_colour_name_is_the_cell_after_the_colour_code_in_the_order_file(tmp_path):
+    """The (longer) name next to the colour code in the uploaded order file is
+    used -- the Dispo file's shorter label must never replace it."""
+    from exporters import biglietti_exporter as b
+
+    data, dispo = tmp_path / "ORD.xlsx", tmp_path / "Dispo.xlsx"
+    _kamal_erp_dump(data, [(3019, "C170115S", 790351, 1, 159527, 330, "PG-1-ORD.Nr.28-2026(LETTER 108)")])
+    ws_rows = [list(r) for r in openpyxl.load_workbook(data).active.iter_rows(values_only=True)]
+    for r in ws_rows[2:]:
+        r[6] = "KA-MENT 4 - 13-0608 TCX       "
+    _workbook(data, {"Sheet1": ws_rows})
+    _dispo_file(dispo, [("D-00505582-001", 79228, "T1343", 3306, "C170115S", "790351", "KA-MENT 4", "OO", 33, 28, "KG", "003019")])
+    (rec,), _ = b.load_order(data, dispo)
+    assert rec.color_name == "KA-MENT 4 - 13-0608 TCX"
+
+
+def test_kamal_colour_name_follows_the_colour_code_column_when_columns_shift(tmp_path):
+    from exporters import biglietti_exporter as b
+
+    data = tmp_path / "ORD.xlsx"
+    _kamal_erp_dump(data, [(3019, "C170115S", 790351, 1, 159527, 330, "PG-1-ORD.Nr.28-2026(LETTER 108)")])
+    rows = [list(r) for r in openpyxl.load_workbook(data).active.iter_rows(values_only=True)]
+    rows[2][6] = "KA-MENT 4 - 13-0608 TCX"
+    shifted = [[None] + r for r in rows]                     # one extra leading column
+    _workbook(data, {"Sheet1": shifted})
+    (rec,), _ = b.load_order(data, None)
+    assert rec.color_code == "790351" and rec.color_name == "KA-MENT 4 - 13-0608 TCX"

@@ -71,10 +71,22 @@ def _clear_previous_client_outputs(
     keep = {path.resolve() for path in (keep or set())}
     if not output_dir.is_dir():
         return
+    # Each pattern is anchored to the exact file-name shape that customer's
+    # export produces, so a shared output folder never loses another
+    # customer's (or another tab's) files:
+    #   * MED stems are always "MED-D-<n>-<year>" / "MED-<year>" -- anchoring on
+    #     "MED-" keeps the Ordine MED tab's own "Ordine_MED.xlsx" safe.
+    #   * Kamal tickets are "D-<n>-KAMAL-<year>_Biglietti.docx" or
+    #     "KAMAL-<year>_Biglietti.docx" -- a bare "*_Biglietti.docx" would also
+    #     match ELVY's and MED's ticket files.
     patterns_by_customer = {
         "ELVY": ("*_ELVY.xlsx", "*_ELVY_Biglietti.docx", "*_ELVY_Biglietti-pg-x.docx"),
-        "MED": ("*_MED.xlsx", "*_MED_Biglietti.docx", "*_MED_Biglietti-pg-x.docx"),
-        "EL_KAMAL": ("*_EL_KAMAL.xlsx", "*_Biglietti.docx", "D-*-KAMAL-*.docx"),
+        "MED": ("MED-*_MED.xlsx", "MED-*_MED_Biglietti.docx", "MED-*_MED_Biglietti-pg-x.docx"),
+        "EL_KAMAL": (
+            "*_EL_KAMAL.xlsx",
+            "D-*-KAMAL-*_Biglietti.docx",
+            "KAMAL-*_Biglietti.docx",
+        ),
     }
     patterns = patterns_by_customer.get(customer.upper(), ())
     for pattern in patterns:
