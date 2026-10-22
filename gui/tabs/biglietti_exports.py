@@ -34,6 +34,7 @@ sync_workbook_history = lazy_call(
     "exporters.biglietti_exporter", "sync_workbook_history"
 )
 save_pg_x_partita = lazy_call("exporters.biglietti_exporter", "save_pg_x_partita")
+requested_lotto_for = lazy_call("exporters.biglietti_exporter", "requested_lotto_for")
 pg_x_batch_stock_status = lazy_call(
     "exporters.biglietti_exporter", "pg_x_batch_stock_status"
 )
@@ -44,6 +45,7 @@ update_pg_x_row = lazy_call("exporters.biglietti_exporter", "update_pg_x_row")
 update_order_row = lazy_call("exporters.biglietti_exporter", "update_order_row")
 move_pg_x_to_orders = lazy_call("exporters.biglietti_exporter", "move_pg_x_to_orders")
 delete_pg_x_row = lazy_call("exporters.biglietti_exporter", "delete_pg_x_row")
+delete_shared_rows = lazy_call("exporters.biglietti_exporter", "delete_shared_rows")
 delete_shipped_shared_rows = lazy_call(
     "exporters.biglietti_exporter", "delete_shipped_shared_rows"
 )

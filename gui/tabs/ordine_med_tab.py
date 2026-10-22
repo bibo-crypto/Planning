@@ -276,7 +276,8 @@ class OrdineMedTab(ttk.Frame):
     def _worker(self):
         """The Ordine MED conversion (worker thread): load the order, compute MC and
         group, optional bagno, Titolo, Cliente, Commento and Prezzo, check the filato
-        availability and write the workbook; the result is reported through post_to_ui().
+        availability and write Ordine_MED.xlsx and Prezzi.xlsx (plus the optional ERP and
+        filato files); the result is reported through post_to_ui().
         """
         try:
             from exporters.biglietti_exporter import (
@@ -341,6 +342,8 @@ class OrdineMedTab(ttk.Frame):
             output_dir = self.output_path
             output_file = output_dir / "Ordine_MED.xlsx"
             ordine_med.export_ordine_med_workbook(output_file, records, availability)
+            prezzi_file = output_dir / "Prezzi.xlsx"
+            ordine_med.export_prezzi_workbook(prezzi_file, records)
             if self.erp_enabled.get():
                 if not self.erp_folder or not self.erp_folder.is_dir():
                     raise ValueError("ERP extraction is enabled but no ERP Files Folder is selected.")
@@ -357,7 +360,7 @@ class OrdineMedTab(ttk.Frame):
             shortage_count = sum(1 for a in availability if a.disponibilita == "NO")
             extra = f" — {shortage_count} short" if shortage_count else ""
             self._set_status(f"✅ Done — {len(records)} row(s){extra}")
-            post_to_ui(self, lambda: messagebox.showinfo("Ordine MED", f"Created:\n{output_file}{extra}"))
+            post_to_ui(self, lambda: messagebox.showinfo("Ordine MED", f"Created:\n{output_file}\n{prezzi_file}{extra}"))
         except Exception as exc:
             if self._logger:
                 self._logger.exception("Ordine MED conversion failed")

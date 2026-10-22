@@ -27,6 +27,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
 from calculate.constants import MACHINE_CAPACITIES
+from calculate.raw_batch import MED_CODE, is_blank_raw, is_customer_lot
 from utility.excel_io import safe_save_workbook
 from utility.master_data import raw_articolo_for
 
@@ -79,6 +80,45 @@ def _order_number(v: Any) -> str:
 def _first_match(text: str, pattern: str) -> str:
     m = re.search(pattern, text, re.I)
     return m.group(1) if m else ""
+
+
+def _med_raw_batch(additional: str) -> str:
+    """Return MED's requested Partita GG from its order comment.
+
+    The comment is still the sole source: ``PG-159233-PM...`` is one of our
+    assigned batches, while ``PG-X(837756)-PM...`` / ``PG-837756-PM...`` is
+    MED's customer lot.  Both must remain visible in the Excel and ticket so
+    their VMM22, density and tube-colour lookups can run.  The latter is kept
+    in PG-X (and never exported to Filato x Tinturia) by the shared raw-batch
+    classification helpers.
+    """
+    return requested_lotto_from_comment(additional)
+
+
+def requested_lotto_for(record: "OrderRecord") -> str:
+    """The lotto Smart Auto-Assign looks up in the stock for a PG-X row.
+
+    A MED customer lot recorded in Partita GG (a number not starting with 1) wins;
+    otherwise the lotto written in the row's comment ("" when it names none).
+    """
+    if is_customer_lot(record.raw_batch, record.customer_code):
+        return _clean(record.raw_batch)
+    return requested_lotto_from_comment(record.commento or record.additional_raw or "")
+
+
+def requested_lotto_from_comment(comment: str) -> str:
+    """The lotto an order comment asks for, used to find its stock in Magazino Filato.
+
+    "PG-837756-PM..." / "PG-159266-PM..." -> "837756" / "159266"; the waiting form
+    "PG-X(837756)-PM..." -> "837756"; a bare "PG-X-..." or no PG token -> "".
+    """
+    text = comment or ""
+    waiting = re.search(r"(?i)PG-X\(\s*([^)\s]+)\s*\)", text)
+    if waiting:
+        return waiting.group(1).strip()
+    token = re.search(r"(?i)PG-([^-\s(]+)", text)
+    value = token.group(1).strip() if token else ""
+    return "" if value.upper() == "X" else value
 
 
 # ---------------------------------------------------------------------------
@@ -832,7 +872,7 @@ def load_dispo_bagno_rows(path: Path) -> list[dict[str, Any]]:
 # Customer codes the ERP order dump (Sheet1) may contain.  3019 = EL KAMAL: the
 # same raw ERP dump as ELVY/MED, but its quantity is in KG and its machine and
 # cone count come from the Dispo rows (Field3 / Field10), not from the order.
-ELVY_CODE, MED_CODE, KAMAL_CODE = "3009", "3004", "3019"
+ELVY_CODE, KAMAL_CODE = "3009", "3019"          # MED_CODE ("3004") comes from calculate.raw_batch
 _ERP_DUMP_CUSTOMER_CODES = {ELVY_CODE, MED_CODE, KAMAL_CODE}
 _DEFAULT_KAMAL_NAME = "EL KAMAL"
 
@@ -911,7 +951,13 @@ def load_order(input_path: Path, dispo_path: Path | None = None) -> tuple[list[O
         article = _clean(_get(row, "Articolo"))
         raw = raw_by_article.get(("G" + article[1:]).upper(), {}) if article else {}
         additional = _clean(_get(row, "Descrizione aggiuntiva ordine"))
-        raw_batch = _clean(_get(raw, "Partita.GG", "Partita")) or _first_match(additional, r"PG[- ]*([0-9]+)")
+        if code == MED_CODE:
+            # MED: Partita GG is never taken from the raw-yarn sheet.  Its
+            # comment may name either one of our batches or MED's own lot;
+            # the latter remains in PG-X but is retained for output/lookups.
+            raw_batch = _med_raw_batch(additional)
+        else:
+            raw_batch = _clean(_get(raw, "Partita.GG", "Partita")) or _first_match(additional, r"PG[- ]*([0-9]+)")
         riga = _clean(_get(row, "Riga"))
         dispo = dispo_by_riga.get(_dispo_suffix(riga), {})
         if code == KAMAL_CODE:
@@ -965,7 +1011,8 @@ def load_order(input_path: Path, dispo_path: Path | None = None) -> tuple[list[O
             colored_batch=_clean(_get(row, "Partita")),
             raw_batch=raw_batch,
             quantity_cones=_number(_get(row, "Ordinata", "Assegnata")) or _number(_get(raw, "عدد")),
-            raw_weight=_number(_get(raw, "وزن", "Peso")),
+            # A MED row still waiting for raw yarn gets no KG/VMM22 from the raw sheet.
+            raw_weight=None if (code == MED_CODE and not raw_batch) else _number(_get(raw, "وزن", "Peso")),
             dispo=_clean(_get(dispo, "Dispo")),
             bagno=_clean(_get(dispo, "Field2", "Bagno")),
             delivery=_get(row, "Consegna"),
@@ -1199,6 +1246,10 @@ def _filato_rows(
 
     totals: dict[str, float] = {}
     for rec in records:
+        # A MED customer lot is shown in Partita GG, but it is not yarn to
+        # prepare: it stays in PG-X until a real batch is assigned.
+        if is_customer_lot(getattr(rec, "raw_batch", ""), getattr(rec, "customer_code", "")):
+            continue
         key = _clean(rec.raw_batch)
         if not key:
             continue
@@ -1232,6 +1283,8 @@ def _filato_rows(
     out = []
     seen: set[str] = set()
     for rec in records:
+        if is_customer_lot(getattr(rec, "raw_batch", ""), getattr(rec, "customer_code", "")):
+            continue
         key = _clean(rec.raw_batch)
         if not key or key in seen:
             continue
@@ -1276,7 +1329,8 @@ def export_workbook(
     Records are sorted numerically by Partita Col (empty ones last).  Writes the
     common columns plus the customer extras (Color Tube, VMM22, Prezzo, Densita),
     the optional filato (yarn) section, and styles the sheet.
-    hide_kamal_quantities (EL KAMAL only) leaves the Rocche, KG and VMM22 cells empty.
+    hide_kamal_quantities (EL KAMAL only) leaves the Rocche and KG cells empty.
+    The EL KAMAL sheet has no VMM22 column.
     """
     customer = customer or ("ELVY" if records[0].customer_code == "3009" else "MED")
     # The Create (EXCEL+Biglietti) extract is consumed in Partita Col order.
@@ -1297,10 +1351,9 @@ def export_workbook(
     if customer == "MED":
         headers = common + ["Partita MED", "Cliente MED", "POLMON"] + extra_cols
     elif customer == "EL_KAMAL":
-        # Keep VMM22 visible for Kamal unless the dedicated privacy/display
-        # option is enabled.  With the option enabled its value is cleared
-        # along with Rocche and KG; unticking restores all three values.
-        headers = common + ["VMM22"]
+        # Kamal's sheet has no extra columns: no VMM22 (Rocche and KG can still
+        # be hidden with the dedicated option).
+        headers = common
     else:
         headers = common + ["Delivery Date"] + extra_cols
     ws.append(headers)
@@ -1314,7 +1367,7 @@ def export_workbook(
             polmon = _polmoni_segment(r.additional_raw)
             row += [r.partita_med, r.cliente_med, polmon, r.color_tube, r.vmm22, r.prezzo, r.densita]
         elif customer == "EL_KAMAL":
-            row += [None if hide_kamal_quantities else r.vmm22]
+            pass                                  # nothing beyond the common columns
         else:
             row += [r.delivery_date, r.color_tube, r.vmm22, r.prezzo, r.densita]
         ws.append(row)
@@ -1421,9 +1474,13 @@ def remove_uploaded_pgx_rows(path: Path, row_indices: list[int]) -> int:
         workbook.close()
 
 
-def _is_pg_x(value: Any) -> bool:
-    text = _clean(value).upper().replace(" ", "")
-    return not text or text in {"X", "PG-X", "PGX"}
+def _is_pg_x(value: Any, customer_code: Any = "") -> bool:
+    """True when a row belongs in PG-X.
+
+    Blank batches always wait.  MED lots that do not start with ``1`` also
+    wait: they are displayed as Partita GG, yet are not our assigned yarn.
+    """
+    return is_blank_raw(value) or is_customer_lot(value, customer_code)
 
 
 def _deduplicate_create_excel_rows(wb) -> int:
@@ -1521,12 +1578,18 @@ def append_create_excel(path: Path, records: list[OrderRecord], customer: str) -
     if raw_col and ws.max_row > 1:
         move_rows = []
         for row_idx in range(2, ws.max_row + 1):
-            if _is_pg_x(ws.cell(row=row_idx, column=raw_col).value):
+            customer_col = next((i + 1 for i, h in enumerate(headers) if _key(h) == _key("Cliente")), None)
+            customer = _clean(ws.cell(row=row_idx, column=customer_col).value) if customer_col else ""
+            customer_code = MED_CODE if customer.upper().startswith("MED") else ""
+            if _is_pg_x(ws.cell(row=row_idx, column=raw_col).value, customer_code):
                 move_rows.append([ws.cell(row=row_idx, column=col_idx).value for col_idx in range(1, ws.max_column + 1)])
         for row in move_rows:
             pg_ws.append([dict(zip(headers, row)).get(header, "") for header in pg_headers])
         for row_idx in range(ws.max_row, 1, -1):
-            if _is_pg_x(ws.cell(row=row_idx, column=raw_col).value):
+            customer_col = next((i + 1 for i, h in enumerate(headers) if _key(h) == _key("Cliente")), None)
+            customer = _clean(ws.cell(row=row_idx, column=customer_col).value) if customer_col else ""
+            customer_code = MED_CODE if customer.upper().startswith("MED") else ""
+            if _is_pg_x(ws.cell(row=row_idx, column=raw_col).value, customer_code):
                 ws.delete_rows(row_idx, 1)
 
     _deduplicate_create_excel_rows(wb)
@@ -1555,7 +1618,7 @@ def append_create_excel(path: Path, records: list[OrderRecord], customer: str) -
             skipped += 1
             continue
         values = dict(zip(CREATE_EXCEL_HEADERS, _create_excel_row(record, customer)))
-        target_ws = pg_ws if _is_pg_x(record.raw_batch) else ws
+        target_ws = pg_ws if _is_pg_x(record.raw_batch, record.customer_code) else ws
         target_headers = pg_headers if target_ws is pg_ws else headers
         target_ws.append([values.get(header, "") for header in target_headers])
         existing.add(key)
@@ -2019,9 +2082,8 @@ def delete_pg_x_row(path: Path, partita_col: str) -> int:
     return len(matches)
 
 
-@_serialized_workbook_write
-def delete_shipped_shared_rows(path: Path, partita_cols, sheet_name: str) -> int:
-    """Delete rows in one shared-workbook sheet whose Partita Col shipped."""
+def _delete_shared_rows(path: Path, partita_cols, sheet_name: str, reason: str) -> int:
+    """Delete selected Partita Col values from either shared-workbook sheet."""
     from openpyxl import load_workbook
 
     wb = load_workbook(path)
@@ -2038,7 +2100,7 @@ def delete_shipped_shared_rows(path: Path, partita_cols, sheet_name: str) -> int
             row_idx for row_idx in range(2, ws.max_row + 1)
             if _partita_key(ws.cell(row=row_idx, column=col_idx).value) in shipped
         ]
-        _record_history_before_delete(path, sheet_name, ws, headers, col_idx, matches, "shipped/invoiced")
+        _record_history_before_delete(path, sheet_name, ws, headers, col_idx, matches, reason)
         for row_idx in reversed(matches):
             ws.delete_rows(row_idx, 1)
         _style_sheet(ws, date_columns=("Consegna", "Delivery Date"))
@@ -2046,6 +2108,18 @@ def delete_shipped_shared_rows(path: Path, partita_cols, sheet_name: str) -> int
         return len(matches)
     finally:
         wb.close()
+
+
+@_serialized_workbook_write
+def delete_shared_rows(path: Path, partita_cols, sheet_name: str) -> int:
+    """Manually delete selected rows from either Orders or PG-X."""
+    return _delete_shared_rows(path, partita_cols, sheet_name, "deleted")
+
+
+@_serialized_workbook_write
+def delete_shipped_shared_rows(path: Path, partita_cols, sheet_name: str) -> int:
+    """Delete rows in one shared-workbook sheet whose Partita Col shipped."""
+    return _delete_shared_rows(path, partita_cols, sheet_name, "shipped/invoiced")
 
 
 def export_filato_workbook(

@@ -9,7 +9,6 @@ from exporters.biglietti_exporter import (
     build_el_kamal_stem,
     export_workbook,
 )
-from gui.tabs.biglietti_tab import _clear_previous_client_outputs, _clear_previous_kamal_outputs
 
 
 def _record(commento="PG-159640-ORD.Nr.28-2026(LETTER 108)"):
@@ -58,44 +57,14 @@ def test_kamal_workbook_can_hide_rocche_and_kg(tmp_path):
     ws = openpyxl.load_workbook(path, data_only=True)["EL_KAMAL"]
     header = [cell.value for cell in ws[1]]
     row = {header[i]: ws.cell(row=2, column=i + 1).value for i in range(len(header))}
-    assert row["Rocche"] is None and row["KG"] is None and row["VMM22"] is None
+    assert row["Rocche"] is None and row["KG"] is None
+    assert "VMM22" not in row                       # EL KAMAL has no VMM22 column
 
     export_workbook(path, [record], [], customer="EL_KAMAL", hide_kamal_quantities=False)
     ws = openpyxl.load_workbook(path, data_only=True)["EL_KAMAL"]
     header = [cell.value for cell in ws[1]]
     row = {header[i]: ws.cell(row=2, column=i + 1).value for i in range(len(header))}
-    assert row["Rocche"] == 56 and row["KG"] == 52.5 and row["VMM22"] == 49.25
-
-
-def test_kamal_previous_generated_files_are_removed_but_unrelated_files_remain(tmp_path):
-    old_excel = tmp_path / "ORD.Nr.27-2026(LETTER 107)_EL_KAMAL.xlsx"
-    old_word = tmp_path / "D-505581-KAMAL-2026_Biglietti.docx"
-    unrelated = tmp_path / "keep_me.xlsx"
-    for path in (old_excel, old_word, unrelated):
-        path.write_text("x", encoding="utf-8")
-
-    current = tmp_path / "ORD.Nr.28-2026(LETTER 108)_EL_KAMAL.xlsx"
-    _clear_previous_kamal_outputs(tmp_path, {current})
-
-    assert not old_excel.exists() and not old_word.exists()
-    assert unrelated.exists()
-
-
-def test_elvy_and_med_previous_generated_files_are_removed_per_customer(tmp_path):
-    old_elvy = tmp_path / "PO-27_ELVY.xlsx"
-    old_med = tmp_path / "MED-D-505450-2026_MED_Biglietti.docx"
-    other_customer = tmp_path / "MED-D-505450-2026_MED.xlsx"
-    unrelated = tmp_path / "keep_me.xlsx"
-    for path in (old_elvy, old_med, other_customer, unrelated):
-        path.write_text("x", encoding="utf-8")
-
-    _clear_previous_client_outputs(tmp_path, "ELVY")
-    assert not old_elvy.exists()
-    assert old_med.exists() and other_customer.exists() and unrelated.exists()
-
-    _clear_previous_client_outputs(tmp_path, "MED")
-    assert not old_med.exists() and not other_customer.exists()
-    assert unrelated.exists()
+    assert row["Rocche"] == 56 and row["KG"] == 52.5
 
 
 def test_erp_and_filato_exports_do_not_leave_previous_workbooks(tmp_path):
@@ -112,27 +81,7 @@ def test_erp_and_filato_exports_do_not_leave_previous_workbooks(tmp_path):
     assert not (tmp_path / "Filato x Tinturia.previous.xlsx").exists()
 
 
-def test_cleanup_in_a_shared_folder_never_touches_other_customers_or_tabs(tmp_path):
-    """The three customers (and the Ordine MED tab) may share one folder."""
-    elvy_xlsx = tmp_path / "PO-27_ELVY.xlsx"
-    elvy_docx = tmp_path / "PO-27_ELVY_Biglietti.docx"
-    med_xlsx = tmp_path / "MED-D-505450-2026_MED.xlsx"
-    med_docx = tmp_path / "MED-D-505450-2026_MED_Biglietti.docx"
-    med_pgx = tmp_path / "MED-D-505450-2026_MED_Biglietti-pg-x.docx"
-    ordine_med = tmp_path / "Ordine_MED.xlsx"  # written by the Ordine MED tab
-    kamal_xlsx = tmp_path / "ORD.Nr.27-2026(LETTER 107)_EL_KAMAL.xlsx"
-    kamal_docx = tmp_path / "D-505581-KAMAL-2026_Biglietti.docx"
-    kamal_docx_no_dispo = tmp_path / "KAMAL-2026_Biglietti.docx"
-    everything = [elvy_xlsx, elvy_docx, med_xlsx, med_docx, med_pgx, ordine_med,
-                  kamal_xlsx, kamal_docx, kamal_docx_no_dispo]
-    for path in everything:
-        path.write_text("x", encoding="utf-8")
-
-    _clear_previous_kamal_outputs(tmp_path)
-    assert not kamal_xlsx.exists() and not kamal_docx.exists() and not kamal_docx_no_dispo.exists()
-    for survivor in (elvy_xlsx, elvy_docx, med_xlsx, med_docx, med_pgx, ordine_med):
-        assert survivor.exists(), survivor.name
-
-    _clear_previous_client_outputs(tmp_path, "MED")
-    assert not med_xlsx.exists() and not med_docx.exists() and not med_pgx.exists()
-    assert ordine_med.exists() and elvy_xlsx.exists() and elvy_docx.exists()
+def test_the_create_page_never_deletes_earlier_orders():
+    """A new order must not wipe the files of earlier orders -- for any customer."""
+    source = Path("gui/tabs/biglietti_tab.py").read_text(encoding="utf-8")
+    assert "_clear_previous" not in source and ".unlink(" not in source and "rmtree" not in source

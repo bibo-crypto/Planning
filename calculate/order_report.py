@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Iterable, Any
 
 import pandas as pd
+from calculate.raw_batch import is_assigned_raw
 
 
 def _number(value: Any) -> float:
@@ -24,9 +25,8 @@ def pg_x_demand(records: Iterable[Any]) -> pd.DataFrame:
     """Aggregate open PG-X rows by Titolo, retaining article/client detail."""
     rows = []
     for record in records:
-        raw_batch = str(getattr(record, "raw_batch", "") or "").strip().upper().replace(" ", "")
-        if raw_batch not in {"", "X", "PG-X", "PGX"}:
-            continue
+        if is_assigned_raw(getattr(record, "raw_batch", ""), getattr(record, "customer_code", "")):
+            continue                      # only rows still waiting for raw yarn are demand
         rows.append({
             "Titolo": str(getattr(record, "title", "") or getattr(record, "description", "") or "").strip(),
             "Articolo": str(getattr(record, "article", "") or "").strip(),

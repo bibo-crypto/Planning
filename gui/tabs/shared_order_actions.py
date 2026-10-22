@@ -12,7 +12,7 @@ from utility.utils import keep_window_on_top, bind_escape_to_close
 from .biglietti_exports import (
     RawYarnMatch,
     _filato_rows,
-    delete_pg_x_row,
+    delete_shared_rows,
     delete_shipped_shared_rows,
     export_filato_full,
     export_word,
@@ -20,11 +20,13 @@ from .biglietti_exports import (
     move_pg_x_to_orders,
     pg_x_batch_stock_status,
     remove_uploaded_pgx_rows,
+    requested_lotto_for,
     save_pg_x_partita,
     update_order_row,
     update_pg_x_row,
 )
 from utility.ui_thread import post_to_ui
+from calculate.raw_batch import is_assigned_raw
 
 
 def _upload_partita_key(value):
@@ -214,15 +216,28 @@ class SharedOrdersActionsMixin:
             messagebox.showerror("PG-X Save Error", str(exc), parent=window)
 
         threading.Thread(target=worker, daemon=True).start()
-    def _pg_x_row_action_in_background(self, window, action, partita_col, datasets, refresh_records, rebuild):
-        """Run a PG-X row action (move it to Orders, or delete it) on a worker thread, then reload the sheets and refresh the window; one action at a time."""
+    def _pg_x_row_action_in_background(self, window, action, partita_cols, sheet_name, datasets, refresh_records, rebuild):
+        """Run a PG-X action on one or more rows in the worker thread.
+
+        Deletion deliberately uses the existing one-row exporter operation for
+        each Partita Col, preserving its audit/history behavior.
+        """
         if getattr(self, "_pg_x_action_running", False):
             return
         self._pg_x_action_running = True
+        if isinstance(partita_cols, str):
+            partita_cols = [partita_cols]
 
         def worker():
             try:
-                count = move_pg_x_to_orders(self.shared_excel_path, partita_col) if action == "move" else delete_pg_x_row(self.shared_excel_path, partita_col)
+                if action == "move":
+                    count = move_pg_x_to_orders(self.shared_excel_path, partita_cols[0])
+                else:
+                    # Unlike "Delete Shipped Colors", this is an explicit
+                    # user deletion and is valid on both tabs.
+                    count = delete_shared_rows(
+                        self.shared_excel_path, partita_cols, sheet_name,
+                    )
                 new_datasets = {
                     "Orders": load_create_excel_records(self.shared_excel_path, sheet_name="Orders"),
                     "PG-X": load_create_excel_records(self.shared_excel_path, sheet_name="PG-X"),
@@ -363,7 +378,7 @@ class SharedOrdersActionsMixin:
             pg_x_partita_cols = list(dict.fromkeys(
                 str(record.colored_batch)
                 for record in records
-                if str(record.raw_batch or "").strip().upper().replace(" ", "") not in {"", "X", "PG-X", "PGX"}
+                if is_assigned_raw(record.raw_batch, record.customer_code)
             ))
         window.destroy()
         self.convert_btn.config(state="disabled")
@@ -401,7 +416,7 @@ class SharedOrdersActionsMixin:
         # and must not block the move-to-Orders step below either.
         filato_records = [
             record for record in records
-            if str(record.raw_batch or "").strip().upper().replace(" ", "") not in {"", "X", "PG-X", "PGX"}
+            if is_assigned_raw(record.raw_batch, record.customer_code)
         ]
         if filato_records:
             try:
@@ -658,19 +673,16 @@ class SharedOrdersActionsMixin:
         used_capacity = {}
 
         for record in pgx_records:
-            raw_b = str(record.raw_batch or "").strip().upper().replace(" ", "")
-            if raw_b not in {"", "X", "PG-X", "PGX"}:
-                continue
+            if is_assigned_raw(record.raw_batch, record.customer_code):
+                continue                      # already holds one of our raw batches
 
             raw_art = str(record.article or "").strip().upper()
             if raw_art.startswith("C"):
                 raw_art = raw_articolo_for(raw_art)
 
             need_rocche = float(record.quantity_cones or 0)
-            comment = str(getattr(record, "commento", "") or getattr(record, "additional_raw", "") or "")
-            lotto_match = re.search(r"(?i)PG-([^-\s]+)", comment)
-            requested_lotto = lotto_match.group(1).strip() if lotto_match else ""
-            candidates = stock_by_lotto.get(requested_lotto.casefold(), []) if requested_lotto and requested_lotto.upper() != "X" else []
+            requested_lotto = requested_lotto_for(record)
+            candidates = stock_by_lotto.get(requested_lotto.casefold(), []) if requested_lotto else []
             # Lotto is authoritative when present. If no matching Lotto exists,
             # use the requested color's raw article as the fallback.
             if not candidates:
@@ -833,21 +845,21 @@ class SharedOrdersActionsMixin:
 
         threading.Thread(target=worker, daemon=True).start()
     def _assigned_pgx_records(self, current_sheet_name: str, record_by_iid: dict[str, object], sheet_by_iid: dict[str, str] = None):
+        """The PG-X rows "Print Assigned PG-X" prints: those holding one of our own raw
+        batches.  A MED row whose Partita GG is the customer's lot (a number not
+        starting with 1) is still waiting for raw yarn and is left out."""
         if current_sheet_name != "PG-X":
             return []
         return [
             record for iid, record in record_by_iid.items()
             if (sheet_by_iid.get(iid) == "PG-X" if sheet_by_iid else iid.startswith("PG-X-"))
-            and str(getattr(record, "raw_batch", "") or "").strip().upper().replace(" ", "") not in {"", "X", "PG-X", "PGX"}
+            and is_assigned_raw(getattr(record, "raw_batch", ""), getattr(record, "customer_code", ""))
         ]
     def _print_assigned_pgx(self, window, current_sheet_name: str, record_by_iid: dict[str, object], sheet_by_iid: dict[str, str] = None):
+        """Print every assigned PG-X row (see _assigned_pgx_records) and move it to Orders."""
         if current_sheet_name != "PG-X":
             return
-        records = [
-            record for iid, record in record_by_iid.items()
-            if (sheet_by_iid.get(iid) == "PG-X" if sheet_by_iid else iid.startswith("PG-X-"))
-            and str(getattr(record, "raw_batch", "") or "").strip().upper().replace(" ", "") not in {"", "X", "PG-X", "PGX"}
-        ]
+        records = self._assigned_pgx_records(current_sheet_name, record_by_iid, sheet_by_iid)
         if not records:
             return messagebox.showinfo("Print Assigned PG-X", "No PG-X row has a Partita GG assigned yet.", parent=window)
         by_iid = {str(index): record for index, record in enumerate(records)}

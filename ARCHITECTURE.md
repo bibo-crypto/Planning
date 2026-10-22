@@ -184,6 +184,20 @@ ERP and Filato folder rows, each with its own extraction checkbox. The ERP
 checkbox writes `Ordine_MED_ERP.xlsx`; the Filato checkbox writes a standalone
 `Filato X Tinturia.xlsx`; the combined workbook remains unchanged.
 
+`Ordine MED` also writes `Prezzi.xlsx` (sheet `MED`: Riga, ARTICOLO, TITOLO,
+COLORE, Q.TA, DESCR COL, LIVELLO, M/C, PREZZO, prezzo + (2$)) next to
+`Ordine_MED.xlsx`.  Its Commento follows `pipelines.ordine_med.pg_token`: a PT GRG
+that starts with 1 is one of our raw batches (`PG-159233-PM...`); any other number is
+the MED customer's lot (`PG-X(837756)-PM...`); blank is `PG-X-PM...`.
+`calculate/raw_batch.py` is the single definition of that rule: in Create
+(EXCEL+Biglietti) a MED row gets Partita GG only from its comment (never from the raw
+sheet).  A customer lot whose number does not start with `1` remains visible and its
+KG/VMM22/Densita/Color Tube values can be looked up, but it waits in PG-X and is never
+included in Filato x Tinturia.  Smart Auto-Assign takes the lot from the comment (or from a lot typed in
+Partita GG) to find the stock, and "Print Assigned PG-X" prints only rows holding one of
+our batches.  The Create page never deletes earlier orders' files, and no
+`.previous` copy is written unless `safe_save_workbook(..., keep_backup=True)` asks.
+
 `Situazione Generale` also runs a background synchronization pass for every
 shared source (Copertura, WINCOINT, Uscita, Qualita, Articoli, Listini, DFM,
 and Produzione). A successful upload from another page invokes the same pass,
@@ -209,9 +223,12 @@ discovers them the same way it always discovered `ui/`/`logic/`. When a
 module gains a new third-party import, add it to `requirements.txt` and, if
 PyInstaller's static analysis won't find it on its own (dynamic imports, C
 extensions), to `extra_hiddenimports` in `main.spec` too. `build.bat` reuses
-an existing `venv` in place (via `sync_venv_packages.py`, which removes
-anything no longer in `requirements.txt`) instead of deleting and recreating
-it on every build.
+an existing `venv` in place: it calls `venv\Scripts\python.exe` by full path
+(never `activate.bat`/`pip.exe`, which hard-code the folder the venv was created
+in) and runs `sync_venv_packages.py --sync`, which does nothing when
+`requirements.txt` is unchanged and every package is present, and otherwise
+removes what is no longer listed and installs only what is new.  The venv is
+recreated only when its `python.exe` is missing or cannot run.
 
 ## Number/text parsing (deliberately NOT consolidated)
 `biglietti_exporter._clean`/`_number`, `utils.clean_text`/`parse_number`,

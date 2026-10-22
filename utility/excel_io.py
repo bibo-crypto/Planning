@@ -38,14 +38,16 @@ def _lock_error(path: Path, exc: OSError) -> RuntimeError | None:
     return None
 
 
-def safe_save_workbook(workbook, path: Path, keep_backup: bool = True) -> None:
+def safe_save_workbook(workbook, path: Path, keep_backup: bool = False) -> None:
     """Save an openpyxl workbook without ever leaving a half-written file.
 
     The workbook is written to a temporary file in the same folder and checked;
     only then does it replace the original (atomic rename).  A failure at any
     point -- full disk, crash, locked file -- leaves the original exactly as it
-    was.  Before the swap the previous version is kept as ``<name>.previous.xlsx`` so the
-    last good file can be restored by hand.
+    was.  No ``<name>.previous.xlsx`` copy is left next to the file: the atomic swap
+    already protects it, and the extra file only cluttered the folders.  Pass
+    ``keep_backup=True`` to opt in to such a copy; a stale one from an older version is
+    removed on the next normal save.
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)

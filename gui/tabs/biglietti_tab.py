@@ -45,7 +45,7 @@ from utility.email_compose import (
     open_outlook_email,
 )
 from utility.utils import keep_window_on_top, bind_escape_to_close
-from utility.output_cleanup import clear_previous_outputs
+from calculate.raw_batch import is_assigned_raw
 from utility.ui_thread import post_to_ui
 
 # Filato x Tinturia here follows the same convention as Ordine Kamal/Ordine
@@ -53,26 +53,11 @@ from utility.ui_thread import post_to_ui
 # every time (see pipelines.ordini_elvy.export_filato_full's docstring) --
 # not the old per-order-named "{order file}_Filato.xlsx" snapshot.
 def _split_pg_x_records(records):
-    """Return (ready, pg_x) records for separate Word ticket files."""
+    """Return (ready, pg_x) records for separate Word ticket files: ready = holds one of our raw batches."""
     ready, pg_x = [], []
     for record in records:
-        raw_batch = str(record.raw_batch or "").strip().upper().replace(" ", "")
-        (pg_x if raw_batch in {"", "X", "PG-X", "PGX"} else ready).append(record)
+        (ready if is_assigned_raw(record.raw_batch, record.customer_code) else pg_x).append(record)
     return ready, pg_x
-
-
-def _clear_previous_client_outputs(
-    output_dir: Path, customer: str, keep: set[Path] | None = None
-) -> None:
-    """Remove only the previous generated files for one customer (ELVY, MED or
-    EL KAMAL); the current paths in ``keep`` and unrelated files are never touched.
-    The file-name rules live in utility.output_cleanup."""
-    clear_previous_outputs(output_dir, customer, keep)
-
-
-def _clear_previous_kamal_outputs(output_dir: Path, keep: set[Path] | None = None) -> None:
-    """Compatibility wrapper for callers/tests of the original helper."""
-    _clear_previous_client_outputs(output_dir, "EL_KAMAL", keep)
 
 
 class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame):
@@ -777,7 +762,6 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
                 excel_stem = build_el_kamal_excel_stem(records)
                 stem = ticket_stem; out_dir = Path(self.el_kamal_output_dir)
                 xlsx = out_dir / f"{excel_stem}_EL_KAMAL.xlsx"; docx = out_dir / f"{ticket_stem}_Biglietti.docx"
-                _clear_previous_kamal_outputs(out_dir, {xlsx, docx})
                 enrich_records(records, "EL_KAMAL", codes_map=codes_map, densita_map=densita_map, vmm_ratio_map=vmm_ratio_map, price_lookup=price_lookup)
                 export_workbook(xlsx, records, raw, include_filato=True, stem=stem, customer="EL_KAMAL", magazino_summary=magazino_summary, hide_kamal_quantities=self._kamal_hide_quantities_snapshot)
                 export_word(docx, template, records, stem=stem, hide_kamal_quantities=self._kamal_hide_quantities_snapshot)
@@ -790,7 +774,6 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
                     out_dir = Path(self.elvy_output_dir); stem = build_output_stem(elvy_records, "ELVY")
                     xlsx = out_dir / f"{stem}_ELVY.xlsx"; docx = out_dir / f"{stem}_ELVY_Biglietti.docx"
                     pgx_docx = docx.with_name(f"{docx.stem}-pg-x{docx.suffix}")
-                    _clear_previous_client_outputs(out_dir, "ELVY", {xlsx, docx, pgx_docx})
                     enrich_records(elvy_records, "ELVY", codes_map=codes_map, densita_map=densita_map, vmm_ratio_map=vmm_ratio_map, price_lookup=price_lookup)
                     export_workbook(xlsx, elvy_records, raw, include_filato=True, stem=stem, customer="ELVY", magazino_summary=magazino_summary)
                     shared_result = append_create_excel(self.shared_excel_path, elvy_records, "ELVY")
@@ -810,7 +793,6 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
                     out_dir = Path(self.med_output_dir); stem = build_output_stem(med_records, "MED")
                     xlsx = out_dir / f"{stem}_MED.xlsx"; docx = out_dir / f"{stem}_MED_Biglietti.docx"
                     pgx_docx = docx.with_name(f"{docx.stem}-pg-x{docx.suffix}")
-                    _clear_previous_client_outputs(out_dir, "MED", {xlsx, docx, pgx_docx})
                     enrich_records(med_records, "MED", codes_map=codes_map, densita_map=densita_map, vmm_ratio_map=vmm_ratio_map, price_lookup=price_lookup)
                     export_workbook(xlsx, med_records, raw, include_filato=True, stem=stem, customer="MED", magazino_summary=magazino_summary)
                     shared_result = append_create_excel(self.shared_excel_path, med_records, "MED")
@@ -833,7 +815,6 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
                     excel_stem = build_el_kamal_excel_stem(kamal_records)
                     stem = ticket_stem; out_dir = Path(self.el_kamal_output_dir)
                     xlsx = out_dir / f"{excel_stem}_EL_KAMAL.xlsx"; docx = out_dir / f"{ticket_stem}_Biglietti.docx"
-                    _clear_previous_kamal_outputs(out_dir, {xlsx, docx})
                     enrich_records(kamal_records, "EL_KAMAL", codes_map=codes_map, densita_map=densita_map, vmm_ratio_map=vmm_ratio_map, price_lookup=price_lookup)
                     export_workbook(xlsx, kamal_records, raw, include_filato=True, stem=stem, customer="EL_KAMAL", magazino_summary=magazino_summary, hide_kamal_quantities=self._kamal_hide_quantities_snapshot)
                     export_word(docx, template, kamal_records, stem=stem, hide_kamal_quantities=self._kamal_hide_quantities_snapshot)

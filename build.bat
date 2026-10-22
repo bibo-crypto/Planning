@@ -26,14 +26,25 @@ for /f "tokens=*" %%v in ('python --version 2^>^&1') do echo  [OK] %%v detected
 echo.
 
 :: -- Create or reuse virtual environment -----------------------------------
-if exist venv\Scripts\python.exe (
+:: The venv is only (re)created when it is truly unusable, and every Python /
+:: pip call below goes through venv\Scripts\python.exe by FULL PATH -- never
+:: through activate.bat or pip.exe.  Those two hard-code the folder the venv was
+:: created in, so after the project folder was moved, renamed or re-copied they
+:: pointed at another Python and silently re-installed every package there.
+set "VENV_PY=%~dp0venv\Scripts\python.exe"
+set "VENV_OK="
+if exist "%VENV_PY%" (
+    "%VENV_PY%" -c "import sys" >nul 2>&1
+    if not errorlevel 1 set "VENV_OK=1"
+)
+if defined VENV_OK (
     echo  [1/6]  Reusing existing virtual environment ^(venv^)...
-    echo         Skipping recreation -- packages will be added/removed to
-    echo         match requirements.txt instead of rebuilding from scratch.
+    echo         It is edited in place: nothing is reinstalled.
 ) else (
     echo  [1/6]  Creating virtual environment ^(venv^)...
     if exist venv (
-        echo         Found an incomplete venv folder, removing it first...
+        echo         The venv folder is not usable ^(its Python is missing or was changed^).
+        echo         Recreating it once...
         rmdir /s /q venv
     )
     python -m venv venv
@@ -46,31 +57,29 @@ if exist venv\Scripts\python.exe (
 echo         Done.
 echo.
 
-:: -- Activate venv ---------------------------------------------------------
-echo  [2/6]  Activating virtual environment...
-call venv\Scripts\activate.bat
+:: -- Make sure the venv has pip ----------------------------------------------
+echo  [2/6]  Checking the virtual environment...
+"%VENV_PY%" -m pip --version >nul 2>&1
 if errorlevel 1 (
-    echo  [ERROR] Could not activate venv.
-    if not defined PLANNING_NO_PAUSE pause
-    exit /b 1
+    echo         pip is missing from the venv, restoring it...
+    "%VENV_PY%" -m ensurepip --upgrade
+    if errorlevel 1 (
+        echo  [ERROR] Could not restore pip.
+        if not defined PLANNING_NO_PAUSE pause
+        exit /b 1
+    )
 )
 echo         Done.
 echo.
 
-:: -- Install dependencies ---------------------------------------------------
+:: -- Install only what is new -------------------------------------------------
+:: sync_venv_packages.py compares requirements.txt with what the venv was last
+:: synced with.  Unchanged and everything present: no pip run, no download.
+:: Changed: removed packages are uninstalled and only new/changed ones installed.
 echo  [3/6]  Syncing dependencies with requirements.txt...
-python -m pip install --upgrade pip --quiet
+"%VENV_PY%" sync_venv_packages.py --sync
 if errorlevel 1 (
-    echo  [ERROR] Could not upgrade pip.
-    if not defined PLANNING_NO_PAUSE pause
-    exit /b 1
-)
-echo         Removing packages no longer needed...
-python sync_venv_packages.py
-echo         Installing/updating packages from requirements.txt...
-python -m pip install -r requirements.txt --quiet
-if errorlevel 1 (
-    echo  [ERROR] pip install requirements.txt failed.
+    echo  [ERROR] Could not sync the packages in requirements.txt.
     if not defined PLANNING_NO_PAUSE pause
     exit /b 1
 )
@@ -87,7 +96,7 @@ echo.
 :: -- Build with PyInstaller ---------------------------------------------------
 echo  [5/6]  Building executable with PyInstaller...
 echo.
-python -m PyInstaller main.spec --noconfirm --clean
+"%VENV_PY%" -m PyInstaller main.spec --noconfirm --clean
 if errorlevel 1 (
     echo.
     echo  [ERROR] PyInstaller build FAILED.

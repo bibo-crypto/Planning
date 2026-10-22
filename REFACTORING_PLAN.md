@@ -10,7 +10,7 @@ every tab (17 pages, 0 Tk callback errors).
 |-----------|--------|
 | DRY / SRP | One price rule: `calculate/situazione.py` `parse_price`, `listini_loaded`, `price_issue`.  The "errori prezzi colori" table, the red rows of Situazione Generale and the price notifications all use it (they used to hold three copies that disagreed: a Prezzo Ord. without a Listini price was never listed or highlighted). |
 | DRY / SRP | `utility/ui_thread.post_to_ui`: the single place where a worker thread hands a result to the Tk main loop (replaced ~60 raw `widget.after(0, ...)` calls).  A window closed mid-task no longer kills the worker with a traceback. |
-| SRP / OCP | `utility/output_cleanup.py`: which files each customer's export produces and the safe deletion of the previous ones.  A new customer is one registry entry.  Fixed the data-loss bug where cleaning one customer deleted another's files. |
+| SRP | `calculate/raw_batch.py`: one definition of what a Partita GG value means (ours / MED customer lot / none) used by Smart Auto-Assign, printing and the PG-X report. |
 | SRP | Kamal colour handling: `parsers/dfm_lookup.colour_name_key` / `lookup_dfm_color_by_name` (matching rule) is separate from `pipelines/ordine_kamal.resolve_kamal_colours` (applying it to rows). |
 | Docs | Docstrings on 474 of the 517 functions/classes longer than 14 lines (91%); 667 of 1108 definitions overall (60%). |
 

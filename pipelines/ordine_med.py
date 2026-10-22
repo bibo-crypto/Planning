@@ -294,11 +294,34 @@ def compute_cliente(records: list[OrdineMedRow]) -> None:
             r.cliente = ""
 
 
+def pg_token(pt_grg: Any) -> str:
+    """What goes after "PG-" in the Commento for a PT GRG value.
+
+    * blank                         -> "X"          (no raw yarn yet)
+    * a number starting with 1      -> unchanged    (one of OUR raw batches,
+      e.g. 159233 -> "PG-159233-PM...")
+    * any other number              -> "X(<number>)" (the MED customer's own lot,
+      e.g. 837756 -> "PG-X(837756)-PM...": the row waits in PG-X; Smart Auto-Assign
+      looks the lot up in the stock and our raw batch replaces it)
+    * anything that is not a number -> unchanged
+    """
+    text = _clean(pt_grg).strip()
+    if not text:
+        return "X"
+    if re.fullmatch(r"\d+\.0+", text):          # an Excel float such as 837756.0
+        text = text.split(".", 1)[0]
+    if not text.isdigit() or text.startswith("1"):
+        return text
+    return f"X({text})"
+
+
 def compute_commento(records: list[OrdineMedRow]) -> None:
+    """Build every row's ERP Commento: PG-<pg_token>-PM-<PT MED>-<polmoni>-<cliente>-<nota col>
+    (the last three cut to 10 characters, empty parts dropped)."""
     for r in records:
         segments = [
             "PG",
-            r.pt_grg or "X",
+            pg_token(r.pt_grg),
             "PM",
             r.pt_med or "X",
             (r.polmoni[:10] if r.polmoni else ""),
@@ -698,6 +721,84 @@ def _ordine_da_creare_row(r: OrdineMedRow) -> list[Any]:
         r.prezzo, r.prezzo_plus2,
         r.pt_grg, r.pt_med, r.polmoni, r.cliente_note, r.nota_grg, r.nota_col,
     ]
+
+
+# The "Prezzi" file: the price check sheet for the MED order, in the column order
+# the planner works with (same order as the reference sheet).
+PREZZI_HEADERS = [
+    "Riga", "ARTICOLO", "TITOLO", "COLORE", "Q.TA", "DESCR COL",
+    "LIVELLO", "M/C", "PREZZO", "prezzo + (2$)",
+]
+
+
+def _prezzi_row(r: OrdineMedRow) -> list[Any]:
+    """One row of the Prezzi sheet; a price that could not be found stays an empty cell."""
+    def price(value: Any) -> Any:
+        return None if value in (None, "") else value
+
+    return [
+        r.riga, r.articolo, r.titolo, r.colore, r.rocc, r.descr_col,
+        r.livello, r.mc, price(r.prezzo), price(r.prezzo_plus2),
+    ]
+
+
+def export_prezzi_workbook(path: Path, records: list[OrdineMedRow]) -> None:
+    """Write Prezzi.xlsx: one sheet, "MED", with PREZZI_HEADERS for every order row.
+
+    Styled like the planner's reference sheet: navy headers for the order columns,
+    red headers for the two price columns, LIVELLO shaded red, prices with two
+    decimals, and a colour code that appears more than once highlighted in green.
+    """
+    from openpyxl import Workbook
+    from openpyxl.formatting.rule import FormulaRule
+    from openpyxl.styles import Font, PatternFill
+    from exporters.biglietti_exporter import _style_sheet
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "MED"
+    ws.append(PREZZI_HEADERS)
+    for record in records:
+        ws.append(_prezzi_row(record))
+    _style_sheet(ws)
+
+    navy, dark, red = "1F2A5C", "000000", "C00000"
+    pink = "F4B6B6"
+    header_fills = {
+        "Riga": navy, "ARTICOLO": navy, "TITOLO": navy, "COLORE": navy, "Q.TA": navy,
+        "DESCR COL": dark, "LIVELLO": pink, "M/C": dark, "PREZZO": red, "prezzo + (2$)": red,
+    }
+    for cell in ws[1]:
+        fill = header_fills[cell.value]
+        cell.fill = PatternFill("solid", fgColor=fill)
+        cell.font = Font(bold=True, color=red if fill == pink else "FFFFFF")
+    for column, name in enumerate(PREZZI_HEADERS, start=1):
+        for row in range(2, ws.max_row + 1):
+            cell = ws.cell(row=row, column=column)
+            if name == "LIVELLO":
+                cell.fill = PatternFill("solid", fgColor=pink)
+                cell.font = Font(color=red)
+            elif name in ("PREZZO", "prezzo + (2$)"):
+                cell.number_format = "0.00"
+        longest = max((len(str(ws.cell(row=row, column=column).value or "")) for row in range(2, ws.max_row + 1)), default=0)
+        ws.column_dimensions[ws.cell(row=1, column=column).column_letter].width = max(12, len(name) + 4, longest + 3)
+
+    last = ws.max_row
+    if last > 1:
+        colore = ws.cell(row=1, column=PREZZI_HEADERS.index("COLORE") + 1).column_letter
+        green = PatternFill(start_color="FFC6EFCE", end_color="FFC6EFCE", fill_type="solid")
+        ws.conditional_formatting.add(
+            f"{colore}2:{colore}{last}",
+            FormulaRule(
+                formula=[f'AND(${colore}2<>"",COUNTIF(${colore}$2:${colore}${last},{colore}2)>1)'],
+                fill=green,
+            ),
+        )
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = ws.dimensions
+    path.parent.mkdir(parents=True, exist_ok=True)
+    safe_save_workbook(wb, path, keep_backup=False)
+    wb.close()
 
 
 def export_erp_order_workbook(path: Path, records: list[OrdineMedRow]) -> None:

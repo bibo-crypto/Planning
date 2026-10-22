@@ -68,15 +68,28 @@ def test_locked_target_keeps_the_original_and_reports_it(tmp_path, monkeypatch):
     assert target.read_bytes() == original and [p.name for p in tmp_path.iterdir() if p.suffix == ".tmp"] == []
 
 
-def test_successful_save_replaces_the_file_and_keeps_the_previous_version(tmp_path):
+def test_a_save_replaces_the_file_and_leaves_no_previous_copy(tmp_path):
+    from utility.excel_io import safe_save_workbook
+
+    target = tmp_path / "orders.xlsx"
+    _workbook(target, {"Orders": [["Partita Col"], ["OLD"]]})
+    stale = tmp_path / "orders.previous.xlsx"
+    stale.write_text("left by an older version", encoding="utf-8")
+    wb = openpyxl.Workbook()
+    wb.active.append(["NEW"])
+    safe_save_workbook(wb, target)
+    assert openpyxl.load_workbook(target).active["A1"].value == "NEW"
+    assert not stale.exists()                       # and an old leftover is cleaned up
+
+
+def test_a_previous_copy_is_kept_only_when_asked_for(tmp_path):
     from utility.excel_io import safe_save_workbook
 
     target = tmp_path / "orders.xlsx"
     _workbook(target, {"Orders": [["Partita Col"], ["OLD"]]})
     wb = openpyxl.Workbook()
     wb.active.append(["NEW"])
-    safe_save_workbook(wb, target)
-    assert openpyxl.load_workbook(target).active["A1"].value == "NEW"
+    safe_save_workbook(wb, target, keep_backup=True)
     assert openpyxl.load_workbook(tmp_path / "orders.previous.xlsx")["Orders"]["A2"].value == "OLD"
 
 
@@ -140,6 +153,19 @@ def test_delete_records_the_history_then_removes_the_row(tmp_path, history_db):
     assert biglietti_exporter.delete_shipped_shared_rows(path, ["B2"], "Orders") == 1
     shipped = orders_db.list_shipped(history_db)
     assert [r["partita_col"] for r in shipped] == ["b2"] and shipped[0]["archived_reason"] == "shipped/invoiced"
+    assert openpyxl.load_workbook(path)["Orders"].max_row == 1
+
+
+def test_manual_delete_removes_multiple_selected_rows_from_orders(tmp_path, history_db):
+    from exporters import biglietti_exporter
+    from utility import orders_db
+
+    path = tmp_path / "shared.xlsx"
+    _workbook(path, {"Orders": [["Partita Col", "Articolo"], ["B2", "C2"], ["B3", "C3"]], "PG-X": [["Partita Col", "Articolo"]]})
+    assert biglietti_exporter.delete_shared_rows(path, ["B2", "B3"], "Orders") == 2
+    deleted = orders_db.list_history(history_db)
+    assert {row["partita_col"] for row in deleted} == {"b2", "b3"}
+    assert {row["archived_reason"] for row in deleted} == {"deleted"}
     assert openpyxl.load_workbook(path)["Orders"].max_row == 1
 
 

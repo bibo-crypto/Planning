@@ -8,6 +8,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from calculate.order_report import export_report, pg_x_demand, report_path, schedule_due, schedule_stamp
 from utility.email_compose import EmailTemplate, open_outlook_email, send_outlook_email
+from calculate.raw_batch import is_assigned_raw
 from utility.excel_io import safe_save_workbook
 from utility.master_data import finished_articolo_for, raw_articolo_for
 from utility.utils import bind_escape_to_close
@@ -337,7 +338,9 @@ class SharedOrdersWindowMixin:
         tree_style.configure("Orders.Treeview.Heading", font=("Segoe UI", 9, "bold"))
         tree_style.configure("Danger.TButton", foreground="#ffffff", background="#c62828", font=("Segoe UI", 9, "bold"))
         tree_style.map("Danger.TButton", background=[("active", "#8e0000"), ("pressed", "#8e0000")], foreground=[("disabled", "#eeeeee"), ("!disabled", "#ffffff")])
-        tree = ttk.Treeview(frame, columns=columns, show="headings", selectmode="browse", style="Orders.Treeview")
+        # Ctrl/Shift-click can select several rows for one Delete action.
+        # Print uses its own tick-box in the first column.
+        tree = ttk.Treeview(frame, columns=columns, show="headings", selectmode="extended", style="Orders.Treeview")
         tree.tag_configure("odd", background="#e8f1fa", foreground="#172b4d")
         tree.tag_configure("even", background="#ffffff", foreground="#172b4d")
         headings = {"select": "Print"}
@@ -757,23 +760,37 @@ class SharedOrdersWindowMixin:
         button_bar.grid(row=0, column=0, sticky="ew")
         for col in range(7):
             button_bar.columnconfigure(col, weight=1)
-        ttk.Label(actions, text="Click Print to select or unselect each color.").grid(row=1, column=0, sticky="w", pady=(5, 0))
+        ttk.Label(actions, text="Click Print to select tickets. Use Ctrl/Shift-click to select multiple rows for Delete.").grid(row=1, column=0, sticky="w", pady=(5, 0))
         def pg_x_action(action):
-            """Run the chosen action (move to Orders / delete) on the selected PG-X row, after checking that the PG-X page and a row are selected."""
-            if current_sheet["name"] != "PG-X":
+            """Run a PG-X action on the selected rows.
+
+            Delete supports Ctrl/Shift multi-selection.  Sending to Orders
+            remains one row at a time because it can need a raw-yarn warning.
+            """
+            if action == "move" and current_sheet["name"] != "PG-X":
                 return messagebox.showwarning("PG-X Only", "This action is available only on the PG-X page.", parent=window)
             selection = tree.selection()
             if not selection:
-                return messagebox.showwarning("No Row Selected", "Click a PG-X row first.", parent=window)
+                return messagebox.showwarning("No Row Selected", "Select one or more rows first.", parent=window)
+            records = [record_by_iid[iid] for iid in selection]
+            partita_cols = [str(record.colored_batch) for record in records]
+            if action == "delete":
+                preview = ", ".join(partita_cols[:8])
+                suffix = "..." if len(partita_cols) > 8 else ""
+                if not messagebox.askyesno(
+                    "Delete PG-X Rows",
+                    f"Delete {len(partita_cols)} selected PG-X row(s)?\n\nPartita Col: {preview}{suffix}",
+                    parent=window,
+                ):
+                    return
+                self._pg_x_row_action_in_background(
+                    window, action, partita_cols, current_sheet["name"], datasets, refresh_records, rebuild,
+                )
+                return
             iid = selection[0]
             record = record_by_iid[iid]
             partita_col = str(record.colored_batch)
-            if action == "delete" and not messagebox.askyesno(
-                "Delete PG-X Row", f"Delete Partita Col {partita_col} from PG-X?", parent=window
-            ):
-                return
-            raw_b = str(record.raw_batch or "").strip().upper().replace(" ", "")
-            if action == "move" and raw_b in {"", "X", "PG-X", "PGX"} and not messagebox.askyesno(
+            if action == "move" and not is_assigned_raw(record.raw_batch, record.customer_code) and not messagebox.askyesno(
                 "No Raw Yarn Assigned",
                 f"Partita Col {partita_col} still has no raw yarn (Partita GG) assigned.\n\n"
                 "Send it to Orders anyway?",
@@ -781,7 +798,7 @@ class SharedOrdersWindowMixin:
             ):
                 return
             self._pg_x_row_action_in_background(
-                window, action, partita_col, datasets, refresh_records, rebuild,
+                window, action, partita_col, current_sheet["name"], datasets, refresh_records, rebuild,
             )
 
         ttk.Button(button_bar, text="Send to Orders", command=lambda: pg_x_action("move"), width=16).grid(row=0, column=0, padx=3, sticky="ew")
