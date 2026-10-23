@@ -21,7 +21,13 @@ for _pkg in ("pypdfium2", "pypdfium2_raw", "pandas", "numpy"):
     _datas, _binaries, _hidden = collect_all(_pkg)
     datas += _datas
     binaries += _binaries
-    extra_hiddenimports += _hidden
+    # collect_all() also discovers each package's own test suite.  Those
+    # modules are never used by Planning, but pandas alone has thousands of
+    # them and analysing them makes every build several minutes slower.
+    extra_hiddenimports += [
+        module for module in _hidden
+        if not module.startswith(("pandas.tests", "numpy.tests", "numpy.f2py.tests"))
+    ]
 
 # Our own packages.  Many modules are loaded lazily BY NAME at runtime
 # (utility.utils.lazy_call / LazyModule -> importlib), which PyInstaller's static

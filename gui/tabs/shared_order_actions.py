@@ -217,10 +217,12 @@ class SharedOrdersActionsMixin:
 
         threading.Thread(target=worker, daemon=True).start()
     def _pg_x_row_action_in_background(self, window, action, partita_cols, sheet_name, datasets, refresh_records, rebuild):
-        """Run a PG-X action on one or more rows in the worker thread.
+        """Run a row action on a worker thread, then reload both sheets and refresh.
 
-        Deletion deliberately uses the existing one-row exporter operation for
-        each Partita Col, preserving its audit/history behavior.
+        "move" sends one PG-X row to Orders; anything else deletes every Partita Col
+        in ``partita_cols`` from ``sheet_name`` (Orders or PG-X) through
+        delete_shared_rows, which records each row in the history first.
+        One action runs at a time.
         """
         if getattr(self, "_pg_x_action_running", False):
             return
@@ -251,7 +253,7 @@ class SharedOrdersActionsMixin:
             refresh_records(new_datasets)
             rebuild()
             messagebox.showinfo(
-                "PG-X",
+                "PG-X" if action == "move" else sheet_name,
                 f"{count} row(s) {'sent to Orders' if action == 'move' else 'deleted'}.",
                 parent=window,
             )

@@ -128,14 +128,6 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
         style.configure("Section.TLabelframe", padding=10)
         style.configure("Section.TLabelframe.Label", font=("Segoe UI", 10, "bold"), foreground="#16324F")
         style.configure("Hint.TLabel", font=("Segoe UI", 8), foreground="#64748B")
-        header_frame = ttk.Frame(content)
-        header_frame.pack(fill="x", padx=4, pady=(0, 10))
-        ttk.Label(header_frame, text="Create Excel + Biglietti", style="PageTitle.TLabel").pack(anchor="w")
-        ttk.Label(
-            header_frame,
-            text="Convert order data into dyeing tickets and a shared Excel workbook for ELVY, MED, and EL KAMAL.",
-            style="PageSubtitle.TLabel", wraplength=950,
-        ).pack(anchor="w", pady=(3, 0))
 
         input_box = ttk.LabelFrame(content, text=" 1. Main input files (required) ", style="Section.TLabelframe")
         input_box.pack(fill="x", padx=4, pady=(0, 10))
@@ -194,9 +186,11 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
         ttk.Button(shared_buttons, text="➕ Create New", command=self._create_shared_excel, width=15).pack(side="left", padx=(6, 0))
         self.shared_excel_label = ttk.Label(shared_box, text="Not selected — Convert will append here", foreground="grey", anchor="w")
         self.shared_excel_label.grid(row=0, column=1, sticky="ew", padx=(10, 0), pady=4)
-        ttk.Button(shared_box, text="📋  Show Orders", command=self._show_shared_orders, width=24).grid(row=1, column=0, columnspan=2, sticky="w", pady=(4, 0))
-        ttk.Button(shared_box, text="📊  PG-X Orders Report", command=self._show_pgx_report, width=24).grid(row=2, column=0, columnspan=2, sticky="w", pady=(4, 0))
-        ttk.Button(shared_box, text="🧾  Extract Shipped/Invoiced History", command=self._show_shipped_history, width=24).grid(row=3, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        shared_action_frame = ttk.Frame(shared_box)
+        shared_action_frame.grid(row=1, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        ttk.Button(shared_action_frame, text="📋  Show Orders", command=self._show_shared_orders, width=20).pack(side="left", padx=(0, 6))
+        ttk.Button(shared_action_frame, text="📊  PG-X Orders Report", command=self._show_pgx_report, width=22).pack(side="left", padx=(0, 6))
+        ttk.Button(shared_action_frame, text="🧾  Extract Shipped/Invoiced", command=self._show_shipped_history, width=24).pack(side="left")
 
         kamal_print_box = ttk.LabelFrame(content, text=" 5a. Kamal Excel + Biglietti ", style="Section.TLabelframe")
         kamal_print_box.pack(fill="x", padx=4, pady=(0, 10))

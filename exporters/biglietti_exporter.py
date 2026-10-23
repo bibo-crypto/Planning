@@ -92,7 +92,8 @@ def _med_raw_batch(additional: str) -> str:
     in PG-X (and never exported to Filato x Tinturia) by the shared raw-batch
     classification helpers.
     """
-    return requested_lotto_from_comment(additional)
+    batch = requested_lotto_from_comment(additional)
+    return batch if batch.isdigit() else ""              # a batch/lot is always a number
 
 
 def requested_lotto_for(record: "OrderRecord") -> str:
@@ -826,15 +827,26 @@ def _name_after_color_code(row: dict[str, Any]) -> str:
 
 
 def detect_order_format(data_path: Path) -> str:
-    """'ELVY_MED' or 'EL_KAMAL', by peeking at Sheet1's own header row --
-    lets a single Data Ordine picker serve every customer instead of a
-    separate one per source shape. EL KAMAL's Sheet1 already carries
-    computed columns (CODICE/TITOLO/M-C/Clienti) that ELVY/MED's raw
-    export never has; ELVY/MED's Sheet1 has 'Descrizione aggiuntiva
-    ordine' and a numeric 'Cliente' code that EL KAMAL's never has.
-    Defaults to 'ELVY_MED' if neither signature is conclusive."""
+    """'ELVY_MED' or 'EL_KAMAL', by peeking at the workbook's sheet names
+    and Sheet1's own header row.  A single Data Ordine picker serves every
+    customer without needing a separate picker per source shape.
+
+    Detection order:
+    1. A workbook with an "Ordine Kamal" or "Kamal Order" sheet is always
+       EL_KAMAL -- this is the Excel file produced by the Ordine Kamal tab
+       and can be dropped straight into Create Excel + Biglietti.
+    2. EL KAMAL's ERP-export Sheet1 carries CODICE / M/C / Clienti headers.
+    3. ELVY/MED's ERP dump carries 'Descrizione aggiuntiva ordine' + 'Cliente'.
+    Defaults to 'ELVY_MED' when none of the above is conclusive."""
     wb = openpyxl.load_workbook(data_path, read_only=True)
     try:
+        # A workbook produced by the Ordine Kamal tab has "Ordine Kamal" /
+        # "Kamal Order" sheets and no Sheet1 -- detect it as EL_KAMAL so
+        # load_el_kamal_order is used instead of load_order.
+        sheetnames_lower = {_key(s) for s in wb.sheetnames}
+        if _key("Ordine Kamal") in sheetnames_lower or _key("Kamal Order") in sheetnames_lower:
+            wb.close()
+            return "EL_KAMAL"
         if "Sheet1" not in wb.sheetnames:
             return "ELVY_MED"
         rows = list(wb["Sheet1"].iter_rows(values_only=True, max_row=1))
@@ -1065,15 +1077,71 @@ def _read_dispo_csv(path: Path) -> list[dict[str, Any]]:
 
 
 def load_el_kamal_order(data_path: Path, dispo_path: Path | None = None) -> tuple[list[OrderRecord], list[dict[str, Any]]]:
-    """Load an EL KAMAL order from its dedicated workbook (DESCR COL / Colore layout).
+    """Load an EL KAMAL order from its dedicated workbook.
 
-    Returns (records, []): one OrderRecord per colour line, with the Dispo row
-    joined in when a Dispo file is supplied.  The raw-rows list is always empty
-    because this layout has no raw sheet to carry along.
+    Accepts two source shapes:
+    * ERP export with "Sheet1" (CODICE / DESCR COL / Clienti columns).
+    * Kamal-tab Excel export with "Ordine Kamal" sheet (CLIENTE / ARTICOLO /
+      COLORE / Q.TA / COMMENTO columns) -- the workbook the Ordine Kamal tab
+      produces can be fed directly into Create Excel + Biglietti.
+
+    Returns (records, []): one OrderRecord per colour line.  The raw-rows list
+    is always empty because these layouts carry no raw-yarn sheet.
     """
     wb = openpyxl.load_workbook(data_path, data_only=True, read_only=True)
+    # Prefer "Ordine Kamal" (Kamal-tab export) over "Sheet1" (ERP dump).
+    ordine_kamal_sheet = next(
+        (s for s in wb.sheetnames if _key(s) in {_key("Ordine Kamal"), _key("Kamal Order")}),
+        None,
+    )
+    if ordine_kamal_sheet:
+        data = _read_sheet_rows(wb[ordine_kamal_sheet])
+        # Also load Filato x Tinturia rows for raw-yarn info when present.
+        raw_sheet = next(
+            (s for s in wb.sheetnames if "filato" in _key(s) or "tinturia" in _key(s)),
+            None,
+        )
+        raw_rows_kt = _read_sheet_rows(wb[raw_sheet]) if raw_sheet else []
+        wb.close()
+        if not data:
+            raise ValueError("Ordine Kamal sheet non contiene righe d'ordine.")
+        # Build records from Kamal-tab export columns.
+        result: list[OrderRecord] = []
+        raw_by_colore: dict[str, dict] = {
+            _clean(_get(r, "Partita Col", "Partita")).upper(): r for r in raw_rows_kt if _clean(_get(r, "Partita Col", "Partita"))
+        }
+        for row in data:
+            partita_col = _clean(_get(row, "Partita Col", "Partita Col"))
+            raw_r = raw_by_colore.get(partita_col.upper(), {})
+            result.append(OrderRecord(
+                customer_code="3019",
+                customer_name=_master_data_customer_name(KAMAL_CODE, _DEFAULT_KAMAL_NAME),
+                article=_clean(_get(row, "ARTICOLO", "Articolo")),
+                description=_clean(_get(row, "COMMENTO", "Commento")),
+                additional_raw=_clean(_get(row, "COMMENTO", "Commento")),
+                color_code=_clean(_get(row, "COLORE", "Colore")),
+                color_name=_clean(_get(row, "COLORE", "Colore")),
+                order_no=_order_number(_get(row, "ORDINE", "Ordine")),
+                order_row="",
+                colored_batch=partita_col,
+                raw_batch=_clean(_get(row, "Partita GG")) or _clean(_get(raw_r, "Partita GG")),
+                quantity_cones=_number(_get(row, "ROCCHE", "Rocche", "Q.TA")),
+                raw_weight=_kamal_kg(_get(row, "KG")) or _kamal_kg(_get(raw_r, "KG")),
+                dispo=_clean(_get(row, "SIGLA DISPOSIZIONE", "Dispo")),
+                bagno=_clean(_get(row, "BAGNO PREPOSTO", "Bagno")),
+                delivery=_get(row, "CONSEGNA", "Consegna"),
+                title=_clean(_get(row, "TITOLO", "Titolo")),
+                formato="7777",
+                machine=_clean(_get(row, "GRUPPO MACCHINA", "M/C")),
+                commento=_clean(_get(row, "COMMENTO", "Commento")),
+                kg=_kamal_kg(_get(row, "KG")) or _kamal_kg(_get(raw_r, "KG")),
+            ))
+        if not result:
+            raise ValueError("Non sono state trovate righe d'ordine EL KAMAL in 'Ordine Kamal'.")
+        return result, []
     if "Sheet1" not in wb.sheetnames:
-        raise ValueError('Il file Data Ordine EL KAMAL deve contenere il foglio "Sheet1".')
+        wb.close()
+        raise ValueError('Il file Data Ordine EL KAMAL deve contenere il foglio "Sheet1" o "Ordine Kamal".')
     data = _read_sheet_rows(wb["Sheet1"])
     wb.close()
     if not data:
@@ -1573,24 +1641,23 @@ def append_create_excel(path: Path, records: list[OrderRecord], customer: str) -
         pg_headers.append("Print")
         pg_ws.cell(row=1, column=len(pg_headers)).value = "Print"
 
-    # Migrate legacy shared files: rows without Partita GG belong on PG-X.
+    # Migrate legacy shared files: rows still waiting for raw yarn belong on PG-X --
+    # no Partita GG, or (MED only) a customer lot that does not start with 1.
     raw_col = next((i + 1 for i, h in enumerate(headers) if _key(h) == _key("Partita GG")), None)
     if raw_col and ws.max_row > 1:
-        move_rows = []
-        for row_idx in range(2, ws.max_row + 1):
-            customer_col = next((i + 1 for i, h in enumerate(headers) if _key(h) == _key("Cliente")), None)
+        customer_col = next((i + 1 for i, h in enumerate(headers) if _key(h) == _key("Cliente")), None)
+
+        def waits_in_pg_x(row_idx: int) -> bool:
             customer = _clean(ws.cell(row=row_idx, column=customer_col).value) if customer_col else ""
             customer_code = MED_CODE if customer.upper().startswith("MED") else ""
-            if _is_pg_x(ws.cell(row=row_idx, column=raw_col).value, customer_code):
-                move_rows.append([ws.cell(row=row_idx, column=col_idx).value for col_idx in range(1, ws.max_column + 1)])
-        for row in move_rows:
+            return _is_pg_x(ws.cell(row=row_idx, column=raw_col).value, customer_code)
+
+        waiting_rows = [row_idx for row_idx in range(2, ws.max_row + 1) if waits_in_pg_x(row_idx)]
+        for row_idx in waiting_rows:
+            row = [ws.cell(row=row_idx, column=col_idx).value for col_idx in range(1, ws.max_column + 1)]
             pg_ws.append([dict(zip(headers, row)).get(header, "") for header in pg_headers])
-        for row_idx in range(ws.max_row, 1, -1):
-            customer_col = next((i + 1 for i, h in enumerate(headers) if _key(h) == _key("Cliente")), None)
-            customer = _clean(ws.cell(row=row_idx, column=customer_col).value) if customer_col else ""
-            customer_code = MED_CODE if customer.upper().startswith("MED") else ""
-            if _is_pg_x(ws.cell(row=row_idx, column=raw_col).value, customer_code):
-                ws.delete_rows(row_idx, 1)
+        for row_idx in reversed(waiting_rows):
+            ws.delete_rows(row_idx, 1)
 
     _deduplicate_create_excel_rows(wb)
 

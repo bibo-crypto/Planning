@@ -86,9 +86,11 @@ if errorlevel 1 (
 echo         Done.
 echo.
 
-:: -- Clean old build / dist ---------------------------------------------------
-echo  [4/6]  Cleaning old build and dist folders...
-if exist build  rmdir /s /q build
+:: -- Clean only the distributable output -------------------------------------
+:: Keep build\ so PyInstaller can reuse its dependency-analysis cache.  It
+:: automatically invalidates the relevant entries when a source file or the
+:: spec changes, while dist\ must be fresh to avoid shipping stale files.
+echo  [4/6]  Cleaning old distributable output...
 if exist dist   rmdir /s /q dist
 echo         Done.
 echo.
@@ -96,7 +98,7 @@ echo.
 :: -- Build with PyInstaller ---------------------------------------------------
 echo  [5/6]  Building executable with PyInstaller...
 echo.
-"%VENV_PY%" -m PyInstaller main.spec --noconfirm --clean
+"%VENV_PY%" -m PyInstaller main.spec --noconfirm
 if errorlevel 1 (
     echo.
     echo  [ERROR] PyInstaller build FAILED.
@@ -115,27 +117,18 @@ copy /y "dist\Planning\Planning.exe" "dist\Planning\Planing.exe" >nul
 
 :: -- Release hygiene ---------------------------------------------------------
 :: Runtime state belongs in %%LOCALAPPDATA%%\Planning, never in a distributable
-:: ZIP/setup.  The spec does not bundle these folders, but remove them here as
-:: a final guard against a manually copied database or cache file.
-echo  [6/6]  Removing runtime data from release and creating clean ZIP...
+:: setup.  The spec does not bundle these folders, but remove them here as a
+:: final guard against a manually copied database or cache file.
+echo  [6/6]  Removing runtime data from release...
 for %%D in (cache settings logs backups situazione) do (
     if exist "dist\Planning\%%D" rmdir /s /q "dist\Planning\%%D"
 )
 for /r "dist\Planning" %%F in (*.db *.sqlite *.sqlite3 *.pkl) do del /q "%%F"
 for /r "dist\Planning" %%F in (*.db-* *.sqlite-* *.sqlite3-*) do del /q "%%F"
-for /f "usebackq tokens=*" %%V in ("version.txt") do set "PLANNING_VERSION=%%V"
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Compress-Archive -Path 'dist\Planning\*' -DestinationPath 'dist\Planning_v!PLANNING_VERSION!.zip' -Force"
-if errorlevel 1 (
-    echo  [ERROR] Could not create the release ZIP.
-    if not defined PLANNING_NO_PAUSE pause
-    exit /b 1
-)
-
 echo.
 echo  ================================================
 echo    Build Complete!
 echo    Output folder: dist\Planning\
-echo    Release ZIP:   dist\Planning_v!PLANNING_VERSION!.zip
 echo  ================================================
 echo.
 echo  Next step - create the installer:

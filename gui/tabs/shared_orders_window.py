@@ -725,6 +725,8 @@ class SharedOrdersWindowMixin:
 
         def toggle(_event=None):
             """Toggle the print checkbox of the clicked row (first column); the change is applied after a short delay so a double-click can still open the editor."""
+            if _event is not None and _event.state & 0x0005:
+                return                      # Shift/Ctrl-click only extends the selection (for Delete)
             iid = tree.identify_row(_event.y) if _event is not None else ""
             column = tree.identify_column(_event.x) if _event is not None else ""
             if not iid or column != "#1":
@@ -762,9 +764,9 @@ class SharedOrdersWindowMixin:
             button_bar.columnconfigure(col, weight=1)
         ttk.Label(actions, text="Click Print to select tickets. Use Ctrl/Shift-click to select multiple rows for Delete.").grid(row=1, column=0, sticky="w", pady=(5, 0))
         def pg_x_action(action):
-            """Run a PG-X action on the selected rows.
+            """Run a PG-X / Orders action on the selected rows.
 
-            Delete supports Ctrl/Shift multi-selection.  Sending to Orders
+            Delete (both sheets) supports Ctrl/Shift multi-selection.  Sending to Orders
             remains one row at a time because it can need a raw-yarn warning.
             """
             if action == "move" and current_sheet["name"] != "PG-X":
@@ -777,9 +779,10 @@ class SharedOrdersWindowMixin:
             if action == "delete":
                 preview = ", ".join(partita_cols[:8])
                 suffix = "..." if len(partita_cols) > 8 else ""
+                sheet = current_sheet["name"]
                 if not messagebox.askyesno(
-                    "Delete PG-X Rows",
-                    f"Delete {len(partita_cols)} selected PG-X row(s)?\n\nPartita Col: {preview}{suffix}",
+                    f"Delete {sheet} Rows",
+                    f"Delete {len(partita_cols)} selected {sheet} row(s)?\n\nPartita Col: {preview}{suffix}",
                     parent=window,
                 ):
                     return

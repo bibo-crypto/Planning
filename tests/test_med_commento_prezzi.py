@@ -201,3 +201,43 @@ def test_ready_and_pg_x_ticket_split_follows_the_same_rule():
     ])
     assert [r.raw_batch for r in ready] == ["159233"]
     assert [r.raw_batch for r in waiting] == ["837756", ""]
+
+
+def test_med_batch_ignores_a_comment_token_that_is_not_a_number():
+    from exporters.biglietti_exporter import _med_raw_batch
+
+    assert _med_raw_batch("PG-ABC-PM-X") == "" and _med_raw_batch("PG-12A-PM-X") == ""
+    assert _med_raw_batch("PG-X(837756)-PM-X") == "837756"
+
+
+def test_the_shared_excel_migration_moves_med_customer_lots_to_pg_x_but_not_other_customers(tmp_path):
+    """A MED row left on Orders with a customer lot goes back to PG-X on the next import;
+    a batch that does not start with 1 is only a customer lot for MED."""
+    from dataclasses import replace
+
+    from exporters.biglietti_exporter import append_create_excel, load_create_excel_records
+
+    shared = tmp_path / "Show Orders.xlsx"
+    med_ours = replace(_shared_record("3004", "159233"), colored_batch="159001", order_no="1")
+    med_lot = replace(_shared_record("3004", "159240"), colored_batch="159002", order_no="2")
+    elvy = replace(_shared_record("3009", "159250"), colored_batch="159003", order_no="3")
+    append_create_excel(shared, [med_ours, med_lot, elvy], "MED")
+
+    wb = openpyxl.load_workbook(shared)
+    ws = wb["Orders"]
+    headers = [c.value for c in ws[1]]
+    raw_col, partita_col = headers.index("Partita GG") + 1, headers.index("Partita Col") + 1
+    for row in range(2, ws.max_row + 1):
+        partita = str(ws.cell(row=row, column=partita_col).value)
+        ws.cell(row=row, column=raw_col).value = {"159002": "837756", "159003": "79228"}.get(partita, ws.cell(row=row, column=raw_col).value)
+    wb.save(shared)
+    wb.close()
+
+    extra = replace(_shared_record("3004", "159260"), colored_batch="159004", order_no="4")
+    append_create_excel(shared, [extra], "MED")            # any import runs the migration
+
+    orders = {r.colored_batch for r in load_create_excel_records(shared, sheet_name="Orders")}
+    pg_x = {r.colored_batch for r in load_create_excel_records(shared, sheet_name="PG-X")}
+    assert "159002" in pg_x and "159002" not in orders       # MED customer lot -> PG-X
+    assert "159003" in orders and "159003" not in pg_x       # ELVY keeps any recorded batch on Orders
+    assert {"159001", "159004"} <= orders
