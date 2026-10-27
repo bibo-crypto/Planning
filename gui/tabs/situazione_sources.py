@@ -238,7 +238,15 @@ class SituationSourcesMixin:
         if not (needs_dfm or needs_prod):
             return
 
+        # A failed/slow workbook read used to leave the path looking stale;
+        # every ``after_idle`` callback then started another daemon thread.
+        # Keep one in-flight worker and do not immediately retry the same
+        # path. A new upload/path naturally clears this guard below.
+        if needs_prod and self._shared_sync_attempted_path == prod_path:
+            return
+
         self._shared_syncing = True
+        self._shared_sync_attempted_path = prod_path
 
         def worker():
             prod_result = None
@@ -251,17 +259,26 @@ class SituationSourcesMixin:
 
             def apply_result():
                 self._shared_syncing = False
+                self._shared_sync_thread = None
                 if prod_result and not prod_result[1] and prod_result[0] is not None and not prod_result[0].empty:
                     df = prod_result[0]
                     self.loaded_frames["data_prod"] = df
                     self._shared_prod_path = prod_path
                     self.source_rows["data_prod"].set_status(True, f"✅ {len(df)} rows")
                     db.save_upload("data_prod", Path(prod_path).name, len(df), "ok", f"✅ {len(df)} rows - {Path(prod_path).name}", file_path=prod_path)
-                self.after_idle(self.sync_shared_async)
+                # Do not spin on a failed source. A later explicit upload or
+                # path change resets the attempted-path guard.
 
             post_to_ui(self, apply_result)
 
-        threading.Thread(target=worker, daemon=True).start()
+        try:
+            thread = threading.Thread(target=worker, name="situazione-shared-sync", daemon=True)
+            self._shared_sync_thread = thread
+            thread.start()
+        except RuntimeError as exc:
+            self._shared_syncing = False
+            self._shared_sync_thread = None
+            logger.error("Could not start shared Situation sync thread: %s", exc)
     def sync_remaining_shared_sources(self):
         """Load all non-specialized sources saved by another page.
 
@@ -359,6 +376,7 @@ class SituationSourcesMixin:
         try:
             save_prod_cache(Path(path))
             self._shared_prod_path = str(Path(path))
+            self._shared_sync_attempted_path = ""
             if self._on_shared_cache_changed:
                 self._on_shared_cache_changed()
         except Exception as exc:  # noqa: BLE001

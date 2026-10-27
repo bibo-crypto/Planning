@@ -301,6 +301,7 @@ class PurchaseOrderWorkflowMixin:
             match_raw_yarn,
             read_filato_tinturia_sheet,
         )
+        from pipelines.prezzi_elvy import export_prezzi_po
         errors: list[str] = []
         merged_rows: list[OrderRow] = []
         all_rows: list[OrderRow] = []
@@ -311,8 +312,20 @@ class PurchaseOrderWorkflowMixin:
         dfm_entries = load_dfm_cache().get("entries", [])
         prezzi_df = getattr(self._prezzi_tab, "prezzi_df", None)
         price_lookup = prezzi_logic.build_price_lookup(prezzi_df)
+        # Titolo of each article (DFM reference) for the Prezzi-PO file.
+        titolo_lookup = {e["articolo"]: e["titolo"] for e in dfm_entries if e.get("articolo") and e.get("titolo")}
+
+        def write_prezzi_po(po_rows: list[OrderRow]) -> None:
+            """Prezzi-PO-<PO>.xlsx next to the order Excel; a failure is reported, not fatal."""
+            try:
+                export_prezzi_po(output_dir, po_rows, titolo_lookup)
+            except Exception as exc:  # noqa: BLE001
+                msg = f"Error saving Prezzi-PO file: {exc}"
+                logger.error(msg)
+                errors.append(msg)
 
         magazino_summary = None
+        lotti_summary = None
         codes_map = None
         # SQLite is the canonical store: the stock saved on upload is used
         # first, so matching still works after a restart or when the original
@@ -330,6 +343,13 @@ class PurchaseOrderWorkflowMixin:
                     logger.info("Raw yarn stock loaded from SQLite: %d batches", len(magazino_summary))
         except Exception:  # noqa: BLE001
             magazino_summary = None
+        try:
+            from utility.source_manager import load as load_source
+            loaded_lotti = load_source("lotti_summary")
+            if loaded_lotti is not None and not loaded_lotti.empty and {"partita", "lotto"}.issubset(loaded_lotti.columns):
+                lotti_summary = loaded_lotti.reset_index(drop=True)
+        except Exception:  # noqa: BLE001
+            lotti_summary = None
         if magazino_summary is None and raw_yarn_path is not None:
             try:
                 from calculate import magazino as magazino_logic
@@ -376,9 +396,10 @@ class PurchaseOrderWorkflowMixin:
 
                 if one_per_file:
                     out_path = make_output_path(pdf_path, output_dir)
-                    ExcelExporter(rows, out_path, magazino_summary, codes_map, first_bagno=first_bagno).export()
+                    ExcelExporter(rows, out_path, magazino_summary, codes_map, first_bagno=first_bagno, lotti_summary=lotti_summary).export()
                     last_export_path = out_path
                     logger.info("Saved: %s", out_path.name)
+                    write_prezzi_po(rows)
                 else:
                     merged_rows.extend(rows)
 
@@ -393,9 +414,10 @@ class PurchaseOrderWorkflowMixin:
         if not one_per_file and merged_rows:
             try:
                 out_path = output_dir / "Ordine_Elvy.xlsx"
-                ExcelExporter(merged_rows, out_path, magazino_summary, codes_map, first_bagno=first_bagno).export()
+                ExcelExporter(merged_rows, out_path, magazino_summary, codes_map, first_bagno=first_bagno, lotti_summary=lotti_summary).export()
                 last_export_path = out_path
                 logger.info("Merged export saved: %s", out_path.name)
+                write_prezzi_po(merged_rows)
             except Exception as exc:  # noqa: BLE001
                 msg = f"Error saving merged Excel: {exc}"
                 logger.error(msg)
@@ -416,7 +438,7 @@ class PurchaseOrderWorkflowMixin:
                 try:
                     ordini_rows = build_ordini_elvy_rows(all_rows, first_bagno=first_bagno)
                     if magazino_summary is not None and not magazino_summary.empty:
-                        match_raw_yarn(ordini_rows, magazino_summary, codes_map)
+                        match_raw_yarn(ordini_rows, magazino_summary, codes_map, lotti_summary=lotti_summary)
                     n = export_ordini_full(ordini_path, ordini_rows)
                     logger.info("Extracted ERP file: %s (%d rows)", ordini_path.name, n)
                 except Exception as exc:  # noqa: BLE001
@@ -442,6 +464,7 @@ class PurchaseOrderWorkflowMixin:
 
         self._po_last_export_path = last_export_path
         post_to_ui(self, self._on_po_conversion_done, errors, total)
+
     def _reset_po_bagno_controls(self) -> None:
         """First bagno is a one-shot input: clear it after every conversion."""
         self._po_bagno_start.set("")

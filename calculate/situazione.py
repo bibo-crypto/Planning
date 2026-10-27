@@ -844,29 +844,42 @@ def find_price_anomalies(df):
         return []
 
     available = listini_loaded(df)
-    out = []
-    for _, row in df.iterrows():
-        articolo = str(row.get("articolo", "") or "").strip()
-        colore = clean_text(row.get("colore", "")) or clean_text(row.get("codice", ""))
+
+    def column(name: str) -> list:
+        return df[name].tolist() if name in df.columns else [""] * len(df)
+
+    # Decide on plain lists first (building a pandas Series per row, as iterrows does,
+    # cost ~0.6 s per 4,000 rows); only the few rows with an issue are read in full.
+    articolo_col, prezzo_col, listini_col = column("articolo"), column("prezzo"), column("prezzo_lisini")
+    flagged = []
+    for position, (articolo_raw, prezzo, prezzo_lisini) in enumerate(zip(articolo_col, prezzo_col, listini_col)):
+        articolo = str(articolo_raw or "").strip()
         if not articolo:
             continue  # nothing to price-check on a blank row
-
-        issue = price_issue(row.get("prezzo"), row.get("prezzo_lisini"), available)
-
+        issue = price_issue(prezzo, prezzo_lisini, available)
         if issue:
-            partita = clean_text(row.get("partita", ""))
-            out.append({
-                "cliente": row.get("cliente", ""),
-                "articolo": articolo,
-                "colore": colore,
-                "codice": clean_text(row.get("codice", "")) or colore,
-                "partita_colore": partita,
-                "ordine": row.get("ordine", ""),
-                "riga": row.get("riga", ""),
-                "bagno": row.get("bagno", ""),
-                "mc": row.get("mc", ""),
-                "prezzo": row.get("prezzo", ""),
-                "prezzo_lisini": row.get("prezzo_lisini", ""),
-                "issue": issue,
-            })
+            flagged.append((position, articolo, issue))
+
+    # Read the other columns as plain lists too: df.iloc[position] builds a Series per
+    # flagged row, which is the slow part when many rows are flagged.
+    codice_col, colore_col, partita_col = column("codice"), column("colore"), column("partita")
+    cliente_col, ordine_col, riga_col = column("cliente"), column("ordine"), column("riga")
+    bagno_col, mc_col = column("bagno"), column("mc")
+    out = []
+    for position, articolo, issue in flagged:
+        colore = clean_text(colore_col[position]) or clean_text(codice_col[position])
+        out.append({
+            "cliente": cliente_col[position],
+            "articolo": articolo,
+            "colore": colore,
+            "codice": clean_text(codice_col[position]) or colore,
+            "partita_colore": clean_text(partita_col[position]),
+            "ordine": ordine_col[position],
+            "riga": riga_col[position],
+            "bagno": bagno_col[position],
+            "mc": mc_col[position],
+            "prezzo": prezzo_col[position],
+            "prezzo_lisini": listini_col[position],
+            "issue": issue,
+        })
     return out

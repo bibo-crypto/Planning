@@ -210,7 +210,10 @@ RE_ARTICLE_DESCRIPTION = re.compile(
     r"Nm\s*(?P<nm>\S+)\s*"
     r"Ne\s*(?P<ne>\S+)\s*"
     r"(?P<dye>.+?)\s*"
-    r"Lot\s*:?\s*(?P<lot>.+)$",
+    # Some PDFs contain the marker ``Lot :`` but no value. Keep all the
+    # preceding fields and return an empty Lot cell instead of rejecting the
+    # whole description.
+    r"Lot\s*:?\s*(?P<lot>.*)$",
     re.IGNORECASE,
 )
 

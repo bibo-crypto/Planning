@@ -280,16 +280,47 @@ def _dispo_suffix(dispo: str) -> str:
     return str(int(n)) if n is not None else ""
 
 
+_PO_COMMENTO_RE = re.compile(r"^\s*PO[-\s]*(\d+)(?:[-\s]*(\d{4}))?", re.IGNORECASE)
+
+
+def _elvy_file_stem(records: list["OrderRecord"]) -> str:
+    """Name of the ELVY files, built from the values of the Excel's Commento column.
+
+    One PO -> 'PO-1500-2026'.  The same Commento repeated is written once.  Several
+    POs are written together, numbers sharing a year being merged:
+    'PO-1500-2026' + 'PO-1501-2026' -> 'PO-1500 & 1501-2026'.  A Commento that is not
+    a PO is used as it is; with no Commento at all the name is just 'ELVY'.
+    """
+    commenti: list[str] = []
+    for record in records:
+        value = _commento_for("ELVY", record.additional_raw)
+        if value and value not in commenti:
+            commenti.append(value)
+    numbers_by_year: dict[str, list[str]] = {}
+    others: list[str] = []
+    for value in commenti:
+        match = _PO_COMMENTO_RE.match(value)
+        if match:
+            numbers = numbers_by_year.setdefault(match.group(2) or "", [])
+            if match.group(1) not in numbers:
+                numbers.append(match.group(1))
+        else:
+            cleaned = re.sub(r'[<>:"/\\|?*]', "_", value).strip(" .")
+            if cleaned and cleaned not in others:
+                others.append(cleaned)
+    parts = [
+        "PO-" + " & ".join(numbers) + (f"-{year}" if year else "")
+        for year, numbers in numbers_by_year.items()
+    ]
+    return " & ".join(parts + others) or "ELVY"
+
+
 def build_output_stem(records: list["OrderRecord"], customer: str) -> str:
-    """The identifier used both as the output filename and, for ELVY, as
-    the ticket's own Commento -- e.g. 'PO-1466-2026' or 'MED-D-505450-2026'.
+    """The name (without extension) of a customer's output files, e.g. 'PO-1500-2026'
+    (ELVY, from its Commento values) or 'MED-D-505450-2026'.
     """
     if customer == "ELVY":
-        for r in records:
-            token = _po_token(r.additional_raw)
-            if token:
-                return token
-        return "ELVY"
+        return _elvy_file_stem(records)
     dispo_num = _dispo_number(records[0].dispo) if records else ""
     year = str(datetime.now().year)
     return f"MED-D-{dispo_num}-{year}" if dispo_num else f"MED-{year}"
@@ -1089,13 +1120,22 @@ def load_el_kamal_order(data_path: Path, dispo_path: Path | None = None) -> tupl
     is always empty because these layouts carry no raw-yarn sheet.
     """
     wb = openpyxl.load_workbook(data_path, data_only=True, read_only=True)
-    # Prefer "Ordine Kamal" (Kamal-tab export) over "Sheet1" (ERP dump).
-    ordine_kamal_sheet = next(
-        (s for s in wb.sheetnames if _key(s) in {_key("Ordine Kamal"), _key("Kamal Order")}),
-        None,
-    )
+    # Prefer "Ordine Kamal" (Kamal-tab export) over "Sheet1" (ERP dump).  The Kamal-tab
+    # workbook ALSO holds "Kamal Order" -- the raw PDF rows, listed first and with other
+    # columns -- which must never be mistaken for the order sheet.
+    sheet_by_key = {_key(name): name for name in wb.sheetnames}
+    ordine_kamal_sheet = sheet_by_key.get(_key("Ordine Kamal"))
     if ordine_kamal_sheet:
         data = _read_sheet_rows(wb[ordine_kamal_sheet])
+        # The order sheet only carries the DFM colour CODE; the colour NAME is on the
+        # raw PDF sheet next to the same code.
+        pdf_sheet = sheet_by_key.get(_key("Kamal Order"))
+        color_name_by_code: dict[str, str] = {}
+        if pdf_sheet:
+            for pdf_row in _read_sheet_rows(wb[pdf_sheet]):
+                code, name = _clean(_get(pdf_row, "COLOREDFM")), _clean(_get(pdf_row, "Colore"))
+                if code and name:
+                    color_name_by_code.setdefault(code, name)
         # Also load Filato x Tinturia rows for raw-yarn info when present.
         raw_sheet = next(
             (s for s in wb.sheetnames if "filato" in _key(s) or "tinturia" in _key(s)),
@@ -1110,8 +1150,12 @@ def load_el_kamal_order(data_path: Path, dispo_path: Path | None = None) -> tupl
         raw_by_colore: dict[str, dict] = {
             _clean(_get(r, "Partita Col", "Partita")).upper(): r for r in raw_rows_kt if _clean(_get(r, "Partita Col", "Partita"))
         }
+        def ordered_kg(sheet_row: dict) -> float | int | None:
+            """A KG column holds the ERP's tenths-of-a-kilo; Q.TA here is already kilograms."""
+            return _kamal_kg(_get(sheet_row, "KG")) or _number(_get(sheet_row, "Q.TA"))
+
         for row in data:
-            partita_col = _clean(_get(row, "Partita Col", "Partita Col"))
+            partita_col = _clean(_get(row, "Partita Col", "Partita"))
             raw_r = raw_by_colore.get(partita_col.upper(), {})
             result.append(OrderRecord(
                 customer_code="3019",
@@ -1120,13 +1164,14 @@ def load_el_kamal_order(data_path: Path, dispo_path: Path | None = None) -> tupl
                 description=_clean(_get(row, "COMMENTO", "Commento")),
                 additional_raw=_clean(_get(row, "COMMENTO", "Commento")),
                 color_code=_clean(_get(row, "COLORE", "Colore")),
-                color_name=_clean(_get(row, "COLORE", "Colore")),
+                color_name=color_name_by_code.get(_clean(_get(row, "COLORE", "Colore")), _clean(_get(row, "COLORE", "Colore"))),
                 order_no=_order_number(_get(row, "ORDINE", "Ordine")),
                 order_row="",
                 colored_batch=partita_col,
                 raw_batch=_clean(_get(row, "Partita GG")) or _clean(_get(raw_r, "Partita GG")),
-                quantity_cones=_number(_get(row, "ROCCHE", "Rocche", "Q.TA")),
-                raw_weight=_kamal_kg(_get(row, "KG")) or _kamal_kg(_get(raw_r, "KG")),
+                # Q.TA on this sheet is the ordered WEIGHT in kg, not a number of cones.
+                quantity_cones=_number(_get(row, "ROCCHE", "Rocche")),
+                raw_weight=ordered_kg(row) or _kamal_kg(_get(raw_r, "KG")),
                 dispo=_clean(_get(row, "SIGLA DISPOSIZIONE", "Dispo")),
                 bagno=_clean(_get(row, "BAGNO PREPOSTO", "Bagno")),
                 delivery=_get(row, "CONSEGNA", "Consegna"),
@@ -1134,7 +1179,7 @@ def load_el_kamal_order(data_path: Path, dispo_path: Path | None = None) -> tupl
                 formato="7777",
                 machine=_clean(_get(row, "GRUPPO MACCHINA", "M/C")),
                 commento=_clean(_get(row, "COMMENTO", "Commento")),
-                kg=_kamal_kg(_get(row, "KG")) or _kamal_kg(_get(raw_r, "KG")),
+                kg=ordered_kg(row) or _kamal_kg(_get(raw_r, "KG")),
             ))
         if not result:
             raise ValueError("Non sono state trovate righe d'ordine EL KAMAL in 'Ordine Kamal'.")

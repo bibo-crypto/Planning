@@ -579,7 +579,7 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
         # Create (EXCEL+Biglietti) is one of the heaviest pages at startup.
         biglietti_placeholder = lazy_page(
             notebook,
-            "Create (EXCEL+Biglietti)",
+            "Biglietti",
             lambda ph: build_into(
                 ph,
                 lambda parent: make_biglietti(parent),
@@ -740,6 +740,47 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
             ensure_heavy_tabs=_ensure_heavy_tabs,
         )
         notebook.insert(0, self._overview_tab, text="📊 Overview")
+
+        def ensure_biglietti_tab():
+            lazy = self._lazy_builders.get(str(biglietti_placeholder))
+            if lazy is not None:
+                lazy[1](lazy[0])
+            tab = getattr(self, "_biglietti_tab", None)
+            if tab is not None and hasattr(tab, "shared_excel_path"):
+                tab.shared_excel_label = shared_path_label
+                if getattr(shared_path_label, "winfo_exists", lambda: False)():
+                    path = tab.shared_excel_path
+                    shared_path_label.config(
+                        text=str(path) if path else "Not selected — ELVY/MED conversion requires this workbook",
+                        foreground="#111827" if path else "grey",
+                    )
+            return tab
+
+        # Shared Create Excel is an application-level workspace, not a fourth
+        # customer page. It sits immediately after Overview and exposes only
+        # operations on Orders / PG-X / shipped history.
+        shared_orders_page = ttk.Frame(notebook, padding=18)
+        shared_orders_page.columnconfigure(0, weight=1)
+        ttk.Label(shared_orders_page, text="Shared Orders", font=("Segoe UI", 17, "bold"), foreground="#16324F").grid(row=0, column=0, sticky="w")
+        ttk.Label(
+            shared_orders_page,
+            text="Shared Create Excel workbook used by ELVY and MED. Select or create it here before converting those customers.",
+            foreground="#5B6B7A", wraplength=900, justify="left",
+        ).grid(row=1, column=0, sticky="w", pady=(4, 14))
+        shared_path_label = ttk.Label(shared_orders_page, text="Not selected — ELVY/MED conversion requires this workbook", foreground="grey", anchor="w")
+        shared_path_label.grid(row=2, column=0, sticky="ew", pady=(0, 12))
+        shared_controls = ttk.LabelFrame(shared_orders_page, text=" Shared Create Excel workbook ", padding=12)
+        shared_controls.grid(row=3, column=0, sticky="ew")
+        shared_buttons = ttk.Frame(shared_controls)
+        shared_buttons.grid(row=0, column=0, sticky="w")
+        ttk.Button(shared_buttons, text="📂 Select Existing", width=20, command=lambda: ensure_biglietti_tab()._pick_shared_excel()).pack(side="left", padx=(0, 6))
+        ttk.Button(shared_buttons, text="➕ Create New", width=18, command=lambda: ensure_biglietti_tab()._create_shared_excel()).pack(side="left")
+        shared_actions = ttk.Frame(shared_controls)
+        shared_actions.grid(row=1, column=0, sticky="w", pady=(12, 0))
+        ttk.Button(shared_actions, text="📋 Show Orders", width=20, command=lambda: ensure_biglietti_tab()._show_shared_orders()).pack(side="left", padx=(0, 6))
+        ttk.Button(shared_actions, text="📊 PG-X Orders Report", width=22, command=lambda: ensure_biglietti_tab()._show_pgx_report()).pack(side="left", padx=(0, 6))
+        ttk.Button(shared_actions, text="🧾 Extract Shipped/Invoiced", width=25, command=lambda: ensure_biglietti_tab()._show_shipped_history()).pack(side="left")
+        notebook.insert(1, shared_orders_page, text="Shared Orders")
         notebook.select(0)
 
         def _on_any_tab_changed(_event=None) -> None:

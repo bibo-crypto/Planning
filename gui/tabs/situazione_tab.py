@@ -154,6 +154,8 @@ class SituazioneTab(SituationSourcesMixin, SituationRefreshMixin, ttk.Frame):
         self.current_df = pd.DataFrame()
         self._filter_after_id = None
         self._shared_syncing = False
+        self._shared_sync_thread = None
+        self._shared_sync_attempted_path = ""
         self._other_shared_syncing = False
         self._shared_source_paths = {}
         self._startup_restore_in_progress = False

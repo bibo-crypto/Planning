@@ -52,6 +52,7 @@ from utility.utils import load_settings, parse_number, bind_escape_to_close
 from utility import notifications
 import calculate.situazione as business_logic
 from utility.ui_thread import post_to_ui
+from gui.tree_fit import TableModel, debounced, fit_columns
 
 
 def _focus_entry_when_ready(window: tk.Toplevel, entry: ttk.Entry) -> None:
@@ -874,11 +875,11 @@ class OverviewTab(ttk.Frame):
 
         price_change_df = self._price_change_df()
         price_anomalies_df = _price_color_anomalies(df)
-        price_problem_colors = len({
-            str(item.get("colore", "")).strip()
-            for item in price_anomalies_df.to_dict("records")
-            if str(item.get("colore", "")).strip()
-        })
+        # The detail window shows one row per erroneous order/color record.
+        # Counting unique colour codes here made the card number smaller than
+        # the rows shown inside it whenever one colour appeared on multiple
+        # machines or orders.
+        price_problem_colors = len(price_anomalies_df)
         price_anomalies_cols = ["cliente", "articolo", "codice", "colore", "prezzo", "prezzo_lisini", "ordine", "riga", "partita_colore", "bagno", "mc", "issue"]
         self._add_card(
             8, "💲 Errori Prezzo — colori", str(price_problem_colors),
@@ -1000,7 +1001,14 @@ class OverviewTab(ttk.Frame):
             "riga": "Riga",
         }
         tree = ttk.Treeview(window, columns=columns, show="headings")
+        tree.tag_configure("stripe_a", background="#ffffff", foreground="#25364d")
+        tree.tag_configure("stripe_b", background="#eef4fb", foreground="#25364d")
         sort_state: dict[str, bool] = {}
+        model = TableModel(columns)
+
+        def prepare() -> None:
+            """Format the two date columns for the whole table in one pass and cache the rows."""
+            model.load(_format_display_dates(machine_df, ["dye_date", "delivery_target"]))
 
         def sort_col(col):
             nonlocal machine_df
@@ -1014,31 +1022,42 @@ class OverviewTab(ttk.Frame):
             )
             machine_df = machine_df.sort_values(by=col, ascending=ascending, key=sort_key)
             sort_state[col] = not ascending
+            prepare()
             render()
 
         for col in columns:
-            tree.heading(col, text=labels[col], command=lambda c=col: sort_col(c))
-            tree.column(col, width=115 if col not in {"titolo", "colore"} else 170, anchor="center")
+            tree.heading(col, text=labels[col], anchor="center", command=lambda c=col: sort_col(c))
         tree.grid(row=1, column=0, sticky="nsew", padx=10)
         scroll = ttk.Scrollbar(window, orient="vertical", command=tree.yview)
         scroll.grid(row=1, column=1, sticky="ns")
-        tree.configure(yscrollcommand=scroll.set)
+        xscroll = ttk.Scrollbar(window, orient="horizontal", command=tree.xview)
+        xscroll.grid(row=2, column=0, sticky="ew", padx=10)
+        tree.configure(yscrollcommand=scroll.set, xscrollcommand=xscroll.set)
 
         def render(*_args):
+            rows = model.visible(search.get())
             tree.delete(*tree.get_children())
-            term = search.get().strip().casefold()
-            for row in machine_df.itertuples(index=False, name=None):
-                values = []
-                for col, value in zip(columns, row):
-                    if col in {"dye_date", "delivery_target"} and value not in (None, ""):
-                        parsed = pd.to_datetime(value, errors="coerce")
-                        value = value if pd.isna(parsed) else parsed.strftime("%d/%m/%Y")
-                    values.append("" if value is None else value)
-                values = tuple(values)
-                if not term or term in " ".join(str(value).casefold() for value in values):
-                    tree.insert("", "end", values=values)
-        search.trace_add("write", render)
+            for index, values in enumerate(rows):
+                tree.insert("", "end", values=values, tags=("stripe_a" if index % 2 == 0 else "stripe_b",))
+
+        prepare()
+        fit_columns(tree, columns, model.rows)               # widths follow the data
+        tree.after(100, lambda: fit_columns(tree, columns, model.rows))
         render()
+
+        # The first fit happens before Tk has negotiated the final window
+        # width. Refit on resize as well; otherwise enlarging the Overview
+        # ticket leaves an unused white area on the right of the Treeview.
+        resize_job = [None]
+        def refit_on_resize(_event=None):
+            if resize_job[0] is not None:
+                try:
+                    tree.after_cancel(resize_job[0])
+                except tk.TclError:
+                    pass
+            resize_job[0] = tree.after_idle(lambda: fit_columns(tree, columns, model.rows))
+        tree.bind("<Configure>", refit_on_resize, add="+")
+        search.trace_add("write", debounced(window, render))
 
         def export_visible() -> None:
             term = search.get().strip().casefold()
@@ -1054,7 +1073,7 @@ class OverviewTab(ttk.Frame):
             )
 
         buttons = ttk.Frame(window, padding=10)
-        buttons.grid(row=2, column=0, columnspan=2, sticky="ew")
+        buttons.grid(row=3, column=0, columnspan=2, sticky="ew")
         ttk.Button(
             buttons, text="Export Excel", command=export_visible,
         ).pack(side="left")
@@ -1125,7 +1144,10 @@ class OverviewTab(ttk.Frame):
         display_df = _format_display_dates(df, ["data", "consegna", "delivery_date", "tinto", "data_qualita", "data_uscita"])
         available_cols = [c for c in cols if display_df.empty or c in display_df.columns] or cols
         tree = ttk.Treeview(window, columns=available_cols, show="headings")
+        tree.tag_configure("stripe_a", background="#ffffff", foreground="#25364d")
+        tree.tag_configure("stripe_b", background="#eef4fb", foreground="#25364d")
         sort_state: dict[str, bool] = {}
+        model = TableModel(available_cols)
 
         def sort_col(col):
             nonlocal subset_df
@@ -1139,26 +1161,40 @@ class OverviewTab(ttk.Frame):
             )
             subset_df = subset_df.sort_values(by=col, ascending=ascending, key=sort_key)
             sort_state[col] = not ascending
+            model.load(subset_df)
             render()
 
         for col in available_cols:
-            tree.heading(col, text=HEADERS_IT.get(col, col.capitalize()), command=lambda c=col: sort_col(c))
-            tree.column(col, width=115 if col not in {"titolo", "colore", "comment", "message", "new_comment", "raw_yarn_match", "issue"} else 170, anchor="center")
+            tree.heading(col, text=HEADERS_IT.get(col, col.capitalize()), anchor="center", command=lambda c=col: sort_col(c))
         tree.grid(row=1, column=0, sticky="nsew", padx=10)
         scroll = ttk.Scrollbar(window, orient="vertical", command=tree.yview)
         scroll.grid(row=1, column=1, sticky="ns")
-        tree.configure(yscrollcommand=scroll.set)
+        xscroll = ttk.Scrollbar(window, orient="horizontal", command=tree.xview)
+        xscroll.grid(row=2, column=0, sticky="ew", padx=10)
+        tree.configure(yscrollcommand=scroll.set, xscrollcommand=xscroll.set)
         subset_df = display_df[available_cols] if not display_df.empty else display_df.reindex(columns=available_cols)
 
         def render(*_args):
+            rows = model.visible(search.get())
             tree.delete(*tree.get_children())
-            term = search.get().strip().casefold()
-            for row in subset_df.itertuples(index=False, name=None):
-                values = tuple("" if value is None else value for value in row)
-                if not term or term in " ".join(str(value).casefold() for value in values):
-                    tree.insert("", "end", values=values)
-        search.trace_add("write", render)
+            for index, values in enumerate(rows):
+                tree.insert("", "end", values=values, tags=("stripe_a" if index % 2 == 0 else "stripe_b",))
+
+        model.load(subset_df)
+        fit_columns(tree, available_cols, model.rows, )        # widths follow the data, not a fixed 115/170
+        tree.after(100, lambda: fit_columns(tree, available_cols, model.rows))
         render()
+
+        resize_job = [None]
+        def refit_on_resize(_event=None):
+            if resize_job[0] is not None:
+                try:
+                    tree.after_cancel(resize_job[0])
+                except tk.TclError:
+                    pass
+            resize_job[0] = tree.after_idle(lambda: fit_columns(tree, available_cols, model.rows))
+        tree.bind("<Configure>", refit_on_resize, add="+")
+        search.trace_add("write", debounced(window, render))
 
         def export_visible() -> None:
             term = search.get().strip().casefold()
@@ -1174,7 +1210,7 @@ class OverviewTab(ttk.Frame):
             )
 
         buttons = ttk.Frame(window, padding=10)
-        buttons.grid(row=2, column=0, columnspan=2, sticky="ew")
+        buttons.grid(row=3, column=0, columnspan=2, sticky="ew")
         ttk.Button(
             buttons, text="Export Excel", command=export_visible,
         ).pack(side="left")

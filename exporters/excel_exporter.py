@@ -308,7 +308,8 @@ class ExcelExporter(_LegacyMethodShims):
 
     def __init__(self, rows: Sequence[OrderRow], output_path: Path,
                  magazino_summary=None, codes_map: dict | None = None,
-                 first_bagno: str | None = None) -> None:
+                 first_bagno: str | None = None,
+                 lotti_summary=None) -> None:
         self.rows = rows
         self.output_path = output_path
         self.magazino_summary = magazino_summary
@@ -316,6 +317,7 @@ class ExcelExporter(_LegacyMethodShims):
         # "First bagno" for the Ordini ELVY sheet's BAGNO PREPOSTO column
         # (None / "" = leave it blank).  See calculate.bagno.
         self.first_bagno = first_bagno
+        self.lotti_summary = lotti_summary
 
     # ------------------------------------------------------------------
     # Public API
@@ -339,7 +341,10 @@ class ExcelExporter(_LegacyMethodShims):
 
         raw_yarn_matches = None
         if self.magazino_summary is not None and not self.magazino_summary.empty:
-            raw_yarn_matches = match_raw_yarn(ordini_rows, self.magazino_summary, self.codes_map)
+            raw_yarn_matches = match_raw_yarn(
+                ordini_rows, self.magazino_summary, self.codes_map,
+                lotti_summary=self.lotti_summary,
+            )
             logger.info("Raw yarn matched: %d batch(es) assigned", len(raw_yarn_matches))
 
         ws2 = wb.create_sheet("Ordini ELVY")

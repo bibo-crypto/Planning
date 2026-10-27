@@ -17,17 +17,31 @@ block_cipher = None
 datas = []
 binaries = []
 extra_hiddenimports = []
+
+
+def _is_unused_module(name):
+    """True for modules Planning never imports: each package's own test suite
+    (pandas alone has over a thousand of them), conftest files, numpy's f2py and
+    the matplotlib plotting backend (matplotlib is not installed)."""
+    return (
+        ".tests" in name or name.endswith(".conftest")
+        or name.startswith("numpy.f2py") or name.endswith("._matplotlib")
+    )
+
+
+# collect_all() is told what to skip up front (filter_submodules / exclude_datas)
+# instead of filtering its result afterwards: filtering afterwards still imports
+# every test module while the spec is evaluated (a minute on Windows) and still
+# copies the tests' thousands of data files into dist\.
 for _pkg in ("pypdfium2", "pypdfium2_raw", "pandas", "numpy"):
-    _datas, _binaries, _hidden = collect_all(_pkg)
+    _datas, _binaries, _hidden = collect_all(
+        _pkg,
+        filter_submodules=lambda name: not _is_unused_module(name),
+        exclude_datas=["**/tests/**", "**/tests"],
+    )
     datas += _datas
     binaries += _binaries
-    # collect_all() also discovers each package's own test suite.  Those
-    # modules are never used by Planning, but pandas alone has thousands of
-    # them and analysing them makes every build several minutes slower.
-    extra_hiddenimports += [
-        module for module in _hidden
-        if not module.startswith(("pandas.tests", "numpy.tests", "numpy.f2py.tests"))
-    ]
+    extra_hiddenimports += _hidden
 
 # Our own packages.  Many modules are loaded lazily BY NAME at runtime
 # (utility.utils.lazy_call / LazyModule -> importlib), which PyInstaller's static
@@ -145,6 +159,10 @@ a = Analysis(
         'IPython',
         'notebook',
         'pytest',
+        # Test suites are never used by the app (see _is_unused_module above).
+        'pandas.tests',
+        'numpy.tests',
+        'numpy.f2py',
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
@@ -163,7 +181,7 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,              # compressing every DLL only slows the build and the start-up
     console=False,          # no black console window — GUI only
     disable_windowed_traceback=False,
     argv_emulation=False,
@@ -179,7 +197,7 @@ coll = COLLECT(
     a.zipfiles,
     a.datas,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
     name='Planning',
 )

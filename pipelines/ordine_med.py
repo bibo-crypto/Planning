@@ -29,6 +29,7 @@ from typing import Any
 
 import openpyxl
 
+from exporters.prezzi_workbook import PREZZI_HEADERS, price_cell, write_prezzi_workbook  # noqa: F401 -- PREZZI_HEADERS is re-exported
 from exporters.biglietti_exporter import (
     _clean, _get, _key, _number, _prezzo_match_for, _read_sheet_rows,
 )  # noqa: F401 -- shared normalization helpers
@@ -723,82 +724,17 @@ def _ordine_da_creare_row(r: OrdineMedRow) -> list[Any]:
     ]
 
 
-# The "Prezzi" file: the price check sheet for the MED order, in the column order
-# the planner works with (same order as the reference sheet).
-PREZZI_HEADERS = [
-    "Riga", "ARTICOLO", "TITOLO", "COLORE", "Q.TA", "DESCR COL",
-    "LIVELLO", "M/C", "PREZZO", "prezzo + (2$)",
-]
-
-
 def _prezzi_row(r: OrdineMedRow) -> list[Any]:
-    """One row of the Prezzi sheet; a price that could not be found stays an empty cell."""
-    def price(value: Any) -> Any:
-        return None if value in (None, "") else value
-
+    """One row of the Prezzi sheet for a MED order line."""
     return [
         r.riga, r.articolo, r.titolo, r.colore, r.rocc, r.descr_col,
-        r.livello, r.mc, price(r.prezzo), price(r.prezzo_plus2),
+        r.livello, r.mc, price_cell(r.prezzo), price_cell(r.prezzo_plus2),
     ]
 
 
 def export_prezzi_workbook(path: Path, records: list[OrdineMedRow]) -> None:
-    """Write Prezzi.xlsx: one sheet, "MED", with PREZZI_HEADERS for every order row.
-
-    Styled like the planner's reference sheet: navy headers for the order columns,
-    red headers for the two price columns, LIVELLO shaded red, prices with two
-    decimals, and a colour code that appears more than once highlighted in green.
-    """
-    from openpyxl import Workbook
-    from openpyxl.formatting.rule import FormulaRule
-    from openpyxl.styles import Font, PatternFill
-    from exporters.biglietti_exporter import _style_sheet
-
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "MED"
-    ws.append(PREZZI_HEADERS)
-    for record in records:
-        ws.append(_prezzi_row(record))
-    _style_sheet(ws)
-
-    navy, dark, red = "1F2A5C", "000000", "C00000"
-    pink = "F4B6B6"
-    header_fills = {
-        "Riga": navy, "ARTICOLO": navy, "TITOLO": navy, "COLORE": navy, "Q.TA": navy,
-        "DESCR COL": dark, "LIVELLO": pink, "M/C": dark, "PREZZO": red, "prezzo + (2$)": red,
-    }
-    for cell in ws[1]:
-        fill = header_fills[cell.value]
-        cell.fill = PatternFill("solid", fgColor=fill)
-        cell.font = Font(bold=True, color=red if fill == pink else "FFFFFF")
-    for column, name in enumerate(PREZZI_HEADERS, start=1):
-        for row in range(2, ws.max_row + 1):
-            cell = ws.cell(row=row, column=column)
-            if name == "LIVELLO":
-                cell.fill = PatternFill("solid", fgColor=pink)
-                cell.font = Font(color=red)
-            elif name in ("PREZZO", "prezzo + (2$)"):
-                cell.number_format = "0.00"
-        longest = max((len(str(ws.cell(row=row, column=column).value or "")) for row in range(2, ws.max_row + 1)), default=0)
-        ws.column_dimensions[ws.cell(row=1, column=column).column_letter].width = max(12, len(name) + 4, longest + 3)
-
-    last = ws.max_row
-    if last > 1:
-        colore = ws.cell(row=1, column=PREZZI_HEADERS.index("COLORE") + 1).column_letter
-        green = PatternFill(start_color="FFC6EFCE", end_color="FFC6EFCE", fill_type="solid")
-        ws.conditional_formatting.add(
-            f"{colore}2:{colore}{last}",
-            FormulaRule(
-                formula=[f'AND(${colore}2<>"",COUNTIF(${colore}$2:${colore}${last},{colore}2)>1)'],
-                fill=green,
-            ),
-        )
-    ws.freeze_panes = "A2"
-    ws.auto_filter.ref = ws.dimensions
-    path.parent.mkdir(parents=True, exist_ok=True)
-    safe_save_workbook(wb, path, keep_backup=False)
-    wb.close()
+    """Write Prezzi.xlsx for the MED order (layout: exporters.prezzi_workbook)."""
+    write_prezzi_workbook(path, [_prezzi_row(record) for record in records])
 
 
 def export_erp_order_workbook(path: Path, records: list[OrdineMedRow]) -> None:

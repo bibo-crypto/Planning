@@ -125,10 +125,27 @@ for %%D in (cache settings logs backups situazione) do (
 )
 for /r "dist\Planning" %%F in (*.db *.sqlite *.sqlite3 *.pkl) do del /q "%%F"
 for /r "dist\Planning" %%F in (*.db-* *.sqlite-* *.sqlite3-*) do del /q "%%F"
+
+:: -- Release ZIP: only on request  (build.bat zip) -------------------------------
+:: The in-app updater downloads a release ZIP from GitHub, so one is needed when a
+:: release is published -- but not for everyday builds, and Compress-Archive is slow.
+set "ZIP_NOTE="
+if /i "%~1"=="zip" (
+    for /f "usebackq tokens=*" %%V in ("version.txt") do set "PLANNING_VERSION=%%V"
+    echo         Creating release ZIP ^(only because "zip" was requested^)...
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "Compress-Archive -Path 'dist\Planning\*' -DestinationPath 'dist\Planning_v!PLANNING_VERSION!.zip' -Force"
+    if errorlevel 1 (
+        echo  [ERROR] Could not create the release ZIP.
+        if not defined PLANNING_NO_PAUSE pause
+        exit /b 1
+    )
+    set "ZIP_NOTE=   Release ZIP:   dist\Planning_v!PLANNING_VERSION!.zip"
+)
 echo.
 echo  ================================================
 echo    Build Complete!
 echo    Output folder: dist\Planning\
+if defined ZIP_NOTE echo  !ZIP_NOTE!
 echo  ================================================
 echo.
 echo  Next step - create the installer:

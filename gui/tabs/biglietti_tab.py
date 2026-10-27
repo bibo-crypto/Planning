@@ -98,6 +98,9 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
         }
         self._sender_email = ""
         self._last_client_files: dict[str, list[Path]] = {"elvy": [], "med": [], "el_kamal": []}
+        self._conversion_customer: str | None = None
+        self._client_page_book: ttk.Notebook | None = None
+        self._convert_buttons: list[ttk.Button] = []
         self._build()
         self._restore()
         self.after(60000, self._run_pgx_report_schedule)
@@ -115,12 +118,23 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
         self._canvas.configure(yscrollcommand=self._scrollbar.set)
         self._canvas.pack(side="left", fill="both", expand=True)
         self._scrollbar.pack(side="right", fill="y")
-        content = ttk.Frame(self._canvas, padding=12)
+        content = ttk.Frame(self._canvas, padding=0)
         self._canvas_window = self._canvas.create_window((0, 0), window=content, anchor="nw")
         content.bind("<Configure>", lambda _event: self._canvas.configure(scrollregion=self._canvas.bbox("all")))
         self._canvas.bind("<Configure>", lambda event: self._canvas.itemconfigure(self._canvas_window, width=event.width))
         self._canvas.bind_all("<MouseWheel>", self._on_mousewheel, add="+")
         content.columnconfigure(0, weight=1)
+        # The Shared Create Excel controls live in the application's own
+        # top-level "Shared Orders" tab. This customer page contains exactly
+        # three pages: ELVY, MED and EL KAMAL.
+        page_book = ttk.Notebook(content)
+        page_book.pack(side="top", anchor="nw", fill="both", expand=True)
+        self._client_page_book = page_book
+        self._source_labels = {key: [] for key in ("data", "dispo", "template", "articoli", "densita")}
+        for kind, label in (("ELVY", "ELVY"), ("MED", "MED"), ("EL_KAMAL", "EL KAMAL")):
+            page = ttk.Frame(page_book, padding=(6, 4))
+            page_book.add(page, text=label)
+            self._build_client_page(page, kind, label)
         style = ttk.Style(self)
         style.configure("Bold.TButton", font=("Segoe UI", 10, "bold"))
         style.configure("PageTitle.TLabel", font=("Segoe UI", 17, "bold"), foreground="#16324F")
@@ -129,90 +143,96 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
         style.configure("Section.TLabelframe.Label", font=("Segoe UI", 10, "bold"), foreground="#16324F")
         style.configure("Hint.TLabel", font=("Segoe UI", 8), foreground="#64748B")
 
-        input_box = ttk.LabelFrame(content, text=" 1. Main input files (required) ", style="Section.TLabelframe")
-        input_box.pack(fill="x", padx=4, pady=(0, 10))
-        input_box.columnconfigure(1, weight=1)
-        ttk.Button(input_box, text="📂  Select Order Data", command=self._pick_data, width=24).grid(row=0, column=0, sticky="w", pady=4)
-        self.biglietti_data_path_label = ttk.Label(input_box, text="No file selected", foreground="grey", anchor="w")
-        self.biglietti_data_path_label.grid(row=0, column=1, sticky="ew", padx=(10, 0), pady=4)
-        ttk.Button(input_box, text="📂  Select Dispo-Bagno", command=self._pick_dispo, width=24).grid(row=1, column=0, sticky="w", pady=4)
-        self.biglietti_dispo_path_label = ttk.Label(input_box, text="No file selected (optional if embedded)", foreground="grey", anchor="w")
-        self.biglietti_dispo_path_label.grid(row=1, column=1, sticky="ew", padx=(10, 0), pady=4)
-
-        template_box = ttk.LabelFrame(content, text=" 2. Ticket template ", style="Section.TLabelframe")
-        template_box.pack(fill="x", padx=4, pady=(0, 10))
-        template_box.columnconfigure(1, weight=1)
-        ttk.Button(template_box, text="📄  Select Forma Biglietti", command=self._pick_template, width=24).grid(row=0, column=0, sticky="w", pady=4)
-        self.template_path_label = ttk.Label(template_box, text="Searching for Biglietti.docx...", foreground="grey", anchor="w")
-        self.template_path_label.grid(row=0, column=1, sticky="ew", padx=(10, 0), pady=4)
-
-        opt_box = ttk.LabelFrame(content, text=" 3. Optional shared data sources ", style="Section.TLabelframe")
-        opt_box.pack(fill="x", padx=4, pady=(0, 10))
-        opt_box.columnconfigure(1, weight=1)
-        self.articoli_btn = ttk.Button(opt_box, text="📂  Articles (Titolo)", command=self._pick_articoli, width=24)
-        self.articoli_btn.grid(row=0, column=0, sticky="w", pady=4)
-        self.articoli_label = ttk.Label(opt_box, text="Shared with Situation tab", foreground="grey", anchor="w")
-        self.articoli_label.grid(row=0, column=1, sticky="ew", padx=(10, 0), pady=4)
-        self.densita_btn = ttk.Button(opt_box, text="📂  Density Query", command=self._pick_densita, width=24)
-        self.densita_btn.grid(row=1, column=0, sticky="w", pady=4)
-        self.densita_label = ttk.Label(opt_box, text="Not selected — KG remains raw yarn weight", foreground="grey", anchor="w")
-        self.densita_label.grid(row=1, column=1, sticky="ew", padx=(10, 0), pady=4)
-        info_frame = ttk.Frame(opt_box)
-        info_frame.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(6, 0))
-        info_frame.columnconfigure(0, weight=1)
-        info_frame.columnconfigure(1, weight=1)
-        self.vmm_label = ttk.Label(info_frame, text="• VMM22: Uses Yarn Warehouse (Magazino Filato) loaded in app", foreground="#555555", font=("Segoe UI", 8))
-        self.vmm_label.grid(row=0, column=0, sticky="w")
-        self.prezzi_label = ttk.Label(info_frame, text="• Price: Uses Price List (Listini) loaded in Prices / Situation", foreground="#555555", font=("Segoe UI", 8))
-        self.prezzi_label.grid(row=0, column=1, sticky="w")
-
-        export_box = ttk.LabelFrame(content, text=" 4. Client output folders and email actions ", style="Section.TLabelframe")
-        export_box.pack(fill="x", padx=4, pady=(0, 10))
-        export_box.columnconfigure(1, weight=1)
-        ttk.Label(export_box, text="Client / destination", style="Hint.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 4))
-        ttk.Label(export_box, text="Selected folder", style="Hint.TLabel").grid(row=0, column=1, sticky="w", padx=(10, 0), pady=(0, 4))
-        ttk.Label(export_box, text="Client-specific actions", style="Hint.TLabel").grid(row=0, column=2, sticky="e", padx=(10, 0), pady=(0, 4))
-        self._build_folder_row(export_box, 1, "elvy", "📁  ELVY Output Folder", show_email_buttons=True)
-        self._build_folder_row(export_box, 2, "med", "📁  MED Output Folder", show_email_buttons=True)
-        self._build_folder_row(export_box, 3, "el_kamal", "📁  EL KAMAL Output Folder", show_email_buttons=True)
-        self._build_folder_row(export_box, 4, "filato", "📁  Filato Output Folder", with_checkbox=True)
-
-        shared_box = ttk.LabelFrame(content, text=" 5. Shared Create Excel workbook ", style="Section.TLabelframe")
-        shared_box.pack(fill="x", padx=4, pady=(0, 10))
-        shared_box.columnconfigure(1, weight=1)
-        shared_buttons = ttk.Frame(shared_box)
-        shared_buttons.grid(row=0, column=0, sticky="w", pady=4)
-        ttk.Button(shared_buttons, text="📂 Select Existing", command=self._pick_shared_excel, width=18).pack(side="left")
-        ttk.Button(shared_buttons, text="➕ Create New", command=self._create_shared_excel, width=15).pack(side="left", padx=(6, 0))
-        self.shared_excel_label = ttk.Label(shared_box, text="Not selected — Convert will append here", foreground="grey", anchor="w")
-        self.shared_excel_label.grid(row=0, column=1, sticky="ew", padx=(10, 0), pady=4)
-        shared_action_frame = ttk.Frame(shared_box)
-        shared_action_frame.grid(row=1, column=0, columnspan=2, sticky="w", pady=(4, 0))
-        ttk.Button(shared_action_frame, text="📋  Show Orders", command=self._show_shared_orders, width=20).pack(side="left", padx=(0, 6))
-        ttk.Button(shared_action_frame, text="📊  PG-X Orders Report", command=self._show_pgx_report, width=22).pack(side="left", padx=(0, 6))
-        ttk.Button(shared_action_frame, text="🧾  Extract Shipped/Invoiced", command=self._show_shipped_history, width=24).pack(side="left")
-
-        kamal_print_box = ttk.LabelFrame(content, text=" 5a. Kamal Excel + Biglietti ", style="Section.TLabelframe")
-        kamal_print_box.pack(fill="x", padx=4, pady=(0, 10))
-        ttk.Checkbutton(
-            kamal_print_box,
-            text="Hide Rocche, KG and VMM22 in Kamal Excel + Biglietti (default)",
-            variable=self.kamal_hide_quantities,
-            command=lambda: self._save_prefs(kamal_hide_quantities=self.kamal_hide_quantities.get()),
-        ).pack(anchor="w")
-
-        action_box = ttk.LabelFrame(content, text=" 6. Generate ", style="Section.TLabelframe")
-        action_box.pack(fill="x", padx=4, pady=(8, 4))
-        action_box.columnconfigure(0, weight=1)
-        self.convert_btn = ttk.Button(action_box, text="⚡  Convert & Generate Tickets (Excel + Word)", command=self._run_convert, width=42, style="Bold.TButton")
-        self.convert_btn.pack(side="top", anchor="w", pady=(0, 8))
-        self.status = ttk.Label(action_box, text="● Ready", font=("Segoe UI", 9, "bold"), foreground="#2E7D32", anchor="w", wraplength=950)
-        self.status.pack(fill="x")
 
     def _on_mousewheel(self, event):
         widget = self.winfo_containing(event.x_root, event.y_root)
         if self.winfo_exists() and widget is not None and str(widget).startswith(str(self._w)):
             self._canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+    def _build_client_page(self, page, kind: str, label: str) -> None:
+        """Build one of the three customer pages.
+
+        Input/template/source paths are application-wide values, but their
+        upload controls are intentionally present on every customer page.
+        The label widgets are mirrored so selecting a file in one page is
+        immediately visible in the other two pages.
+        """
+        page.columnconfigure(0, weight=1)
+        input_box = ttk.LabelFrame(page, text=" 1. Main input files (required) ", style="Section.TLabelframe")
+        input_box.pack(fill="x", pady=(0, 10)); input_box.columnconfigure(1, weight=1)
+        ttk.Button(input_box, text="📂 Select Order Data", command=self._pick_data, width=24).grid(row=0, column=0, sticky="w", pady=4)
+        data_label = ttk.Label(input_box, text="No file selected", foreground="grey", anchor="w")
+        data_label.grid(row=0, column=1, sticky="ew", padx=(10, 0), pady=4)
+        ttk.Button(input_box, text="📂 Select Dispo-Bagno", command=self._pick_dispo, width=24).grid(row=1, column=0, sticky="w", pady=4)
+        dispo_label = ttk.Label(input_box, text="No file selected (optional if embedded)", foreground="grey", anchor="w")
+        dispo_label.grid(row=1, column=1, sticky="ew", padx=(10, 0), pady=4)
+        self._source_labels["data"].append(data_label); self._source_labels["dispo"].append(dispo_label)
+
+        template_box = ttk.LabelFrame(page, text=" 2. Ticket template ", style="Section.TLabelframe")
+        template_box.pack(fill="x", pady=(0, 10)); template_box.columnconfigure(1, weight=1)
+        ttk.Button(template_box, text="📄 Select Forma Biglietti", command=self._pick_template, width=24).grid(row=0, column=0, sticky="w", pady=4)
+        template_label = ttk.Label(template_box, text="Searching for Biglietti.docx...", foreground="grey", anchor="w")
+        template_label.grid(row=0, column=1, sticky="ew", padx=(10, 0), pady=4)
+        self._source_labels["template"].append(template_label)
+
+        opt_box = ttk.LabelFrame(page, text=f" 3. Optional {label} data sources ", style="Section.TLabelframe")
+        opt_box.pack(fill="x", pady=(0, 10)); opt_box.columnconfigure(1, weight=1)
+        # Articles and Density are uploaded where the selected customer uses
+        # them. The saved path is still shared globally with all customers.
+        ttk.Button(opt_box, text="📂 Articles (Titolo)", command=self._pick_articoli, width=24).grid(row=0, column=0, sticky="w", pady=4)
+        articoli_label = ttk.Label(opt_box, text="Shared with Situation tab", foreground="grey", anchor="w")
+        articoli_label.grid(row=0, column=1, sticky="ew", padx=(10, 0), pady=4)
+        self._source_labels["articoli"].append(articoli_label)
+        ttk.Button(opt_box, text="📂 Density Query", command=self._pick_densita, width=24).grid(row=1, column=0, sticky="w", pady=4)
+        densita_label = ttk.Label(opt_box, text="Not selected — KG remains raw yarn weight", foreground="grey", anchor="w")
+        densita_label.grid(row=1, column=1, sticky="ew", padx=(10, 0), pady=4)
+        self._source_labels["densita"].append(densita_label)
+
+        export_box = ttk.LabelFrame(page, text=" 4. Client output folders and email actions ", style="Section.TLabelframe")
+        export_box.pack(fill="x", pady=(0, 10)); export_box.columnconfigure(1, weight=1)
+        ttk.Label(export_box, text="Selected folder", style="Hint.TLabel").grid(row=0, column=1, sticky="w", padx=(10, 0))
+        output_kind = {"ELVY": "elvy", "MED": "med", "EL_KAMAL": "el_kamal"}[kind]
+        self._build_folder_row(export_box, 1, output_kind, f"📁 {label} Output Folder", show_email_buttons=True)
+        self._build_folder_row(export_box, 2, "filato", "📁 Filato x Tinturia Folder", with_checkbox=True)
+
+        if kind == "EL_KAMAL":
+            kamal_box = ttk.LabelFrame(page, text=" Kamal Excel + Biglietti ", style="Section.TLabelframe")
+            kamal_box.pack(fill="x", pady=(0, 10))
+            ttk.Checkbutton(
+                kamal_box,
+                text="Hide Rocche, KG and VMM22 in Kamal Excel + Biglietti (default)",
+                variable=self.kamal_hide_quantities,
+                command=lambda: self._save_prefs(kamal_hide_quantities=self.kamal_hide_quantities.get()),
+            ).pack(anchor="w")
+
+        action_box = ttk.LabelFrame(page, text=" 5. Convert ", style="Section.TLabelframe")
+        action_box.pack(fill="x", pady=(8, 4))
+        convert_button = ttk.Button(
+            action_box, text=f"⚡ Convert {label} Excel + Biglietti",
+            command=lambda customer=kind: self._on_client_convert(customer),
+            width=38, style="Bold.TButton",
+        )
+        convert_button.pack(anchor="w", pady=(0, 8))
+        self._convert_buttons.append(convert_button)
+        if kind == "EL_KAMAL":
+            note = "Kamal uses its own output workbook and Biglietti files."
+        elif kind == "ELVY":
+            note = "ELVY uses Articles, Density, Magazino and Price sources when available."
+        else:
+            note = "MED uses Articles and Density plus the shared warehouse/price snapshots."
+        ttk.Label(action_box, text=note, style="Hint.TLabel", wraplength=900).pack(anchor="w")
+        if not hasattr(self, "status"):
+            self.status = ttk.Label(action_box, text="● Ready", font=("Segoe UI", 9, "bold"), foreground="#2E7D32", anchor="w")
+            self.status.pack(fill="x", pady=(6, 0))
+
+    def _set_mirrored_label(self, key: str, text: str, foreground: str = "#111827") -> None:
+        """Update every copy of a shared path/source label."""
+        labels = getattr(self, "_source_labels", {}).get(key, [])
+        for label in labels:
+            try:
+                label.config(text=text, foreground=foreground)
+            except tk.TclError:
+                pass
 
     def _build_folder_row(self, parent, row_idx, kind, btn_text, with_checkbox=False, show_email_buttons=False):
         """Build one "output folder" row (button + path label) for a customer, with the optional Filato checkbox and e-mail buttons."""
@@ -442,7 +462,7 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
             p = self._prefs.get(key) or (str(source_path(source)) if source_path(source) else "")
             if p and Path(p).is_file():
                 setattr(self, attr, Path(p))
-                getattr(self, f"{key}_label").config(text=p, foreground="#111827")
+                self._set_mirrored_label("data" if key == "biglietti_data_path" else "dispo", p)
         template_value = self._prefs.get("biglietti_template_path", "")
         template_candidates = [
             Path(str(template_value)) if template_value else None,
@@ -455,9 +475,9 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
             None,
         )
         if self.template_path:
-            self.template_path_label.config(text=str(self.template_path), foreground="#111827")
+            self._set_mirrored_label("template", str(self.template_path))
         else:
-            self.template_path_label.config(text="Not selected — choose Biglietti.docx", foreground="grey")
+            self._set_mirrored_label("template", "Not selected — choose Biglietti.docx", "grey")
         for kind in ("elvy", "med", "el_kamal", "filato"):
             p = self._prefs.get(f"biglietti_{kind}_output_dir")
             if p and Path(p).is_dir():
@@ -466,7 +486,8 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
         shared = self._prefs.get("biglietti_shared_excel_path", "")
         if shared and Path(shared).is_file():
             self.shared_excel_path = Path(shared)
-            self.shared_excel_label.config(text=shared, foreground="#111827")
+            if hasattr(self, "shared_excel_label"):
+                self.shared_excel_label.config(text=shared, foreground="#111827")
         saved_templates = self._prefs.get("biglietti_email_templates", {})
         self._sender_email = str(self._prefs.get("sender_email", "") or "")
         self.kamal_hide_quantities.set(bool(self._prefs.get("kamal_hide_quantities", True)))
@@ -475,25 +496,21 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
         try:
             articoli_cache = load_articoli_cache()
             if articoli_cache.get("source_path"):
-                self.articoli_label.config(
-                    text=f"Shared: {Path(articoli_cache['source_path']).name}",
-                    foreground="#111827",
-                )
+                self._set_mirrored_label("articoli", f"Shared: {Path(articoli_cache['source_path']).name}")
         except Exception:
             pass
         cache = load_densita_cache()
         if cache.get("source_path") and Path(cache["source_path"]).is_file():
             self.densita_path = Path(cache["source_path"])
-            self.densita_label.config(text=cache["source_path"], foreground="#111827")
+            self._set_mirrored_label("densita", cache["source_path"])
         cache = load_magazino_cache()
         if cache.get("source_path"):
-            self.vmm_label.config(text=f"• VMM22: {Path(cache['source_path']).name} (Yarn Warehouse)", foreground="#111827")
+            # VMM22 is a shared snapshot; the per-client hint remains valid.
+            pass
         price_cache = load_prezzi_cache()
         if price_cache.get("source_path"):
-            self.prezzi_label.config(
-                text=f"• Price: {Path(price_cache['source_path']).name} (Price List)",
-                foreground="#111827",
-            )
+            # Prices are shared through the Prices/Situation snapshot.
+            pass
 
     def _pick_file(self, title, filetypes=None):
         return filedialog.askopenfilename(title=title, filetypes=filetypes or [("Excel files", "*.xlsx;*.xlsm"), ("All files", "*.*")])
@@ -502,7 +519,7 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
         p = self._pick_file("Select Order Data File")
         if p:
             self.data_path = Path(p)
-            self.biglietti_data_path_label.config(text=p, foreground="#111827")
+            self._set_mirrored_label("data", p)
             save_source("data_ordine", self.data_path)
             self._save_prefs(biglietti_data_path=p)
 
@@ -510,7 +527,7 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
         p = self._pick_file("Select Dispo-Bagno File", filetypes=[("CSV/Excel", "*.csv;*.xlsx;*.xlsm"), ("All files", "*.*")])
         if p:
             self.dispo_path = Path(p)
-            self.biglietti_dispo_path_label.config(text=p, foreground="#111827")
+            self._set_mirrored_label("dispo", p)
             save_source("dispo_bagno", self.dispo_path)
             self._save_prefs(biglietti_dispo_path=p)
 
@@ -520,7 +537,7 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
         if not candidate.is_file():
             return
         self.template_path = candidate
-        self.template_path_label.config(text=str(candidate), foreground="#111827")
+        self._set_mirrored_label("template", str(candidate))
         self._save_prefs(biglietti_template_path=str(candidate))
 
     def _pick_template(self):
@@ -541,8 +558,46 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
     def _set_shared_excel(self, path: str | Path) -> None:
         candidate = Path(path)
         self.shared_excel_path = candidate
-        self.shared_excel_label.config(text=str(candidate), foreground="#111827")
+        if hasattr(self, "shared_excel_label"):
+            self.shared_excel_label.config(text=str(candidate), foreground="#111827")
         self._save_prefs(biglietti_shared_excel_path=str(candidate))
+
+    def _select_shared_page(self) -> None:
+        # Shared Create Excel is now a fixed section above the three customer
+        # tabs, not a fourth notebook page. Scroll to it and focus its label.
+        try:
+            self._canvas.yview_moveto(0)
+            if hasattr(self, "shared_excel_label"):
+                self.shared_excel_label.focus_set()
+        except (AttributeError, tk.TclError):
+            pass
+
+    def _on_client_convert(self, customer: str) -> None:
+        """Run only one customer from its dedicated page.
+
+        ELVY and MED must have a selected Show Orders/Create workbook because
+        their output is appended to Orders/PG-X. The warning deliberately
+        returns the operator to the Shared page before allowing conversion.
+        """
+        if customer in {"ELVY", "MED"}:
+            if not self.shared_excel_path or not self.shared_excel_path.is_file():
+                self._select_shared_page()
+                messagebox.showwarning(
+                    "Missing Show Orders file",
+                    "Select an existing Show Orders/Create Excel workbook or create a new one on the Shared Create Excel page first.",
+                )
+                return
+        output_attr = {"ELVY": "elvy_output_dir", "MED": "med_output_dir", "EL_KAMAL": "el_kamal_output_dir"}[customer]
+        output_dir = getattr(self, output_attr, None)
+        if not output_dir or not Path(output_dir).is_dir():
+            self._select_shared_page()
+            messagebox.showwarning(
+                "Missing output folder",
+                f"Select the {customer.replace('_', ' ')} output folder on the Shared Create Excel page first.",
+            )
+            return
+        self._conversion_customer = customer
+        self._run_convert()
 
     def _pick_shared_excel(self):
         p = filedialog.askopenfilename(
@@ -625,7 +680,7 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
         if titolo_df is not None and not titolo_df.empty:
             situazione_db.save_codes(titolo_df)
             parts.append(f"{len(titolo_df)} rows shared with Situation")
-        self.articoli_label.config(text=" + ".join(parts) + f" loaded from {Path(p).name}", foreground="#111827")
+        self._set_mirrored_label("articoli", " + ".join(parts) + f" loaded from {Path(p).name}")
         if self._on_shared_cache_changed:
             self._on_shared_cache_changed()
 
@@ -634,7 +689,7 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
         p = self._pick_file("Select Densita' Query.xlsx")
         if p:
             self.densita_path = Path(p)
-            self.densita_label.config(text=p, foreground="#111827")
+            self._set_mirrored_label("densita", p)
             save_densita_cache(p)
             try:
                 from exporters.biglietti_exporter import load_densita_query
@@ -691,13 +746,18 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
         makes sure the needed output folders exist (asking for them when missing) and
         that the file contains customer rows (3004, 3009 or 3019).
         """
+        requested_customer = self._conversion_customer
         if not self.data_path or not self.data_path.is_file():
+            if requested_customer:
+                self._select_shared_page()
             return messagebox.showwarning("Missing Input", "Please select the Order Data file first.")
         try:
             order_format = detect_order_format(self.data_path)
         except Exception as exc:
             return messagebox.showerror("File Error", f"Could not read Order Data file:\n{exc}")
         if order_format == "EL_KAMAL":
+            if requested_customer not in (None, "EL_KAMAL"):
+                return messagebox.showwarning("Wrong source", "This file is an EL KAMAL source; choose the EL KAMAL page.")
             if not self.el_kamal_output_dir or not Path(self.el_kamal_output_dir).is_dir():
                 self._pick_output_dir("el_kamal")
                 if not self.el_kamal_output_dir or not Path(self.el_kamal_output_dir).is_dir():
@@ -708,6 +768,10 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
                 has_elvy = any(r.customer_code == "3009" for r in records)
                 has_med = any(r.customer_code == "3004" for r in records)
                 has_kamal = any(r.customer_code == "3019" for r in records)
+                if requested_customer == "ELVY":
+                    has_med = has_kamal = False
+                elif requested_customer == "MED":
+                    has_elvy = has_kamal = False
             except Exception as exc:
                 return messagebox.showerror("Read Error", f"Could not parse order records:\n{exc}")
             if not (has_elvy or has_med or has_kamal):
@@ -724,13 +788,17 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
             if (has_elvy or has_med) and self.filato_enabled.get() and (not self.filato_output_dir or not Path(self.filato_output_dir).is_dir()):
                 self._pick_output_dir("filato")
                 if not self.filato_output_dir or not Path(self.filato_output_dir).is_dir(): return
-            if (has_elvy or has_med) and not self.shared_excel_path:
+            if (has_elvy or has_med) and (not self.shared_excel_path or not self.shared_excel_path.is_file()):
+                if requested_customer:
+                    self._select_shared_page()
+                    return messagebox.showwarning("Missing Show Orders file", "Select or create the shared Create Excel workbook first.")
                 self._create_shared_excel()
                 if not self.shared_excel_path:
                     return
         # Snapshot Tk state before entering the worker thread.
         self._kamal_hide_quantities_snapshot = self.kamal_hide_quantities.get()
-        self.convert_btn.config(state="disabled")
+        for button in self._convert_buttons:
+            button.config(state="disabled")
         self._set_status("Converting orders and generating tickets in progress...")
         threading.Thread(target=self._worker_convert, daemon=True).start()
 
@@ -755,7 +823,7 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
                 ticket_stem = build_el_kamal_stem(records)
                 excel_stem = build_el_kamal_excel_stem(records)
                 stem = ticket_stem; out_dir = Path(self.el_kamal_output_dir)
-                xlsx = out_dir / f"{excel_stem}_EL_KAMAL.xlsx"; docx = out_dir / f"{ticket_stem}_Biglietti.docx"
+                xlsx = out_dir / f"{excel_stem}_EL_KAMAL.xlsx"; docx = out_dir / f"{ticket_stem}.docx"
                 enrich_records(records, "EL_KAMAL", codes_map=codes_map, densita_map=densita_map, vmm_ratio_map=vmm_ratio_map, price_lookup=price_lookup)
                 export_workbook(xlsx, records, raw, include_filato=True, stem=stem, customer="EL_KAMAL", magazino_summary=magazino_summary, hide_kamal_quantities=self._kamal_hide_quantities_snapshot)
                 export_word(docx, template, records, stem=stem, hide_kamal_quantities=self._kamal_hide_quantities_snapshot)
@@ -763,10 +831,11 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
                 self._last_client_files["el_kamal"] = [xlsx, docx]
             else:
                 records, raw = load_order(self.data_path, self.dispo_path)
-                elvy_records = [r for r in records if r.customer_code == "3009"]
+                selected = self._conversion_customer
+                elvy_records = [r for r in records if r.customer_code == "3009" and selected in (None, "ELVY")]
                 if elvy_records:
                     out_dir = Path(self.elvy_output_dir); stem = build_output_stem(elvy_records, "ELVY")
-                    xlsx = out_dir / f"{stem}_ELVY.xlsx"; docx = out_dir / f"{stem}_ELVY_Biglietti.docx"
+                    xlsx = out_dir / f"{stem}.xlsx"; docx = out_dir / f"{stem}.docx"
                     pgx_docx = docx.with_name(f"{docx.stem}-pg-x{docx.suffix}")
                     enrich_records(elvy_records, "ELVY", codes_map=codes_map, densita_map=densita_map, vmm_ratio_map=vmm_ratio_map, price_lookup=price_lookup)
                     export_workbook(xlsx, elvy_records, raw, include_filato=True, stem=stem, customer="ELVY", magazino_summary=magazino_summary)
@@ -782,10 +851,10 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
                     word_text = ", ".join(path.name for path in files[1:]) or "no Word tickets"
                     created_items.append(f"• ELVY: {len(elvy_records)} tickets ({word_text})\n   ↳ Saved to: {xlsx}\n   ↳ Shared Excel: +{shared_result['added']} rows, {shared_result['skipped']} duplicate Partita Col skipped")
                     self._last_client_files["elvy"] = files
-                med_records = [r for r in records if r.customer_code == "3004"]
+                med_records = [r for r in records if r.customer_code == "3004" and selected in (None, "MED")]
                 if med_records:
                     out_dir = Path(self.med_output_dir); stem = build_output_stem(med_records, "MED")
-                    xlsx = out_dir / f"{stem}_MED.xlsx"; docx = out_dir / f"{stem}_MED_Biglietti.docx"
+                    xlsx = out_dir / f"{stem}_MED.xlsx"; docx = out_dir / f"{stem}_MED.docx"
                     pgx_docx = docx.with_name(f"{docx.stem}-pg-x{docx.suffix}")
                     enrich_records(med_records, "MED", codes_map=codes_map, densita_map=densita_map, vmm_ratio_map=vmm_ratio_map, price_lookup=price_lookup)
                     export_workbook(xlsx, med_records, raw, include_filato=True, stem=stem, customer="MED", magazino_summary=magazino_summary)
@@ -802,13 +871,15 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
                     created_items.append(f"• MED: {len(med_records)} tickets ({word_text})\n   ↳ Saved to: {xlsx}\n   ↳ Shared Excel: +{shared_result['added']} rows, {shared_result['skipped']} duplicate Partita Col skipped")
                     self._last_client_files["med"] = files
                 kamal_records = [r for r in records if r.customer_code == "3019"]
+                if selected not in (None, "EL_KAMAL"):
+                    kamal_records = []
                 if kamal_records:
                     # EL KAMAL from the ERP dump (Cliente 3019): same outputs as the
                     # EL KAMAL Sheet1 flow -- a workbook and the Biglietti, no shared Excel.
                     ticket_stem = build_el_kamal_stem(kamal_records)
                     excel_stem = build_el_kamal_excel_stem(kamal_records)
                     stem = ticket_stem; out_dir = Path(self.el_kamal_output_dir)
-                    xlsx = out_dir / f"{excel_stem}_EL_KAMAL.xlsx"; docx = out_dir / f"{ticket_stem}_Biglietti.docx"
+                    xlsx = out_dir / f"{excel_stem}_EL_KAMAL.xlsx"; docx = out_dir / f"{ticket_stem}.docx"
                     enrich_records(kamal_records, "EL_KAMAL", codes_map=codes_map, densita_map=densita_map, vmm_ratio_map=vmm_ratio_map, price_lookup=price_lookup)
                     export_workbook(xlsx, kamal_records, raw, include_filato=True, stem=stem, customer="EL_KAMAL", magazino_summary=magazino_summary, hide_kamal_quantities=self._kamal_hide_quantities_snapshot)
                     export_word(docx, template, kamal_records, stem=stem, hide_kamal_quantities=self._kamal_hide_quantities_snapshot)
@@ -834,4 +905,8 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
             self._set_status(f"Error: {exc}")
             post_to_ui(self, lambda exc=exc: messagebox.showerror("Conversion Error", str(exc)))
         finally:
-            post_to_ui(self, lambda: self.convert_btn.config(state="normal"))
+            def finish_ui():
+                for button in self._convert_buttons:
+                    button.config(state="normal")
+                self._conversion_customer = None
+            post_to_ui(self, finish_ui)

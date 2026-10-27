@@ -198,6 +198,23 @@ Partita GG) to find the stock, and "Print Assigned PG-X" prints only rows holdin
 our batches.  The Create page never deletes earlier orders' files, and no
 `.previous` copy is written unless `safe_save_workbook(..., keep_backup=True)` asks.
 
+`Ordine Elvy` writes `Prezzi-PO-<POD No>.xlsx` (`Prezzi-PO-1500 & 1501.xlsx` when
+the lines belong to several POs) next to its order Excel -- one per PDF, or one for the
+merged workbook.  It is the same sheet as Ordine MED's Prezzi (`exporters/prezzi_workbook.py`
+holds the layout; `pipelines/prezzi_elvy.py` turns PO lines into rows, with M/C taken from
+the Abbina and the +2$ surcharge from `apply_machine_surcharge`).
+
+Create (EXCEL+Biglietti) names its files per customer without the word "Biglietti":
+ELVY `<stem>.xlsx` / `<stem>.docx` (/ `<stem>-pg-x.docx`), where the stem is built from the
+values of the Excel's Commento column (`_elvy_file_stem`: `PO-1500-2026`, several POs
+`PO-1500 & 1501-2026`, `ELVY` when there is none); MED `<stem>_MED.xlsx` / `<stem>_MED.docx`;
+EL KAMAL `<excel stem>_EL_KAMAL.xlsx` / `<ticket stem>.docx`.
+
+The Overview's ticket and machine tables (`gui/tree_fit.py`) size every column to its
+data (capped), format their rows once, search through a pre-computed text per row with a
+150 ms debounce, and scroll horizontally.  `find_price_anomalies` reads columns as plain
+lists (it used to build a pandas Series per row: ~0.6 s per 4,000 rows, on the UI thread).
+
 `Situazione Generale` also runs a background synchronization pass for every
 shared source (Copertura, WINCOINT, Uscita, Qualita, Articoli, Listini, DFM,
 and Produzione). A successful upload from another page invokes the same pass,
@@ -229,6 +246,15 @@ in) and runs `sync_venv_packages.py --sync`, which does nothing when
 `requirements.txt` is unchanged and every package is present, and otherwise
 removes what is no longer listed and installs only what is new.  The venv is
 recreated only when its `python.exe` is missing or cannot run.
+
+Build speed: `main.spec` tells `collect_all()` up front to skip every package's
+test suite, conftest files, `numpy.f2py` and the matplotlib backend
+(`filter_submodules` / `exclude_datas`), so those modules are neither imported
+while the spec is evaluated nor analysed nor copied into `dist\` (pandas and numpy
+ship about 1,600 test files).  UPX is off.  `build.bat` keeps `build\` (PyInstaller's
+analysis cache -- keep that folder too when replacing the project files), no longer
+passes `--clean`, and creates the release ZIP only on request (`build.bat zip`; the
+in-app updater downloads a ZIP from the GitHub release).
 
 ## Number/text parsing (deliberately NOT consolidated)
 `biglietti_exporter._clean`/`_number`, `utils.clean_text`/`parse_number`,

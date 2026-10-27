@@ -143,3 +143,29 @@ def test_kamal_workbook_raw_sheet_shows_the_dfm_code_and_name(tmp_path):
     assert (raw[2][cf] or "", raw[2][cn]) == ("", "BRAND NEW")
     ordine = [[c.value for c in r] for r in wb["Ordine Kamal"].iter_rows(min_row=1)]
     assert ordine[1][ordine[0].index("COLORE")] in (790351, "790351")
+
+
+# --------------------------------------------- Ordine Kamal workbook -> Create (EXCEL+Biglietti)
+
+def test_the_kamal_tab_workbook_loads_from_its_order_sheet_not_the_raw_pdf_sheet(tmp_path):
+    """The Kamal-tab workbook lists the raw PDF sheet ("Kamal Order") first; the order
+    lines must come from "Ordine Kamal", with the colour NAME taken from the PDF sheet."""
+    from exporters.biglietti_exporter import detect_order_format, load_el_kamal_order
+    from exporters.kamal_excel_exporter import KamalExcelExporter
+
+    out = tmp_path / "kamal.xlsx"
+    rows = [KamalOrderRow(titolo="80/2", colore_name="صMENT 4", peso_kg=10, order_date="2026/10/20", reply_no="108",
+                          notes="PG-1-ORD.Nr.28-2026(LETTER 108)"),
+            KamalOrderRow(titolo="80/2", colore_name="BEG 7", peso_kg=20.5, order_date="2026/10/20", reply_no="108",
+                          notes="PG-2-ORD.Nr.28-2026(LETTER 108)")]
+    KamalExcelExporter(rows, out, dfm_c170_entries=_DFM).export()
+
+    assert detect_order_format(out) == "EL_KAMAL"
+    records, raw_rows = load_el_kamal_order(out)
+    assert raw_rows == []
+    assert [r.article for r in records] == ["C170115S", "C170115S"]
+    assert [r.color_code for r in records] == ["790351", "790352"]
+    assert [r.color_name for r in records] == ["KA-MENT 4", "KA-BEG 7 - 17-1210 TCX"]
+    assert [r.kg for r in records] == [10, 20.5]                 # Q.TA is kilograms: not divided by 10
+    assert all(r.quantity_cones is None for r in records)        # and it is not a cone count
+    assert all("ORD" in r.commento for r in records)
