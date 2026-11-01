@@ -1886,6 +1886,7 @@ class PriceMissingFromListiniTests(unittest.TestCase):
             self.skipTest("no display")
         self.addCleanup(root.destroy)
         tab = SituazioneTab(root)
+        tab._db_restore_scheduled = tab._sources_restore_started = True      # no background restore under test
         frame = self._frame()
         tab.current_df = frame
         tab._render_tree(frame)

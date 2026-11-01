@@ -210,8 +210,31 @@ values of the Excel's Commento column (`_elvy_file_stem`: `PO-1500-2026`, severa
 `PO-1500 & 1501-2026`, `ELVY` when there is none); MED `<stem>_MED.xlsx` / `<stem>_MED.docx`;
 EL KAMAL `<excel stem>_EL_KAMAL.xlsx` / `<ticket stem>.docx`.
 
+Pages.  "Biglietti" (`gui/tabs/biglietti_tab.py`) has one tab per customer -- ELVY, MED,
+EL KAMAL -- each with its own inputs, ticket template, output folders, e-mail actions and
+Convert button.  A conversion handles ONE customer: `pipelines/create_conversion.py` (no Tk)
+reads that customer's rows, writes its workbook / tickets (ELVY and MED also a Filato file --
+`Filato x Tinturia <customer>.xlsx`, one per customer because the three tabs share one Filato
+folder -- and their rows of the Show Orders workbook) and never touches another customer's
+files.  "Shared Orders" (`gui/tabs/show_orders_tab.py`, right after Overview) is a page of its
+own for the Show Orders workbook; converting ELVY or MED without one chosen shows a warning
+and opens that page (EL KAMAL does not use the workbook; "Create New" only picks the place,
+the file is written by the first conversion).  Values shown on all three tabs (folders, status)
+are kept in step through `_dir_labels` / `_status_labels`.
+
+Ordine Elvy raw yarn.  The PDF's `Lot :` text is the row's customer lot (empty when nothing
+follows it).  `match_raw_yarn(..., lotti_summary=...)` looks the lot up in Magazino Filato
+first (`match_by_lot`: the Lotti file gives partita <-> lotto, the batch must be the row's
+raw article), then by article; rows neither finds keep `PG-X(<lot>)` (or plain `PG-X`) in
+their Commento, followed by `-PO-<n>-<year>`.  Those rows behave like MED's customer-lot
+rows (`calculate/raw_batch.py`): Biglietti shows the lot in Partita GG, keeps it out of
+Filato x Tinturia, files the row under PG-X, Smart Auto-Assign looks the lot up and "Print
+Assigned PG-X" skips it; Situazione colours a `PG-X(<lot>)` row red when no batch of the lot
+was found.  A customer lot is anything that is not one of our batches (digits starting
+with 1): numbers for MED, numbers and letters for ELVY.
+
 The Overview's ticket and machine tables (`gui/tree_fit.py`) size every column to its
-data (capped), format their rows once, search through a pre-computed text per row with a
+data (capped, the spare width shared equally, centred), alternate two row colours, format their rows once, search through a pre-computed text per row with a
 150 ms debounce, and scroll horizontally.  `find_price_anomalies` reads columns as plain
 lists (it used to build a pandas Series per row: ~0.6 s per 4,000 rows, on the UI thread).
 

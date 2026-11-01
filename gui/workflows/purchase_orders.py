@@ -77,6 +77,7 @@ class PurchaseOrderWorkflowMixin:
             raw_yarn_frame, text="No Magazino file selected", foreground="grey", anchor="w"
         )
         self._po_lbl_raw_yarn.grid(row=0, column=1, sticky="ew", padx=4)
+        raw_yarn_frame.grid_remove()           # replaced by the source bar (DFM, Listini, Magazino, Lotto)
 
         # ── Bagno Preposato (First bagno) ────────────────────────────
         bagno_frame = ttk.LabelFrame(parent, text="Bagno Preposato (ELVY)", padding=6)
@@ -149,6 +150,8 @@ class PurchaseOrderWorkflowMixin:
         self._po_progress.grid(row=0, column=0, sticky="ew", padx=(0, 8))
 
         self._po_lbl_status = ttk.Label(prog_frame, text="Ready", anchor="w")
+        from gui.source_bar import attach_to_top
+        attach_to_top(parent, self._source_bar(parent, "ordine_elvy"))
         self._po_lbl_status.grid(row=1, column=0, sticky="ew")
     def _on_po_select_pdf(self) -> None:
         path = filedialog.askopenfilename(
@@ -325,7 +328,6 @@ class PurchaseOrderWorkflowMixin:
                 errors.append(msg)
 
         magazino_summary = None
-        lotti_summary = None
         codes_map = None
         # SQLite is the canonical store: the stock saved on upload is used
         # first, so matching still works after a restart or when the original
@@ -343,13 +345,6 @@ class PurchaseOrderWorkflowMixin:
                     logger.info("Raw yarn stock loaded from SQLite: %d batches", len(magazino_summary))
         except Exception:  # noqa: BLE001
             magazino_summary = None
-        try:
-            from utility.source_manager import load as load_source
-            loaded_lotti = load_source("lotti_summary")
-            if loaded_lotti is not None and not loaded_lotti.empty and {"partita", "lotto"}.issubset(loaded_lotti.columns):
-                lotti_summary = loaded_lotti.reset_index(drop=True)
-        except Exception:  # noqa: BLE001
-            lotti_summary = None
         if magazino_summary is None and raw_yarn_path is not None:
             try:
                 from calculate import magazino as magazino_logic
@@ -366,6 +361,16 @@ class PurchaseOrderWorkflowMixin:
                 msg = f"Error loading raw yarn file: {exc}"
                 logger.error(msg)
                 errors.append(msg)
+        # Lotti (partita <-> lotto) lets a row's customer lot be looked up in Magazino Filato.
+        # It is read from the shared snapshot saved when the Lotti file was uploaded.
+        lotti_summary = None
+        try:
+            from utility.source_manager import load as load_source
+            loaded_lotti = load_source("lotti_summary")
+            if loaded_lotti is not None and not loaded_lotti.empty and {"partita", "lotto"}.issubset(loaded_lotti.columns):
+                lotti_summary = loaded_lotti.reset_index(drop=True)
+        except Exception:  # noqa: BLE001
+            lotti_summary = None
         if magazino_summary is not None:
             # Titolo lookup for the Filato x Tinturia sheet comes from the DFM
             # reference already loaded on the Data Elvy tab (parsed from
@@ -396,7 +401,7 @@ class PurchaseOrderWorkflowMixin:
 
                 if one_per_file:
                     out_path = make_output_path(pdf_path, output_dir)
-                    ExcelExporter(rows, out_path, magazino_summary, codes_map, first_bagno=first_bagno, lotti_summary=lotti_summary).export()
+                    ExcelExporter(rows, out_path, magazino_summary, codes_map, lotti_summary=lotti_summary, first_bagno=first_bagno).export()
                     last_export_path = out_path
                     logger.info("Saved: %s", out_path.name)
                     write_prezzi_po(rows)
@@ -414,7 +419,7 @@ class PurchaseOrderWorkflowMixin:
         if not one_per_file and merged_rows:
             try:
                 out_path = output_dir / "Ordine_Elvy.xlsx"
-                ExcelExporter(merged_rows, out_path, magazino_summary, codes_map, first_bagno=first_bagno, lotti_summary=lotti_summary).export()
+                ExcelExporter(merged_rows, out_path, magazino_summary, codes_map, lotti_summary=lotti_summary, first_bagno=first_bagno).export()
                 last_export_path = out_path
                 logger.info("Merged export saved: %s", out_path.name)
                 write_prezzi_po(merged_rows)

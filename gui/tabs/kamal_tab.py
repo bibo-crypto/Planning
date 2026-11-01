@@ -57,7 +57,7 @@ from utility.ui_thread import post_to_ui
 class KamalTab(ttk.Frame):
     """Embeddable 'Ordine Kamal' tab."""
 
-    def __init__(self, master, on_shared_cache_changed: Callable[[], None] | None = None):
+    def __init__(self, master, on_shared_cache_changed: Callable[[], None] | None = None, source_bar_factory=None):
         """Create the Ordine Kamal page: the state (selected PDFs, folders, output, options as Tk variables) and the widgets, then restore the saved paths."""
         super().__init__(master)
         self._pdf_paths: list[Path] = []
@@ -79,6 +79,7 @@ class KamalTab(ttk.Frame):
         self._order_no_snapshot: str | None = None
         self._shared_dfm_path = ""
         self._on_shared_cache_changed = on_shared_cache_changed
+        self._source_bar_factory = source_bar_factory
         self._prefs = load_settings()
 
         self._build_ui()
@@ -118,6 +119,8 @@ class KamalTab(ttk.Frame):
             foreground="grey", anchor="w", wraplength=720, justify="left",
         )
         self._lbl_dfm.grid(row=1, column=0, sticky="ew", padx=4, pady=(2, 0))
+        if self._source_bar_factory is not None:
+            self._lbl_dfm.grid_remove()
 
         lotti_frame = ttk.LabelFrame(self, text="Raw Yarn Matching", padding=6)
         lotti_frame.grid(row=2, column=0, sticky="ew", padx=4, pady=(4, 2))
@@ -128,6 +131,8 @@ class KamalTab(ttk.Frame):
         ttk.Button(lotti_frame, text="📦 Select Magazino File…", command=self._on_select_raw_yarn, width=20).grid(row=1, column=0, padx=4, pady=3, sticky="w")
         self._lbl_raw_yarn = ttk.Label(lotti_frame, text="No Magazino file selected", foreground="grey", anchor="w")
         self._lbl_raw_yarn.grid(row=1, column=1, sticky="ew", padx=4)
+        if self._source_bar_factory is not None:
+            lotti_frame.grid_remove()          # DFM, Magazino and Lotto are uploaded with the source bar
 
         bagno_frame = ttk.LabelFrame(self, text="Bagno Preposato (KAMAL)", padding=6)
         bagno_frame.grid(row=3, column=0, sticky="ew", padx=4, pady=(3, 2))
@@ -211,6 +216,9 @@ class KamalTab(ttk.Frame):
         self._btn_convert.pack(side="left")
         self._lbl_status = ttk.Label(action_frame, text="", foreground="grey")
         self._lbl_status.pack(side="left", padx=12)
+        if self._source_bar_factory is not None:
+            from gui.source_bar import attach_to_top
+            attach_to_top(self, self._source_bar_factory(self, "ordine_kamal"))
 
     # --------------------------------------------------------------- events
     def _on_select_pdfs(self):

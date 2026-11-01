@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 import threading
 from pathlib import Path
 import tkinter as tk
@@ -165,7 +164,7 @@ class SharedOrdersActionsMixin:
             self._pg_x_saving = False
             text = str(exc)
             if self._on_notification and ("does not belong to article" in text or "open or locked" in text or "Cannot save" in text):
-                self._on_notification("pgx-save-error", "PG-X save needs attention", text, "Create (EXCEL+Biglietti)", "high")
+                self._on_notification("pgx-save-error", "PG-X save needs attention", text, "Shared Orders", "high")
             messagebox.showerror("PG-X Save Error", str(exc), parent=window)
 
         threading.Thread(target=worker, daemon=True).start()
@@ -212,7 +211,7 @@ class SharedOrdersActionsMixin:
             self._pg_x_saving = False
             text = str(exc)
             if self._on_notification and ("does not belong to article" in text or "open or locked" in text or "Cannot save" in text):
-                self._on_notification("pgx-save-error", "PG-X save needs attention", text, "Create (EXCEL+Biglietti)", "high")
+                self._on_notification("pgx-save-error", "PG-X save needs attention", text, "Shared Orders", "high")
             messagebox.showerror("PG-X Save Error", str(exc), parent=window)
 
         threading.Thread(target=worker, daemon=True).start()
@@ -383,7 +382,7 @@ class SharedOrdersActionsMixin:
                 if is_assigned_raw(record.raw_batch, record.customer_code)
             ))
         window.destroy()
-        self.convert_btn.config(state="disabled")
+        self._set_convert_buttons_state("disabled")
         self._set_status("Creating selected Biglietti from shared Excel in progress...")
         threading.Thread(
             target=self._worker_shared_biglietti,
@@ -455,7 +454,7 @@ class SharedOrdersActionsMixin:
             post_to_ui(self, lambda: messagebox.showwarning("Biglietti", "\n".join(lines)))
         else:
             post_to_ui(self, lambda: messagebox.showinfo("Biglietti", "\n".join(lines)))
-        post_to_ui(self, lambda: self.convert_btn.config(state="normal"))
+        post_to_ui(self, lambda: self._set_convert_buttons_state("normal"))
     def _upload_pgx_gg_file(self, parent_window, datasets, refresh_records, rebuild, partita_gg_var):
         """Read a two-column Partita Col/Partita GG file and assign every PG-X row."""
         if getattr(self, "_pgx_upload_running", False):
@@ -842,7 +841,7 @@ class SharedOrdersActionsMixin:
                 loading.destroy()
             text = str(exc)
             if self._on_notification and ("does not belong to article" in text or "open or locked" in text or "Cannot save" in text):
-                self._on_notification("pgx-save-error", "PG-X assignment needs attention", text, "Create (EXCEL+Biglietti)", "high")
+                self._on_notification("pgx-save-error", "PG-X assignment needs attention", text, "Shared Orders", "high")
             messagebox.showerror("Auto-Assign Error", str(exc), parent=parent_window)
 
         threading.Thread(target=worker, daemon=True).start()

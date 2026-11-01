@@ -54,6 +54,8 @@ from gui.workflows import (
     PurchaseOrderWorkflowMixin,
 )
 from utility.ui_thread import post_to_ui
+from utility import source_hub
+from gui.source_bar import SourceBar
 
 
 def _resource_path(filename: str) -> Path:
@@ -529,15 +531,23 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
         # and stays blank there (it works from source, which hides the problem).
         def make_biglietti(parent):
             from gui.tabs.biglietti_tab import BigliettiTab
-            return BigliettiTab(
+            tab = BigliettiTab(
                 parent, self._prefs, self._save_prefs, logger,
                 on_shared_cache_changed=self._on_shared_cache_changed,
                 on_notification=self._add_notification,
+                source_bar_factory=self._source_bar,
             )
+            # The Show Orders workbook has a page of its own, fed by the Create page's state.
+            self._show_orders_tab = tab.attach_show_orders_page(
+                show_orders_placeholder, lambda: notebook.select(show_orders_placeholder),
+            )
+            self._lazy_builders.pop(str(show_orders_placeholder), None)
+            return tab
 
         def make_kamal(parent):
             from gui.tabs.kamal_tab import KamalTab
-            return KamalTab(parent, on_shared_cache_changed=self._on_shared_cache_changed)
+            return KamalTab(parent, on_shared_cache_changed=self._on_shared_cache_changed,
+                            source_bar_factory=self._source_bar)
 
         def make_ordine_med(parent):
             from gui.tabs.ordine_med_tab import OrdineMedTab
@@ -546,11 +556,16 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
                 save_prefs=self._save_prefs, logger=logger,
                 on_shared_cache_changed=self._on_shared_cache_changed,
                 on_notification=self._add_notification,
+                source_bar_factory=self._source_bar,
+                machine_totals_provider=lambda: self._overview_tab.machine_totals_for_med(),
             )
 
         def make_settimana(parent):
             from gui.tabs.situazione_settimana_tab import SettimanaTab
-            return SettimanaTab(parent, on_shared_cache_changed=self._on_shared_cache_changed)
+            tab = SettimanaTab(parent, on_shared_cache_changed=self._on_shared_cache_changed)
+            from gui.source_bar import attach_to_top
+            attach_to_top(tab, self._source_bar(tab, "settimana"))
+            return tab
 
         def make_master_data(parent):
             from gui.tabs.master_data_tab import MasterDataTab
@@ -576,7 +591,19 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
             self._lazy_builders.pop(str(placeholder), None)
             return child
 
-        # Create (EXCEL+Biglietti) is one of the heaviest pages at startup.
+        # "Biglietti" (Excel + Word per customer) is one of the heaviest pages at startup.
+        # "Shared Orders" is a page of its own, right after Overview, but it is driven by the
+        # Biglietti page's state, so opening either one builds both (make_biglietti attaches
+        # the Shared Orders page to its placeholder).
+        def build_shared_orders(_placeholder):
+            """Opening Shared Orders first builds the Biglietti page, which attaches this page
+            to its own placeholder (make_biglietti)."""
+            create = self._lazy_builders.get(str(biglietti_placeholder))
+            if create is not None:
+                create[1](create[0])
+            return getattr(self, "_show_orders_tab", None)
+
+        show_orders_placeholder = lazy_page(notebook, "Shared Orders", build_shared_orders)
         biglietti_placeholder = lazy_page(
             notebook,
             "Biglietti",
@@ -642,6 +669,7 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
         self._situazione_tab = SituazioneTab(
             situazione_notebook, on_shared_cache_changed=self._on_shared_cache_changed,
             on_notification=self._add_notification,
+            source_bar_factory=self._source_bar,
         )
         situazione_notebook.add(self._situazione_tab, text="Situazione Generale")
 
@@ -667,6 +695,7 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
             notebook, on_shared_cache_changed=self._on_shared_cache_changed,
             on_notification=self._add_notification,
             on_notifications=self._add_notifications,
+            source_bar_factory=self._source_bar,
         )
         notebook.add(self._prezzi_tab, text="Prezzi")
 
@@ -740,47 +769,24 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
             ensure_heavy_tabs=_ensure_heavy_tabs,
         )
         notebook.insert(0, self._overview_tab, text="📊 Overview")
+        from gui.source_bar import attach_to_top
+        attach_to_top(self._overview_tab, self._source_bar(self._overview_tab, "overview"))
+        # make every path store agree (a file uploaded on one page is then known to all of them)
+        self.after(1500, lambda: source_hub.reconcile_paths())
 
-        def ensure_biglietti_tab():
-            lazy = self._lazy_builders.get(str(biglietti_placeholder))
-            if lazy is not None:
-                lazy[1](lazy[0])
-            tab = getattr(self, "_biglietti_tab", None)
-            if tab is not None and hasattr(tab, "shared_excel_path"):
-                tab.shared_excel_label = shared_path_label
-                if getattr(shared_path_label, "winfo_exists", lambda: False)():
-                    path = tab.shared_excel_path
-                    shared_path_label.config(
-                        text=str(path) if path else "Not selected — ELVY/MED conversion requires this workbook",
-                        foreground="#111827" if path else "grey",
-                    )
-            return tab
-
-        # Shared Create Excel is an application-level workspace, not a fourth
-        # customer page. It sits immediately after Overview and exposes only
-        # operations on Orders / PG-X / shipped history.
-        shared_orders_page = ttk.Frame(notebook, padding=18)
-        shared_orders_page.columnconfigure(0, weight=1)
-        ttk.Label(shared_orders_page, text="Shared Orders", font=("Segoe UI", 17, "bold"), foreground="#16324F").grid(row=0, column=0, sticky="w")
-        ttk.Label(
-            shared_orders_page,
-            text="Shared Create Excel workbook used by ELVY and MED. Select or create it here before converting those customers.",
-            foreground="#5B6B7A", wraplength=900, justify="left",
-        ).grid(row=1, column=0, sticky="w", pady=(4, 14))
-        shared_path_label = ttk.Label(shared_orders_page, text="Not selected — ELVY/MED conversion requires this workbook", foreground="grey", anchor="w")
-        shared_path_label.grid(row=2, column=0, sticky="ew", pady=(0, 12))
-        shared_controls = ttk.LabelFrame(shared_orders_page, text=" Shared Create Excel workbook ", padding=12)
-        shared_controls.grid(row=3, column=0, sticky="ew")
-        shared_buttons = ttk.Frame(shared_controls)
-        shared_buttons.grid(row=0, column=0, sticky="w")
-        ttk.Button(shared_buttons, text="📂 Select Existing", width=20, command=lambda: ensure_biglietti_tab()._pick_shared_excel()).pack(side="left", padx=(0, 6))
-        ttk.Button(shared_buttons, text="➕ Create New", width=18, command=lambda: ensure_biglietti_tab()._create_shared_excel()).pack(side="left")
-        shared_actions = ttk.Frame(shared_controls)
-        shared_actions.grid(row=1, column=0, sticky="w", pady=(12, 0))
-        ttk.Button(shared_actions, text="📋 Show Orders", width=20, command=lambda: ensure_biglietti_tab()._show_shared_orders()).pack(side="left", padx=(0, 6))
-        ttk.Button(shared_actions, text="📊 PG-X Orders Report", width=22, command=lambda: ensure_biglietti_tab()._show_pgx_report()).pack(side="left", padx=(0, 6))
-        ttk.Button(shared_actions, text="🧾 Extract Shipped/Invoiced", width=25, command=lambda: ensure_biglietti_tab()._show_shipped_history()).pack(side="left")
-        notebook.insert(1, shared_orders_page, text="Shared Orders")
+        # Machine Timeline: OrgaTEX-style Gantt of the dyeing machines (built from
+        # Copertura + Situazione + the Produzione colours). Clicking a machine name
+        # opens the same table as the Overview's machine cards.
+        from gui.tabs.machine_timeline_tab import MachineTimelineTab
+        self._timeline_tab = MachineTimelineTab(
+            notebook, self._situazione_tab,
+            open_machine_schedule=lambda machine, schedule: self._overview_tab._open_machine_schedule(machine, schedule),
+        )
+        notebook.insert(1, self._timeline_tab, text="🕒 Machine Timeline")
+        timeline_source_bar = self._source_bar(
+            self._timeline_tab._controls, "timeline", button_width=9,
+        )
+        self._timeline_tab.set_source_bar(timeline_source_bar)
         notebook.select(0)
 
         def _on_any_tab_changed(_event=None) -> None:
@@ -812,6 +818,11 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
                     child = getattr(self, "_settimana_tab", None)
                     if child is not None:
                         child.on_shown()
+            except tk.TclError:
+                pass
+            try:
+                if notebook.select() == str(self._timeline_tab):
+                    self._timeline_tab.on_shown()
             except tk.TclError:
                 pass
             try:
@@ -863,6 +874,127 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
         self.after_idle(focus_search)
         self.after(75, focus_search)
 
+    # ── Shared files: ONE upload route for every page's source bar ─────────────
+    def _source_bar(self, parent, page_key: str, *, button_width: int = 11) -> SourceBar:
+        """The row of upload buttons for the files *page_key* needs (see utility.source_hub.PAGE_SOURCES)."""
+        return SourceBar(
+            parent, source_hub.PAGE_SOURCES[page_key], self.upload_source,
+            button_width=button_width,
+        )
+
+    def _upload_in_progress(self, key: str) -> bool:
+        """Whether the loader that was handed *key*'s file is still reading it."""
+        st = getattr(self, "_situazione_tab", None)
+        try:
+            if key in ("wincoint", "dfm", "copertura", "uscita", "qualita", "produzione"):
+                row = st.source_rows["data_prod" if key == "produzione" else key]
+                return "Importing" in row.status_var.get()
+            if key == "articoli":
+                return "Importing" in st.codes_row.status_var.get()
+            if key == "listini":
+                return bool(self._prezzi_tab._uploading) or "Importing" in st.listini_row.status_var.get()
+            if key == "magazino":
+                return bool(self._magazino_tab._uploading)
+            if key == "lotti":
+                return bool(getattr(self._magazino_tab, "_lotti_uploading", False))
+            if key == "densita":
+                return key in getattr(self, "_densita_running", set())
+        except Exception:  # noqa: BLE001
+            return False
+        return False
+
+    def _upload_status_text(self, key: str) -> str:
+        st = getattr(self, "_situazione_tab", None)
+        try:
+            if key in ("wincoint", "dfm", "copertura", "uscita", "qualita", "produzione"):
+                return st.source_rows["data_prod" if key == "produzione" else key].status_var.get()
+            if key == "articoli":
+                return st.codes_row.status_var.get()
+            if key == "listini":
+                return self._prezzi_tab.status_var.get()
+            if key == "magazino":
+                return self._magazino_tab.status_var.get()
+            if key == "lotti":
+                return self._magazino_tab.lotti_status_var.get()
+        except Exception:  # noqa: BLE001
+            return ""
+        return ""
+
+    def upload_source(self, key: str, path: str) -> None:
+        """Read *path* as the shared file *key* and make every page see it.
+
+        The file goes to the loader that owns that kind of file (Situazione for its sources
+        and Articoli, Prezzi for Listini, Magazino Filato for Magazino and Lotto, the density
+        reader for Densità); each of them stores the data in SQLite.  When it has finished,
+        the path is written to every path store and all pages are told to re-read.
+        """
+        st = self._situazione_tab
+        if key in ("wincoint", "dfm", "copertura", "uscita", "qualita"):
+            st._queue_handle_upload(key, path)
+        elif key == "produzione":
+            st._queue_handle_upload("data_prod", path)
+        elif key == "articoli":
+            st._queue_codes_upload("codes", path)
+        elif key == "listini":
+            self._prezzi_tab._load_path(path, save_cache=True, force=True)
+        elif key == "magazino":
+            self._magazino_tab._on_upload_magazino(path)
+        elif key == "lotti":
+            self._magazino_tab._on_upload_lotti(path)
+        elif key == "densita":
+            self._upload_densita(path)
+        else:
+            raise ValueError(f"Unknown source: {key}")
+        self._finish_upload_when_done(key, path, datetime.now())
+
+    def _upload_densita(self, path: str) -> None:
+        import threading
+        running = self.__dict__.setdefault("_densita_running", set())
+        running.add("densita")
+        result: dict = {}
+
+        def worker():
+            try:
+                result["rows"], result["errors"] = source_hub.save_densita(path)
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("Densita upload failed")
+                result["rows"], result["errors"] = 0, [str(exc)]
+
+            def done():
+                running.discard("densita")
+                if not result["rows"]:
+                    messagebox.showerror("Densità", "\n".join(result["errors"]) or "No density rows found.")
+                else:
+                    logger.info("Densità: %d rows loaded from %s", result["rows"], os.path.basename(path))
+
+            post_to_ui(self, done)
+
+        threading.Thread(target=worker, daemon=True, name="planning-densita").start()
+
+    def _finish_upload_when_done(self, key: str, path: str, started: datetime) -> None:
+        """Poll until the loader has finished, then mirror the path everywhere and refresh all pages."""
+        def poll() -> None:
+            waited = (datetime.now() - started).total_seconds()
+            if waited < 1.0 or (self._upload_in_progress(key) and waited < 600):
+                self.after(300, poll)
+                return
+            ok = source_hub.is_ready(key) and source_hub.stamp(key) != ""
+            status = self._upload_status_text(key)
+            failed = status.startswith("❌") or not source_hub.is_ready(key)
+            if not failed:
+                source_hub.mirror_path(key, path)
+                self._on_shared_cache_changed()
+            else:
+                logger.warning("Upload of %s (%s) did not complete: %s", key, os.path.basename(path), status or "not stored")
+                messagebox.showwarning(
+                    source_hub.long_name(key),
+                    f"{os.path.basename(path)} could not be read as {source_hub.button_text(key)}.\n\n{status}".strip(),
+                )
+            for bar in list(SourceBar._instances):
+                bar._busy.discard(key)
+            SourceBar.refresh_all()
+        self.after(300, poll)
+
     def _on_shared_cache_changed(self) -> None:
         """Coalesce shared-source notifications into one refresh pass.
 
@@ -881,6 +1013,20 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
         """Tell every page that depends on the shared data (Magazino status, Situazione, weekly, Kamal ...) to re-read it after a shared source changed."""
         self._shared_refresh_after_id = None
         self._refresh_magazino_status()
+        SourceBar.refresh_all()
+        try:
+            self._prezzi_tab.sync_shared_listini()
+        except Exception:  # noqa: BLE001
+            logger.debug("Prezzi sync failed", exc_info=True)
+        if getattr(self, "_biglietti_tab", None):
+            self._biglietti_tab.sync_shared_sources()
+        if getattr(self, "_timeline_tab", None):
+            self._timeline_tab.refresh_data()
+        # Ordine Elvy keeps its own copy of the Magazino path: follow the shared one
+        shared_magazino = source_hub.stored_path("magazino")
+        if shared_magazino and os.path.isfile(shared_magazino) and str(getattr(self, "_po_raw_yarn_path", "")) != shared_magazino:
+            self._po_raw_yarn_path = Path(shared_magazino)
+            self._save_prefs(po_raw_yarn_path=shared_magazino)
         if hasattr(self, "_situazione_tab"):
             self._situazione_tab.sync_shared_async()
             if hasattr(self._situazione_tab, "sync_remaining_shared_sources"):

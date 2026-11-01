@@ -65,12 +65,16 @@ def test_raw_batch_helpers_tell_our_batch_from_the_med_customer_lot():
         assert is_blank_raw(blank) and not is_assigned_raw(blank, "3004")
     assert is_assigned_raw("159233", "3004") and not is_customer_lot("159233", "3004")
     assert is_customer_lot("837756", "3004") and not is_assigned_raw("837756", "3004")
-    # other customers: any recorded batch is a real one (their numbers may not start with 1)
-    assert is_assigned_raw("79228", "3009") and is_assigned_raw("837756", "3019")
+    # ELVY follows the same rule (its lots may also hold letters); only Kamal keeps any recorded batch
+    assert is_customer_lot("79228", "3009") and is_assigned_raw("159233", "3009")
+    assert is_assigned_raw("79228", "3019") and is_assigned_raw("837756", "3019")
 
 
 def test_the_med_batch_comes_only_from_the_comment_including_med_customer_lots():
-    from exporters.biglietti_exporter import _med_raw_batch
+    from exporters.biglietti_exporter import _raw_batch_from_comment
+
+    def _med_raw_batch(text):
+        return _raw_batch_from_comment(text, "3004")
 
     assert _med_raw_batch("PG-159233-PM-X") == "159233"          # our raw batch: assigned
     assert _med_raw_batch("PG-X(837756)-PM-X") == "837756"       # shown, but still in PG-X
@@ -184,12 +188,13 @@ def test_print_assigned_pg_x_prints_only_rows_holding_one_of_our_batches():
         "a": _shared_record("3004", "159233"),      # MED, our raw batch      -> printed
         "b": _shared_record("3004", "837756"),      # MED, the customer's lot -> still waiting
         "c": _shared_record("3004", ""),            # MED, nothing yet        -> waiting
-        "d": _shared_record("3009", "79228"),       # ELVY, any recorded batch counts
+        "d": _shared_record("3009", "159241"),      # ELVY, one of our batches
+        "f": _shared_record("3009", "52_LOT 1251B.3"),   # ELVY, the customer's lot (numbers and letters)
         "e": _shared_record("3004", "159240"),      # on the Orders sheet, not PG-X
     }
-    sheets = {"a": "PG-X", "b": "PG-X", "c": "PG-X", "d": "PG-X", "e": "Orders"}
+    sheets = {"a": "PG-X", "b": "PG-X", "c": "PG-X", "d": "PG-X", "e": "Orders", "f": "PG-X"}
     chosen = SharedOrdersActionsMixin._assigned_pgx_records(None, "PG-X", records, sheets)
-    assert [r.raw_batch for r in chosen] == ["159233", "79228"]
+    assert [r.raw_batch for r in chosen] == ["159233", "159241"]
     assert SharedOrdersActionsMixin._assigned_pgx_records(None, "Orders", records, sheets) == []
 
 
@@ -204,7 +209,10 @@ def test_ready_and_pg_x_ticket_split_follows_the_same_rule():
 
 
 def test_med_batch_ignores_a_comment_token_that_is_not_a_number():
-    from exporters.biglietti_exporter import _med_raw_batch
+    from exporters.biglietti_exporter import _raw_batch_from_comment
+
+    def _med_raw_batch(text):
+        return _raw_batch_from_comment(text, "3004")
 
     assert _med_raw_batch("PG-ABC-PM-X") == "" and _med_raw_batch("PG-12A-PM-X") == ""
     assert _med_raw_batch("PG-X(837756)-PM-X") == "837756"
@@ -229,7 +237,7 @@ def test_the_shared_excel_migration_moves_med_customer_lots_to_pg_x_but_not_othe
     raw_col, partita_col = headers.index("Partita GG") + 1, headers.index("Partita Col") + 1
     for row in range(2, ws.max_row + 1):
         partita = str(ws.cell(row=row, column=partita_col).value)
-        ws.cell(row=row, column=raw_col).value = {"159002": "837756", "159003": "79228"}.get(partita, ws.cell(row=row, column=raw_col).value)
+        ws.cell(row=row, column=raw_col).value = {"159002": "837756", "159003": "159250"}.get(partita, ws.cell(row=row, column=raw_col).value)
     wb.save(shared)
     wb.close()
 
@@ -239,5 +247,5 @@ def test_the_shared_excel_migration_moves_med_customer_lots_to_pg_x_but_not_othe
     orders = {r.colored_batch for r in load_create_excel_records(shared, sheet_name="Orders")}
     pg_x = {r.colored_batch for r in load_create_excel_records(shared, sheet_name="PG-X")}
     assert "159002" in pg_x and "159002" not in orders       # MED customer lot -> PG-X
-    assert "159003" in orders and "159003" not in pg_x       # ELVY keeps any recorded batch on Orders
+    assert "159003" in orders and "159003" not in pg_x       # ELVY keeps one of our batches (starting with 1) on Orders
     assert {"159001", "159004"} <= orders

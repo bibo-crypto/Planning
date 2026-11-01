@@ -5,35 +5,25 @@ from __future__ import annotations
 import threading
 import tkinter as tk
 from pathlib import Path
+from typing import TYPE_CHECKING
 from tkinter import filedialog, messagebox, ttk
 
 from .shared_orders_window import SharedOrdersWindowMixin
 from .shared_order_actions import SharedOrdersActionsMixin
 
+if TYPE_CHECKING:
+    from .show_orders_tab import ShowOrdersTab
+
 from .biglietti_exports import (
-    RawYarnMatch,
-    _filato_rows,
-    append_create_excel,
-    build_el_kamal_stem,
-    build_el_kamal_excel_stem,
-    build_output_stem,
-    detect_order_format,
-    enrich_records,
-    export_filato_full,
-    export_word,
-    export_workbook,
     load_articoli_marca_lookup,
     load_articoli_titolo_map,
     load_densita_query,
-    load_el_kamal_order,
-    load_order,
     load_prezzo_lookup,
     load_vmm22_ratio_from_magazino,
 )
 from utility.articoli_cache import load_articoli_cache, save_articoli_cache
 from utility.densita_cache import load_densita_cache, save_densita_cache
 from utility.magazino_cache import load_magazino_cache
-from utility.lotti_cache import load_lotti_cache
 from utility.prezzi_cache import load_prezzi_cache
 from utility.path_manager import save_source, source_path
 from utility.email_compose import (
@@ -52,6 +42,10 @@ from utility.ui_thread import post_to_ui
 # ELVY: a fixed filename, cleared and rewritten with only this run's rows
 # every time (see pipelines.ordini_elvy.export_filato_full's docstring) --
 # not the old per-order-named "{order file}_Filato.xlsx" snapshot.
+# ELVY and MED rows go to the Show Orders workbook (and may produce a Filato file); Kamal's do not.
+SHARED_ORDER_KINDS = ("elvy", "med")
+
+
 def _split_pg_x_records(records):
     """Return (ready, pg_x) records for separate Word ticket files: ready = holds one of our raw batches."""
     ready, pg_x = [], []
@@ -61,23 +55,26 @@ def _split_pg_x_records(records):
 
 
 class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame):
-    """The "Create (EXCEL+Biglietti)" page.
+    """The "Biglietti" page (Excel + Word tickets per customer).
 
-    Takes the order data (and Dispo) Excel files, then produces, per customer
-    (ELVY, MED, EL KAMAL): the Excel workbook, the Word tickets (Biglietti) and the
-    filato file, optionally e-mailing them through Outlook.  Also hosts the shared
-    orders window and its actions through SharedOrdersWindowMixin and
-    SharedOrdersActionsMixin.  Conversion runs on a worker thread; results come
-    back through post_to_ui().
+    One tab per customer -- ELVY, MED, EL KAMAL -- each with its inputs, ticket template,
+    output folders, e-mail actions and its own Convert button.  Converting a customer
+    produces that customer's Excel workbook and Word tickets (and, for ELVY / MED, the
+    Filato file and the rows of the Show Orders workbook, which lives on the Shared Orders
+    page).  The conversion itself is pipelines.create_conversion; this class gathers the
+    state and shows the outcome.  It also owns the Show Orders windows
+    (SharedOrdersWindowMixin / SharedOrdersActionsMixin).  Conversions run on a worker
+    thread and report back through post_to_ui().
     """
-    def __init__(self, parent: tk.Misc, prefs: dict, save_prefs, logger, on_shared_cache_changed=None, on_notification=None):
-        """Create the Create (EXCEL+Biglietti) page: keep the preferences, the notification callbacks and the file/folder state, then build the widgets and restore the saved paths."""
+    def __init__(self, parent: tk.Misc, prefs: dict, save_prefs, logger, on_shared_cache_changed=None, on_notification=None, source_bar_factory=None):
+        """Create the Biglietti page: keep the preferences, the notification callbacks and the file/folder state, then build the widgets and restore the saved paths."""
         super().__init__(parent, padding=12)
         self._prefs = prefs
         self._save_prefs = save_prefs
         self._logger = logger
         self._on_shared_cache_changed = on_shared_cache_changed
         self._on_notification = on_notification
+        self._source_bar_factory = source_bar_factory
         self.data_path: Path | None = None
         self.dispo_path: Path | None = None
         self.template_path: Path | None = None
@@ -98,9 +95,15 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
         }
         self._sender_email = ""
         self._last_client_files: dict[str, list[Path]] = {"elvy": [], "med": [], "el_kamal": []}
-        self._conversion_customer: str | None = None
         self._client_page_book: ttk.Notebook | None = None
         self._convert_buttons: list[ttk.Button] = []
+        # Widgets that mirror one value on the three customer pages.
+        self._status_labels: list[ttk.Label] = []
+        self._dir_labels: dict[str, list[ttk.Label]] = {}
+        # The Shared Orders page is a page of its own (gui.tabs.show_orders_tab).
+        self.shared_excel_label: ttk.Label | None = None
+        self._show_orders_page = None
+        self._goto_show_orders = None            # callback that selects the Shared Orders page
         self._build()
         self._restore()
         self.after(60000, self._run_pgx_report_schedule)
@@ -175,18 +178,25 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
         template_label.grid(row=0, column=1, sticky="ew", padx=(10, 0), pady=4)
         self._source_labels["template"].append(template_label)
 
-        opt_box = ttk.LabelFrame(page, text=f" 3. Optional {label} data sources ", style="Section.TLabelframe")
+        opt_box = ttk.LabelFrame(page, text=f" 3. {label} data files ", style="Section.TLabelframe")
         opt_box.pack(fill="x", pady=(0, 10)); opt_box.columnconfigure(1, weight=1)
         # Articles and Density are uploaded where the selected customer uses
         # them. The saved path is still shared globally with all customers.
-        ttk.Button(opt_box, text="📂 Articles (Titolo)", command=self._pick_articoli, width=24).grid(row=0, column=0, sticky="w", pady=4)
-        articoli_label = ttk.Label(opt_box, text="Shared with Situation tab", foreground="grey", anchor="w")
-        articoli_label.grid(row=0, column=1, sticky="ew", padx=(10, 0), pady=4)
-        self._source_labels["articoli"].append(articoli_label)
-        ttk.Button(opt_box, text="📂 Density Query", command=self._pick_densita, width=24).grid(row=1, column=0, sticky="w", pady=4)
-        densita_label = ttk.Label(opt_box, text="Not selected — KG remains raw yarn weight", foreground="grey", anchor="w")
-        densita_label.grid(row=1, column=1, sticky="ew", padx=(10, 0), pady=4)
-        self._source_labels["densita"].append(densita_label)
+        if self._source_bar_factory is not None:
+            # Articoli, Densita, Magazino and Listini: side by side, state shown by a dot.
+            self._source_bar_factory(opt_box, "biglietti").grid(row=0, column=0, columnspan=2, sticky="w", pady=2)
+            # the path labels below are kept (hidden) because the rest of the page still updates them
+            self._source_labels["articoli"].append(ttk.Label(opt_box))
+            self._source_labels["densita"].append(ttk.Label(opt_box))
+        else:
+            ttk.Button(opt_box, text="📂 Articles (Titolo)", command=self._pick_articoli, width=24).grid(row=0, column=0, sticky="w", pady=4)
+            articoli_label = ttk.Label(opt_box, text="Shared with Situation tab", foreground="grey", anchor="w")
+            articoli_label.grid(row=0, column=1, sticky="ew", padx=(10, 0), pady=4)
+            self._source_labels["articoli"].append(articoli_label)
+            ttk.Button(opt_box, text="📂 Density Query", command=self._pick_densita, width=24).grid(row=1, column=0, sticky="w", pady=4)
+            densita_label = ttk.Label(opt_box, text="Not selected — KG remains raw yarn weight", foreground="grey", anchor="w")
+            densita_label.grid(row=1, column=1, sticky="ew", padx=(10, 0), pady=4)
+            self._source_labels["densita"].append(densita_label)
 
         export_box = ttk.LabelFrame(page, text=" 4. Client output folders and email actions ", style="Section.TLabelframe")
         export_box.pack(fill="x", pady=(0, 10)); export_box.columnconfigure(1, weight=1)
@@ -221,9 +231,9 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
         else:
             note = "MED uses Articles and Density plus the shared warehouse/price snapshots."
         ttk.Label(action_box, text=note, style="Hint.TLabel", wraplength=900).pack(anchor="w")
-        if not hasattr(self, "status"):
-            self.status = ttk.Label(action_box, text="● Ready", font=("Segoe UI", 9, "bold"), foreground="#2E7D32", anchor="w")
-            self.status.pack(fill="x", pady=(6, 0))
+        status = ttk.Label(action_box, text="● Ready", font=("Segoe UI", 9, "bold"), foreground="#2E7D32", anchor="w")
+        status.pack(fill="x", pady=(6, 0))
+        self._status_labels.append(status)
 
     def _set_mirrored_label(self, key: str, text: str, foreground: str = "#111827") -> None:
         """Update every copy of a shared path/source label."""
@@ -244,6 +254,7 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
         lab = ttk.Label(parent, text="No folder selected", foreground="grey", anchor="w")
         lab.grid(row=row_idx, column=1, sticky="ew", padx=(10, 0), pady=4)
         setattr(self, f"{kind}_dir_label", lab)
+        self._dir_labels.setdefault(kind, []).append(lab)
         if show_email_buttons:
             client_name = {"elvy": "ELVY", "med": "MED", "el_kamal": "EL KAMAL"}.get(kind, kind.upper())
             email_frame = ttk.Frame(parent)
@@ -482,12 +493,11 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
             p = self._prefs.get(f"biglietti_{kind}_output_dir")
             if p and Path(p).is_dir():
                 setattr(self, f"{kind}_output_dir", Path(p))
-                getattr(self, f"{kind}_dir_label").config(text=p, foreground="#111827")
+                self._set_dir_label(kind, p)
         shared = self._prefs.get("biglietti_shared_excel_path", "")
         if shared and Path(shared).is_file():
             self.shared_excel_path = Path(shared)
-            if hasattr(self, "shared_excel_label"):
-                self.shared_excel_label.config(text=shared, foreground="#111827")
+            self._refresh_show_orders_page()
         saved_templates = self._prefs.get("biglietti_email_templates", {})
         self._sender_email = str(self._prefs.get("sender_email", "") or "")
         self.kamal_hide_quantities.set(bool(self._prefs.get("kamal_hide_quantities", True)))
@@ -511,6 +521,18 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
         if price_cache.get("source_path"):
             # Prices are shared through the Prices/Situation snapshot.
             pass
+
+    def sync_shared_sources(self) -> None:
+        """A shared file (Articoli, Densita, ...) was uploaded on another page: pick up its path now."""
+        cache = load_densita_cache()
+        source = cache.get("source_path")
+        if source and Path(source).is_file():
+            self.densita_path = Path(source)
+            self._set_mirrored_label("densita", source)
+        articoli = load_articoli_cache().get("source_path")
+        if articoli and Path(articoli).is_file():
+            self.articoli_path = Path(articoli)
+            self._set_mirrored_label("articoli", f"Shared: {Path(articoli).name}")
 
     def _pick_file(self, title, filetypes=None):
         return filedialog.askopenfilename(title=title, filetypes=filetypes or [("Excel files", "*.xlsx;*.xlsm"), ("All files", "*.*")])
@@ -552,52 +574,117 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
         p = filedialog.askdirectory(title=f"Select Output Folder ({kind.upper()})")
         if p:
             setattr(self, f"{kind}_output_dir", Path(p))
-            getattr(self, f"{kind}_dir_label").config(text=p, foreground="#111827")
+            self._set_dir_label(kind, p)
             self._save_prefs(**{f"biglietti_{kind}_output_dir": p})
 
     def _set_shared_excel(self, path: str | Path) -> None:
+        """Remember the Show Orders workbook and show it on the Shared Orders page."""
         candidate = Path(path)
         self.shared_excel_path = candidate
-        if hasattr(self, "shared_excel_label"):
-            self.shared_excel_label.config(text=str(candidate), foreground="#111827")
+        self._refresh_show_orders_page()
         self._save_prefs(biglietti_shared_excel_path=str(candidate))
 
-    def _select_shared_page(self) -> None:
-        # Shared Create Excel is now a fixed section above the three customer
-        # tabs, not a fourth notebook page. Scroll to it and focus its label.
-        try:
-            self._canvas.yview_moveto(0)
-            if hasattr(self, "shared_excel_label"):
-                self.shared_excel_label.focus_set()
-        except (AttributeError, tk.TclError):
-            pass
+    def _refresh_show_orders_page(self) -> None:
+        """Repaint the Shared Orders page's path label (the page may not be built yet)."""
+        if self._show_orders_page is not None:
+            self._show_orders_page.refresh()
+
+    def attach_show_orders_page(self, parent, goto_page) -> "ShowOrdersTab":
+        """Build the Shared Orders page inside ``parent`` (a notebook placeholder) and remember
+        ``goto_page``, the callback that selects it -- used to send the operator there when
+        a conversion needs the workbook and none is chosen yet."""
+        from .show_orders_tab import ShowOrdersTab
+        self._goto_show_orders = goto_page
+        self._show_orders_page = ShowOrdersTab(parent, self)
+        self.shared_excel_label = self._show_orders_page.path_label
+        self._show_orders_page.refresh()
+        self._show_orders_page.pack(fill="both", expand=True)
+        return self._show_orders_page
+
+    def _open_show_orders_page(self) -> None:
+        """Switch to the Shared Orders page (when it is attached)."""
+        if self._goto_show_orders:
+            self._goto_show_orders()
+
+    _select_shared_page = _open_show_orders_page          # the name this page used before
+
+    def _set_dir_label(self, kind: str, text: str) -> None:
+        """Show a folder on every customer page that has a row for it."""
+        for label in self._dir_labels.get(kind, []):
+            label.config(text=text, foreground="#111827")
+
+    def _set_convert_buttons_state(self, state: str) -> None:
+        """Enable / disable every page's Convert button (one conversion runs at a time)."""
+        for button in self._convert_buttons:
+            try:
+                button.config(state=state)
+            except tk.TclError:
+                pass
+
+    def _ensure_show_orders_file(self, title: str) -> bool:
+        """ELVY and MED add their rows to the Show Orders workbook, so one must be chosen
+        (an existing file, or the place of a new one -- "Create New" only picks the place:
+        the file itself is written by the first conversion).  When none is chosen, warn and
+        send the operator to the Shared Orders page to choose it first."""
+        if self.shared_excel_path:
+            return True
+        messagebox.showwarning(
+            "Missing Show Orders file",
+            f"{title} rows are added to the Show Orders workbook, and none is chosen yet.\n\n"
+            "Select an existing Show Orders file (or create a new one) on the Shared Orders page "
+            "-- it opens now -- then convert again.",
+        )
+        self._open_show_orders_page()
+        return False
+
+    def _ensure_folder(self, kind: str) -> bool:
+        """True when the ``kind`` folder is set and exists; otherwise ask for it (False if skipped)."""
+        current = getattr(self, f"{kind}_output_dir", None)
+        if not current or not Path(current).is_dir():
+            self._pick_output_dir(kind)
+            current = getattr(self, f"{kind}_output_dir", None)
+        return bool(current and Path(current).is_dir())
 
     def _on_client_convert(self, customer: str) -> None:
-        """Run only one customer from its dedicated page.
+        """Convert only ``customer`` ("ELVY", "MED" or "EL_KAMAL") from its own page.
 
-        ELVY and MED must have a selected Show Orders/Create workbook because
-        their output is appended to Orders/PG-X. The warning deliberately
-        returns the operator to the Shared page before allowing conversion.
+        Only that customer's rows are read and only its files are written.  ELVY and MED
+        first need the Show Orders workbook (their rows are appended to Orders / PG-X): when
+        none is chosen the operator gets a warning and the Shared Orders page opens.
+        EL KAMAL does not use that workbook.
         """
-        if customer in {"ELVY", "MED"}:
-            if not self.shared_excel_path or not self.shared_excel_path.is_file():
-                self._select_shared_page()
-                messagebox.showwarning(
-                    "Missing Show Orders file",
-                    "Select an existing Show Orders/Create Excel workbook or create a new one on the Shared Create Excel page first.",
-                )
-                return
-        output_attr = {"ELVY": "elvy_output_dir", "MED": "med_output_dir", "EL_KAMAL": "el_kamal_output_dir"}[customer]
-        output_dir = getattr(self, output_attr, None)
-        if not output_dir or not Path(output_dir).is_dir():
-            self._select_shared_page()
-            messagebox.showwarning(
-                "Missing output folder",
-                f"Select the {customer.replace('_', ' ')} output folder on the Shared Create Excel page first.",
-            )
+        from pipelines.create_conversion import ConversionRequest, customer_records
+
+        kind, title = customer.lower(), customer.replace("_", " ")
+        if kind in SHARED_ORDER_KINDS and not self._ensure_show_orders_file(title):
             return
-        self._conversion_customer = customer
-        self._run_convert()
+        if not self.data_path or not self.data_path.is_file():
+            return messagebox.showwarning("Missing Input", "Please select the Order Data file first.")
+        if not self.template_path or not self.template_path.is_file():
+            return messagebox.showwarning("Missing Input", "Please select the Forma Biglietti (Biglietti.docx) template first.")
+        try:
+            customer_records(kind, self.data_path, self.dispo_path)
+        except ValueError as exc:
+            return messagebox.showwarning(f"No {title} Rows", str(exc))
+        except Exception as exc:  # noqa: BLE001
+            return messagebox.showerror("Read Error", f"Could not read the Order Data file:\n{exc}")
+        if not self._ensure_folder(kind):
+            return
+        filato_dir = None
+        if kind in SHARED_ORDER_KINDS and self.filato_enabled.get():
+            if not self._ensure_folder("filato"):
+                return
+            filato_dir = self.filato_output_dir
+        # Snapshot the Tk state before entering the worker thread.
+        request = ConversionRequest(
+            kind=kind, data_path=self.data_path, dispo_path=self.dispo_path, template=self.template_path,
+            output_dir=Path(getattr(self, f"{kind}_output_dir")), filato_dir=filato_dir,
+            shared_excel=self.shared_excel_path if kind in SHARED_ORDER_KINDS else None,
+            hide_kamal_quantities=self.kamal_hide_quantities.get(),
+        )
+        self._set_convert_buttons_state("disabled")
+        self._set_status(f"Converting {title} orders and generating tickets in progress...")
+        threading.Thread(target=self._worker_convert, args=(request,), daemon=True).start()
 
     def _pick_shared_excel(self):
         p = filedialog.askopenfilename(
@@ -611,33 +698,6 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
         folder = filedialog.askdirectory(title="Select folder for shared Create Excel and Biglietti")
         if folder:
             self._set_shared_excel(Path(folder) / "Create Orders.xlsx")
-
-
-
-
-
-
-
-
-
-    @staticmethod
-
-    @staticmethod
-
-    @staticmethod
-
-    @staticmethod
-
-
-
-
-
-
-
-
-
-
-
 
     def _pick_articoli(self):
         """Let the user pick Articoli.xlsx and read it twice: the Marca (brand) map used
@@ -705,9 +765,15 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
                 self._on_shared_cache_changed()
 
     def _set_status(self, msg: str):
+        """Show ``msg`` on every customer page's status line."""
         color = "#C62828" if "Error" in msg else ("#1565C0" if "progress" in msg or "Converting" in msg else "#2E7D32")
         prefix = "✖ " if "Error" in msg else ("⏳ " if "progress" in msg or "Converting" in msg else "✔ ")
-        post_to_ui(self, lambda: self.status.config(text=f"{prefix}{msg}", foreground=color))
+
+        def apply():
+            for label in self._status_labels:
+                label.config(text=f"{prefix}{msg}", foreground=color)
+
+        post_to_ui(self, apply)
 
     def _load_common_sources(self):
         """Load what every conversion needs: the Articoli codes map, the density map, the VMM22 ratios, the price lookup and the magazino summary.
@@ -728,185 +794,29 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
                 from calculate import magazino as magazino_logic
                 magazino_df, _errors = magazino_logic.load_magazino(Path(magazino_path), articolo_prefix=None)
                 magazino_summary = magazino_logic.summarize_by_partita(magazino_df)
-        # Keep Lotto attached to the warehouse summary from SQLite.
-        try:
-            from utility.source_manager import load as load_source
-            lotti_summary = load_source("lotti_summary")
-            if magazino_summary is not None and not magazino_summary.empty and lotti_summary is not None and not lotti_summary.empty:
-                magazino_summary = magazino_summary.merge(lotti_summary, on="partita", how="left")
-        except Exception:
-            pass
         price_lookup, _price_source = load_prezzo_lookup()
         return codes_map, densita_map, vmm_ratio_map, price_lookup, magazino_summary
 
-    def _run_convert(self):
-        """Validate the inputs, then start the conversion on a worker thread.
+    def _worker_convert(self, request):
+        """The conversion of one customer (runs on a worker thread).
 
-        Checks the order file, detects its format (ELVY/MED order dump or EL KAMAL),
-        makes sure the needed output folders exist (asking for them when missing) and
-        that the file contains customer rows (3004, 3009 or 3019).
+        Loads the shared lookup data, hands everything to pipelines.create_conversion and
+        reports what was created back to the UI thread.
         """
-        requested_customer = self._conversion_customer
-        if not self.data_path or not self.data_path.is_file():
-            if requested_customer:
-                self._select_shared_page()
-            return messagebox.showwarning("Missing Input", "Please select the Order Data file first.")
-        try:
-            order_format = detect_order_format(self.data_path)
-        except Exception as exc:
-            return messagebox.showerror("File Error", f"Could not read Order Data file:\n{exc}")
-        if order_format == "EL_KAMAL":
-            if requested_customer not in (None, "EL_KAMAL"):
-                return messagebox.showwarning("Wrong source", "This file is an EL KAMAL source; choose the EL KAMAL page.")
-            if not self.el_kamal_output_dir or not Path(self.el_kamal_output_dir).is_dir():
-                self._pick_output_dir("el_kamal")
-                if not self.el_kamal_output_dir or not Path(self.el_kamal_output_dir).is_dir():
-                    return
-        else:
-            try:
-                records, _raw = load_order(self.data_path, self.dispo_path)
-                has_elvy = any(r.customer_code == "3009" for r in records)
-                has_med = any(r.customer_code == "3004" for r in records)
-                has_kamal = any(r.customer_code == "3019" for r in records)
-                if requested_customer == "ELVY":
-                    has_med = has_kamal = False
-                elif requested_customer == "MED":
-                    has_elvy = has_kamal = False
-            except Exception as exc:
-                return messagebox.showerror("Read Error", f"Could not parse order records:\n{exc}")
-            if not (has_elvy or has_med or has_kamal):
-                return messagebox.showwarning("No Customer Rows", "No customer rows found for 3004, 3009 or 3019 in the selected Data Ordine.")
-            if has_kamal and (not self.el_kamal_output_dir or not Path(self.el_kamal_output_dir).is_dir()):
-                self._pick_output_dir("el_kamal")
-                if not self.el_kamal_output_dir or not Path(self.el_kamal_output_dir).is_dir(): return
-            if has_elvy and (not self.elvy_output_dir or not Path(self.elvy_output_dir).is_dir()):
-                self._pick_output_dir("elvy")
-                if not self.elvy_output_dir or not Path(self.elvy_output_dir).is_dir(): return
-            if has_med and (not self.med_output_dir or not Path(self.med_output_dir).is_dir()):
-                self._pick_output_dir("med")
-                if not self.med_output_dir or not Path(self.med_output_dir).is_dir(): return
-            if (has_elvy or has_med) and self.filato_enabled.get() and (not self.filato_output_dir or not Path(self.filato_output_dir).is_dir()):
-                self._pick_output_dir("filato")
-                if not self.filato_output_dir or not Path(self.filato_output_dir).is_dir(): return
-            if (has_elvy or has_med) and (not self.shared_excel_path or not self.shared_excel_path.is_file()):
-                if requested_customer:
-                    self._select_shared_page()
-                    return messagebox.showwarning("Missing Show Orders file", "Select or create the shared Create Excel workbook first.")
-                self._create_shared_excel()
-                if not self.shared_excel_path:
-                    return
-        # Snapshot Tk state before entering the worker thread.
-        self._kamal_hide_quantities_snapshot = self.kamal_hide_quantities.get()
-        for button in self._convert_buttons:
-            button.config(state="disabled")
-        self._set_status("Converting orders and generating tickets in progress...")
-        threading.Thread(target=self._worker_convert, daemon=True).start()
+        from pipelines.create_conversion import CommonSources, convert_customer
 
-    def _worker_convert(self):
-        """The conversion itself (runs on a worker thread).
-
-        Loads the shared sources (codes, densities, prices, magazino), then for each
-        customer present: clears the previous outputs, enriches the records, writes the
-        Excel workbook and the Word tickets, and finally reports what was created back
-        to the UI thread.  EL KAMAL uses its own loader and file names.
-        """
-        created_items: list[str] = []
-        self._last_client_files = {"elvy": [], "med": [], "el_kamal": []}
+        kind, title = request.kind, request.kind.upper().replace("_", " ")
+        self._last_client_files[kind] = []
         try:
-            order_format = detect_order_format(self.data_path)
-            codes_map, densita_map, vmm_ratio_map, price_lookup, magazino_summary = self._load_common_sources()
-            template = self.template_path
-            if not template or not template.is_file():
-                raise ValueError("Forma Biglietti not found. Select the Biglietti.docx template first.")
-            if order_format == "EL_KAMAL":
-                records, raw = load_el_kamal_order(self.data_path, self.dispo_path)
-                ticket_stem = build_el_kamal_stem(records)
-                excel_stem = build_el_kamal_excel_stem(records)
-                stem = ticket_stem; out_dir = Path(self.el_kamal_output_dir)
-                xlsx = out_dir / f"{excel_stem}_EL_KAMAL.xlsx"; docx = out_dir / f"{ticket_stem}.docx"
-                enrich_records(records, "EL_KAMAL", codes_map=codes_map, densita_map=densita_map, vmm_ratio_map=vmm_ratio_map, price_lookup=price_lookup)
-                export_workbook(xlsx, records, raw, include_filato=True, stem=stem, customer="EL_KAMAL", magazino_summary=magazino_summary, hide_kamal_quantities=self._kamal_hide_quantities_snapshot)
-                export_word(docx, template, records, stem=stem, hide_kamal_quantities=self._kamal_hide_quantities_snapshot)
-                created_items.append(f"• EL KAMAL: {len(records)} tickets ({docx.name})\n   ↳ Saved to: {xlsx}")
-                self._last_client_files["el_kamal"] = [xlsx, docx]
-            else:
-                records, raw = load_order(self.data_path, self.dispo_path)
-                selected = self._conversion_customer
-                elvy_records = [r for r in records if r.customer_code == "3009" and selected in (None, "ELVY")]
-                if elvy_records:
-                    out_dir = Path(self.elvy_output_dir); stem = build_output_stem(elvy_records, "ELVY")
-                    xlsx = out_dir / f"{stem}.xlsx"; docx = out_dir / f"{stem}.docx"
-                    pgx_docx = docx.with_name(f"{docx.stem}-pg-x{docx.suffix}")
-                    enrich_records(elvy_records, "ELVY", codes_map=codes_map, densita_map=densita_map, vmm_ratio_map=vmm_ratio_map, price_lookup=price_lookup)
-                    export_workbook(xlsx, elvy_records, raw, include_filato=True, stem=stem, customer="ELVY", magazino_summary=magazino_summary)
-                    shared_result = append_create_excel(self.shared_excel_path, elvy_records, "ELVY")
-                    elvy_ready, elvy_pgx = _split_pg_x_records(elvy_records)
-                    files = [xlsx]
-                    if elvy_ready:
-                        export_word(docx, template, elvy_ready, stem=stem)
-                        files.append(docx)
-                    if elvy_pgx:
-                        export_word(pgx_docx, template, elvy_pgx, stem=f"{stem}-PG-X")
-                        files.append(pgx_docx)
-                    word_text = ", ".join(path.name for path in files[1:]) or "no Word tickets"
-                    created_items.append(f"• ELVY: {len(elvy_records)} tickets ({word_text})\n   ↳ Saved to: {xlsx}\n   ↳ Shared Excel: +{shared_result['added']} rows, {shared_result['skipped']} duplicate Partita Col skipped")
-                    self._last_client_files["elvy"] = files
-                med_records = [r for r in records if r.customer_code == "3004" and selected in (None, "MED")]
-                if med_records:
-                    out_dir = Path(self.med_output_dir); stem = build_output_stem(med_records, "MED")
-                    xlsx = out_dir / f"{stem}_MED.xlsx"; docx = out_dir / f"{stem}_MED.docx"
-                    pgx_docx = docx.with_name(f"{docx.stem}-pg-x{docx.suffix}")
-                    enrich_records(med_records, "MED", codes_map=codes_map, densita_map=densita_map, vmm_ratio_map=vmm_ratio_map, price_lookup=price_lookup)
-                    export_workbook(xlsx, med_records, raw, include_filato=True, stem=stem, customer="MED", magazino_summary=magazino_summary)
-                    shared_result = append_create_excel(self.shared_excel_path, med_records, "MED")
-                    med_ready, med_pgx = _split_pg_x_records(med_records)
-                    files = [xlsx]
-                    if med_ready:
-                        export_word(docx, template, med_ready, stem=stem)
-                        files.append(docx)
-                    if med_pgx:
-                        export_word(pgx_docx, template, med_pgx, stem=f"{stem}-PG-X")
-                        files.append(pgx_docx)
-                    word_text = ", ".join(path.name for path in files[1:]) or "no Word tickets"
-                    created_items.append(f"• MED: {len(med_records)} tickets ({word_text})\n   ↳ Saved to: {xlsx}\n   ↳ Shared Excel: +{shared_result['added']} rows, {shared_result['skipped']} duplicate Partita Col skipped")
-                    self._last_client_files["med"] = files
-                kamal_records = [r for r in records if r.customer_code == "3019"]
-                if selected not in (None, "EL_KAMAL"):
-                    kamal_records = []
-                if kamal_records:
-                    # EL KAMAL from the ERP dump (Cliente 3019): same outputs as the
-                    # EL KAMAL Sheet1 flow -- a workbook and the Biglietti, no shared Excel.
-                    ticket_stem = build_el_kamal_stem(kamal_records)
-                    excel_stem = build_el_kamal_excel_stem(kamal_records)
-                    stem = ticket_stem; out_dir = Path(self.el_kamal_output_dir)
-                    xlsx = out_dir / f"{excel_stem}_EL_KAMAL.xlsx"; docx = out_dir / f"{ticket_stem}.docx"
-                    enrich_records(kamal_records, "EL_KAMAL", codes_map=codes_map, densita_map=densita_map, vmm_ratio_map=vmm_ratio_map, price_lookup=price_lookup)
-                    export_workbook(xlsx, kamal_records, raw, include_filato=True, stem=stem, customer="EL_KAMAL", magazino_summary=magazino_summary, hide_kamal_quantities=self._kamal_hide_quantities_snapshot)
-                    export_word(docx, template, kamal_records, stem=stem, hide_kamal_quantities=self._kamal_hide_quantities_snapshot)
-                    created_items.append(f"• EL KAMAL: {len(kamal_records)} tickets ({docx.name})\n   ↳ Saved to: {xlsx}")
-                    self._last_client_files["el_kamal"] = [xlsx, docx]
-                if self.filato_enabled.get() and self.filato_output_dir and raw:
-                    out_dir = Path(self.filato_output_dir); out_dir.mkdir(parents=True, exist_ok=True)
-                    filato_file = out_dir / "Filato x Tinturia.xlsx"
-                    matches = [
-                        RawYarnMatch(
-                            articolo=r["Articolo"], titolo=r["Titolo"], partita=r["Partita"],
-                            rocce=r["Rocche"], peso=r["Peso"], label=r["تحضير خام"],
-                        )
-                        for r in _filato_rows([x for x in records if x.customer_code in ("3009", "3004")], raw, magazino_summary)
-                    ]
-                    n = export_filato_full(filato_file, matches)
-                    created_items.append(f"• Raw Yarn (Filato): {filato_file.name} ({n} rows)\n   ↳ Saved to: {filato_file}")
-            summary_text = "\n\n".join(created_items)
-            self._set_status("Completed — All order workbooks and dyeing tickets generated successfully.")
-            post_to_ui(self, lambda: messagebox.showinfo("Conversion Complete", f"Conversion completed successfully!\n\n{summary_text}"))
-        except Exception as exc:
-            self._logger.exception("Biglietti conversion failed")
+            result = convert_customer(request, CommonSources(*self._load_common_sources()))
+            self._last_client_files[kind] = list(result.files)
+            summary_text = "\n\n".join(result.items)
+            self._set_status(f"Completed — {title} workbook and dyeing tickets generated successfully.")
+            post_to_ui(self, lambda: messagebox.showinfo(
+                f"{title} — Conversion Complete", f"Conversion completed successfully!\n\n{summary_text}"))
+        except Exception as exc:  # noqa: BLE001
+            self._logger.exception("Biglietti conversion failed (%s)", title)
             self._set_status(f"Error: {exc}")
             post_to_ui(self, lambda exc=exc: messagebox.showerror("Conversion Error", str(exc)))
         finally:
-            def finish_ui():
-                for button in self._convert_buttons:
-                    button.config(state="normal")
-                self._conversion_customer = None
-            post_to_ui(self, finish_ui)
+            post_to_ui(self, lambda: self._set_convert_buttons_state("normal"))

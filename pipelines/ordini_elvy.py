@@ -64,7 +64,6 @@ class OrdiniElvyRow:
     articolo_delta: str = ""
     coloredfm: int | None = None
     quantity_cones: float | None = None
-    lot: str = ""
     data_consegna: datetime | None = None
     commento: str = ""
     lavorante: int = LAVORANTE_CODE
@@ -75,6 +74,8 @@ class OrdiniElvyRow:
     bagno_proposto: str = ""
     macchina: int | None = None
     reference_to: str = ""
+    # Not an ERP column: the customer's raw-yarn lot written after "Lot :" in the PDF ("" when none).
+    lot: str = ""
     # Not an ERP column: identifies the machine batch (consecutive same-colour
     # run) this row belongs to -- the input of the First Bagno sequence.
     bagno_group: tuple | None = None
@@ -145,7 +146,11 @@ def build_ordini_elvy_rows(rows: list[OrderRow], first_bagno: str | None = None)
     out: list[OrdiniElvyRow] = []
     for r, bagno in zip(rows, bagno_values):
         year = _extract_year(r.po_date)
-        commento = f"PG-X-PO-{clean_text(r.pod_no)}-{year}" if year else f"PG-X-PO-{clean_text(r.pod_no)}"
+        lot = clean_text(r.lot)
+        # "PG-X(<lot>)" when the PDF names the customer's lot, plain "PG-X" otherwise; the
+        # rest of the comment (PO number and year) is the same either way.
+        waiting = f"PG-X({lot})" if lot else "PG-X"
+        commento = f"{waiting}-PO-{clean_text(r.pod_no)}-{year}" if year else f"{waiting}-PO-{clean_text(r.pod_no)}"
         reference_to = clean_text(r.reference_to)
         if reference_to:
             commento = f"{commento}-ref.{reference_to}"
@@ -154,13 +159,13 @@ def build_ordini_elvy_rows(rows: list[OrderRow], first_bagno: str | None = None)
             articolo_delta=_to_c_code(r.articolo_delta),
             coloredfm=_to_int(r.coloredfm),
             quantity_cones=r.quantity_cones,
-            lot=clean_text(r.lot),
             data_consegna=data_consegna_dt,
             commento=commento,
             data_riconsegna=data_riconsegna_dt,
             bagno_proposto=bagno,
             macchina=_machine_code_for_abbina(r.abbina),
             reference_to=reference_to,
+            lot=lot,
         ))
     # Keep the group key on the row too, for callers that want to inspect it.
     for row, key in zip(out, _elvy_bagno_group_keys(rows)):
@@ -441,6 +446,90 @@ class RawYarnMatch:
     label: str = "تحضير خام"
 
 
+_WAITING_TOKEN_RE = re.compile(r"PG-X(?:\([^)]*\))?", re.IGNORECASE)
+
+
+def with_partita(commento: str, partita: str) -> str:
+    """Replace the waiting token of a Commento -- "PG-X" or "PG-X(<lot>)" -- by "PG-<partita>"."""
+    return _WAITING_TOKEN_RE.sub(f"PG-{partita}", commento or "", count=1)
+
+
+def match_by_lot(
+    ordini_rows: list["OrdiniElvyRow"],
+    magazino_summary: pd.DataFrame,
+    lotti_summary: pd.DataFrame | None,
+    codes_map: dict | None = None,
+) -> list[RawYarnMatch]:
+    """First step of the raw-yarn matching: search Magazino Filato by the customer's LOT.
+
+    A row that is still waiting for raw yarn ("PG-X" in its Commento) and carries the
+    lot written in its PDF takes the batch of the same raw article whose Lotto (from the
+    Lotti file) is that lot and which is in stock -- "PG-X(<lot>)-PO-..." becomes
+    "PG-<partita>-PO-...".  Rows without a lot, or whose lot is not in stock for their
+    article, are left alone for the by-article step (match_raw_yarn) that follows.
+    Returns the batches assigned, for the "Filato x Tinturia" sheet.
+    """
+    if (
+        magazino_summary is None or magazino_summary.empty
+        or lotti_summary is None or lotti_summary.empty
+    ):
+        return []
+
+    partitas_by_lot: dict[str, list[str]] = {}
+    for _, r in lotti_summary.iterrows():
+        key = clean_text(r["lotto"]).casefold()
+        if key:
+            partitas_by_lot.setdefault(key, []).append(str(r["partita"]).strip())
+
+    stock: dict[str, dict] = {}
+    for _, r in magazino_summary.iterrows():
+        stock[str(r["partita"]).strip()] = {
+            "articolo": str(r["articolo"]).strip().upper(),
+            "rocche": float(r["mag_rocche"]),
+            "peso": float(r["mag_peso"]),
+        }
+
+    matches: list[RawYarnMatch] = []
+    for row in ordini_rows:
+        lot = clean_text(getattr(row, "lot", "")).casefold()      # Kamal rows have no lot
+        if not lot or "PG-X" not in (row.commento or "").upper():
+            continue
+        articolo_g = raw_articolo_for(clean_text(row.articolo_delta).upper())
+        candidates = [
+            p for p in partitas_by_lot.get(lot, [])
+            if p in stock and stock[p]["articolo"] == articolo_g and stock[p]["rocche"] > 0
+        ]
+        if not candidates:
+            continue
+        # The batch with the most stock left; stock already given to an earlier row is deducted.
+        partita = max(candidates, key=lambda p: stock[p]["rocche"])
+        batch = stock[partita]
+        need = min(float(row.quantity_cones or 0), batch["rocche"])
+        peso_used = batch["peso"] * (need / batch["rocche"]) if batch["rocche"] else 0.0
+        batch["peso"] = max(batch["peso"] - peso_used, 0.0)
+        batch["rocche"] = max(batch["rocche"] - need, 0.0)
+        row.commento = with_partita(row.commento, partita)
+        matches.append(RawYarnMatch(
+            articolo=articolo_g,
+            titolo=(codes_map or {}).get(finished_articolo_for(articolo_g), ""),
+            partita=partita,
+            rocce=round(need, 2),
+            peso=round(peso_used, 2),
+        ))
+    return matches
+
+
+def _stock_after(magazino_summary: pd.DataFrame, matches: list[RawYarnMatch]) -> pd.DataFrame:
+    """A copy of the stock with what ``matches`` took removed (empty batches dropped)."""
+    stock = magazino_summary.copy()
+    stock["partita"] = stock["partita"].astype(str).str.strip()
+    for match in matches:
+        mask = stock["partita"] == str(match.partita).strip()
+        stock.loc[mask, "mag_rocche"] = (stock.loc[mask, "mag_rocche"].astype(float) - float(match.rocce)).clip(lower=0)
+        stock.loc[mask, "mag_peso"] = (stock.loc[mask, "mag_peso"].astype(float) - float(match.peso)).clip(lower=0)
+    return stock[stock["mag_rocche"].astype(float) > 0]
+
+
 def match_raw_yarn(
     ordini_rows: list["OrdiniElvyRow"],
     magazino_summary: pd.DataFrame,
@@ -469,38 +558,25 @@ def match_raw_yarn(
     any row that can't be covered as "PG-X".
     """
     if magazino_summary is None or magazino_summary.empty:
-        # There is still useful information to preserve when no stock is
-        # available: an Elvy Lot must remain visible in Commento as PG-X(Lot).
-        for row in ordini_rows:
-            if "PG-X" in (row.commento or "") and clean_text(getattr(row, "lot", "")):
-                row.commento = row.commento.replace("PG-X", f"PG-X({clean_text(row.lot)})", 1)
         return []
+
+    # Step 1 -- by the customer's lot (needs Lotti).  What it hands out is deducted from the
+    # stock the by-article step below sees, so one batch is never given twice.
+    lot_matches = match_by_lot(ordini_rows, magazino_summary, lotti_summary, codes_map)
+    if lot_matches:
+        magazino_summary = _stock_after(magazino_summary, lot_matches)
+        if magazino_summary.empty:
+            return lot_matches
 
     batch_capacity_attr = "rocche" if quantity_attr == "quantity_cones" else "peso"
 
     pool: dict[str, list[dict]] = {}
     for _, r in magazino_summary.iterrows():
         pool.setdefault(str(r["articolo"]), []).append(
-            {"partita": str(r["partita"]), "rocche": float(r["mag_rocche"]), "peso": float(r["mag_peso"]), "lotto": ""}
+            {"partita": str(r["partita"]), "rocche": float(r["mag_rocche"]), "peso": float(r["mag_peso"])}
         )
 
-    # LOTTI is keyed by Partita. Keep the raw alphanumeric Lotto intact;
-    # unlike MED, Elvy lots are not guaranteed to be numeric.
-    lotto_to_batches: dict[str, list[dict]] = {}
-    if lotti_summary is not None and not lotti_summary.empty and "lotto" in lotti_summary.columns:
-        for _, lotto_row in lotti_summary.iterrows():
-            partita = clean_text(lotto_row.get("partita", ""))
-            lotto = clean_text(lotto_row.get("lotto", ""))
-            if not partita or not lotto:
-                continue
-            for article_batches in pool.values():
-                for batch in article_batches:
-                    if batch["partita"] == partita:
-                        batch["lotto"] = lotto
-                        lotto_to_batches.setdefault(lotto.casefold(), []).append(batch)
-
     groups: dict[str, list[int]] = {}
-    lot_groups: dict[str, list[int]] = {}
     for i, row in enumerate(ordini_rows):
         if "PG-X" not in (row.commento or ""):
             continue
@@ -511,16 +587,13 @@ def match_raw_yarn(
         if not articolo_g.startswith("G"):
             continue
         groups.setdefault(articolo_g, []).append(i)
-        lot = clean_text(getattr(row, "lot", ""))
-        if lot:
-            lot_groups.setdefault(lot.casefold(), []).append(i)
 
     matches: list[RawYarnMatch] = []
 
     def _assign(idxs, batch, quantity_used, art_g):
         """Assign a raw-yarn batch to the order rows idxs: replace PG-X in their Commento by PG-<partita>, compute the weight and cones used from the batch (by cones or by weight, depending on batch_capacity_attr) and record a RawYarnMatch."""
         for i in idxs:
-            ordini_rows[i].commento = ordini_rows[i].commento.replace("PG-X", f"PG-{batch['partita']}")
+            ordini_rows[i].commento = with_partita(ordini_rows[i].commento, batch["partita"])
         articolo_c_for_lookup = finished_articolo_for(art_g)
         titolo = (codes_map or {}).get(articolo_c_for_lookup, "")
         if batch_capacity_attr == "rocche":
@@ -537,29 +610,7 @@ def match_raw_yarn(
             peso=round(peso_used, 2),
         ))
 
-    # First pass: an explicit Elvy Lot is authoritative when it exists in the
-    # warehouse. This permits letters and mixed values (e.g. LOT-A12/B).
-    handled: set[int] = set()
-    for lot_key, idxs in lot_groups.items():
-        matching = [b for b in lotto_to_batches.get(lot_key, []) if b in pool.get(
-            raw_articolo_for(clean_text(ordini_rows[idxs[0]].articolo_delta).upper()), []
-        )]
-        if not matching:
-            continue  # second pass falls back to Articolo as requested
-        for i in idxs:
-            row = ordini_rows[i]
-            article_c = clean_text(row.articolo_delta).upper()
-            article_g = raw_articolo_for(article_c) if article_c.startswith("C") else ""
-            batches = [b for b in matching if b in pool.get(article_g, [])]
-            need = getattr(row, quantity_attr, 0) or 0
-            fit = sorted((b for b in batches if b.get(batch_capacity_attr, 0) >= need), key=lambda b: b.get(batch_capacity_attr, 0))
-            if fit:
-                _assign([i], fit[0], need, article_g)
-                pool[article_g].remove(fit[0])
-                handled.add(i)
-
     for articolo_g, idxs in groups.items():
-        idxs = [i for i in idxs if i not in handled]
         batches = pool.get(articolo_g, [])
         if not batches:
             continue
@@ -588,12 +639,4 @@ def match_raw_yarn(
                 batches.remove(batch)
             # else: leave as PG-X -- nothing in stock covers this row yet
 
-    # Preserve the requested Elvy Lot for any row that remains unresolved.
-    # If an Articolo match succeeded, Commento is already PG-<Partita> and is
-    # intentionally left untouched. Otherwise the planner must see PG-X(Lot),
-    # including alphanumeric values.
-    for row in ordini_rows:
-        lot = clean_text(getattr(row, "lot", ""))
-        if lot and (row.commento or "").strip().upper().startswith("PG-X"):
-            row.commento = (row.commento or "").replace("PG-X", f"PG-X({lot})", 1)
-    return matches
+    return lot_matches + matches

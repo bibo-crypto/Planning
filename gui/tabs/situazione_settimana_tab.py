@@ -38,6 +38,9 @@ class SettimanaTab(ttk.Frame):
         self.loaded_frames = {}          # "dfm" / "data_prod" -> DataFrame
         self._shared_dfm_path = ""
         self._shared_prod_path = ""
+        # A path that was tried once is not retried on its own (see sync_shared_async).
+        self._shared_dfm_attempted = ""
+        self._shared_prod_attempted = ""
         self.batch_weights = pd.DataFrame()
         self._shared_syncing = False
         self._weekly_calculating = False
@@ -188,22 +191,31 @@ class SettimanaTab(ttk.Frame):
         dfm_path = str(dfm_cache.get("source_path") or "")
         prod_cache = load_prod_cache()
         prod_path = str(prod_cache.get("source_path") or source_path("data_prod", existing_only=True) or "")
-        needs_dfm = bool(dfm_path and os.path.isfile(dfm_path) and self._shared_dfm_path != dfm_path)
-        needs_prod = bool(prod_path and os.path.isfile(prod_path) and self._shared_prod_path != prod_path)
+        # A file that failed to load (or loaded empty) never becomes "synced", so without the
+        # "attempted" memory every pass found it still missing and started another worker
+        # reading the same big workbook -- endlessly, which froze the app.
+        needs_dfm = bool(dfm_path and os.path.isfile(dfm_path)
+                         and self._shared_dfm_path != dfm_path and self._shared_dfm_attempted != dfm_path)
+        needs_prod = bool(prod_path and os.path.isfile(prod_path)
+                          and self._shared_prod_path != prod_path and self._shared_prod_attempted != prod_path)
         if not (needs_dfm or needs_prod):
             return
 
         self._shared_syncing = True
+        if needs_dfm:
+            self._shared_dfm_attempted = dfm_path
+        if needs_prod:
+            self._shared_prod_attempted = prod_path
 
         def worker():
             dfm_result = None
             prod_result = None
-            if dfm_path and os.path.isfile(dfm_path) and self._shared_dfm_path != dfm_path:
+            if needs_dfm:
                 try:
                     dfm_result = data_loaders.load_dfm(dfm_path)
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("Could not restore shared DFM file: %s", exc)
-            if prod_path and os.path.isfile(prod_path) and self._shared_prod_path != prod_path:
+            if needs_prod:
                 try:
                     prod_result = data_loaders.load_produzione(prod_path)
                 except Exception as exc:  # noqa: BLE001
@@ -222,7 +234,6 @@ class SettimanaTab(ttk.Frame):
                     self._shared_prod_path = prod_path
                     self.source_rows["data_prod"].set_status(True, f"✅ {len(df)} rows")
                 self._auto_calculate_if_ready()
-                self.after_idle(self.sync_shared_async)
 
             post_to_ui(self, apply_result)
 

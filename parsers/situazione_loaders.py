@@ -5,7 +5,10 @@ exports sometimes have a title row or a duplicated header row above the
 data), validates that the expected columns exist, and returns a clean
 pandas DataFrame plus a list of problems (empty list = OK).
 """
+import datetime as _dt
 import os
+import re
+
 import pandas as pd
 
 # Cache of already-parsed raw sheets, keyed by (path, sheet_name, mtime_ns,
@@ -169,6 +172,40 @@ def load_data_prod(path):
     return out, []
 
 
+# Header names (compared with _header_key) under which the Copertura export may
+# carry the end of a batch.
+_BATCH_END_HEADERS = {"batch end", "batch finish", "batch stop", "end batch", "fine batch", "batch fine"}
+
+
+_DURATION_RE = re.compile(r"^\s*(\d+):(\d{1,2})(?::(\d{1,2}))?\s*$")
+
+
+def _parse_duration(value):
+    """"7:56" / 7:56:00 / an Excel time / a fraction of a day -> Timedelta (NaT when unreadable)."""
+    if value is None:
+        return pd.NaT
+    try:
+        if pd.isna(value):
+            return pd.NaT
+    except (TypeError, ValueError):
+        pass
+    if isinstance(value, pd.Timedelta):
+        return value
+    if isinstance(value, _dt.timedelta):
+        return pd.Timedelta(value)
+    if isinstance(value, _dt.datetime):
+        value = value.time()
+    if isinstance(value, _dt.time):
+        return pd.Timedelta(hours=value.hour, minutes=value.minute, seconds=value.second)
+    if isinstance(value, (int, float)):
+        return pd.Timedelta(days=float(value)) if 0 < float(value) < 1 else pd.Timedelta(hours=float(value))
+    match = _DURATION_RE.match(str(value))
+    if not match:
+        return pd.NaT
+    hours, minutes, seconds = int(match.group(1)), int(match.group(2)), int(match.group(3) or 0)
+    return pd.Timedelta(hours=hours, minutes=minutes, seconds=seconds)
+
+
 def load_schedulato(path):
     """Copertura sheet (Sheet1): machine batch queue -> PlaneDate per Bagno."""
     required = ["N. Bagno", "Machine", "Batch Start"]
@@ -179,6 +216,19 @@ def load_schedulato(path):
     df["N. Bagno"] = _s(df["N. Bagno"])
     df["Machine"] = _s(df["Machine"])
     df["BatchDT"] = pd.to_datetime(df["Batch Start"], errors="coerce", dayfirst=True)
+    # Optional: when the OrgaTEX export also carries the batch end, the machine
+    # timeline draws each colour with its real length (otherwise it estimates).
+    end_column = next((c for c in df.columns if _header_key(c) in _BATCH_END_HEADERS), None)
+    df["BatchEndDT"] = (
+        pd.to_datetime(df[end_column], errors="coerce", dayfirst=True) if end_column is not None else pd.NaT
+    )
+    # The OrgaTEX queue export has "Set time (HH:MM)": how long the batch runs.
+    # Start + Set time is the real end of the colour on the machine.
+    set_time_column = next((c for c in df.columns if _header_key(c).startswith("set time")), None)
+    if set_time_column is not None:
+        durations = df[set_time_column].map(_parse_duration)
+        from_set_time = df["BatchDT"] + durations
+        df["BatchEndDT"] = df["BatchEndDT"].where(df["BatchEndDT"].notna(), from_set_time)
     df = df.sort_values(["Machine", "BatchDT"])
     df["RowID"] = df.groupby("Machine").cumcount()
 
@@ -204,7 +254,8 @@ def load_schedulato(path):
         group["PlaneDate"] = dates
         return group
 
-    df = df.groupby("Machine", group_keys=False).apply(plan_date_for)
+    # Iterate the groups (rather than groupby.apply) so the Machine column survives on every pandas version.
+    df = pd.concat([plan_date_for(group) for _, group in df.groupby("Machine")], ignore_index=True)
     out = pd.DataFrame({
         "bagno": df["N. Bagno"],
         "planedate": df["PlaneDate"],
@@ -212,6 +263,7 @@ def load_schedulato(path):
         # them to group the current colours by physical machine.
         "machine": df["Machine"],
         "batch_start": df["BatchDT"],
+        "batch_end": df["BatchEndDT"],
     })
     return out, []
 
@@ -289,6 +341,42 @@ def load_produzione(path):
     })
     out = out.dropna(subset=["partita"])
     out["week_of_year"] = out["sheet_date"].dt.isocalendar().week
+    return out, []
+
+
+def load_produzione_colors(path):
+    """Produzione export -> the dye colour of every batch (for the machine timeline).
+
+    ``Color RGB`` holds text such as ``RGB(153/133/116)``.  Besides the colour each
+    row keeps what can identify it: Partita Colore (``Partia Col``), Bagno, and the
+    colour itself (``Codice`` + ``Des.Colore``) -- a batch that has not been dyed yet
+    is not in the file by Bagno, but the same colour was usually dyed before.
+    Rows are ordered oldest -> newest so the latest colour wins when a key repeats.
+    Returns (DataFrame[partita, bagno, codice, colore, rgb], errors).
+    """
+    from calculate.machine_timeline import parse_rgb
+
+    required = ["Partia Col", "Color RGB"]
+    df, errors = _load_with_header(path, required)
+    if df is None:
+        return None, errors
+
+    def column(*names):
+        wanted = {_header_key(n) for n in names}
+        found = next((c for c in df.columns if _header_key(c) in wanted), None)
+        return _s(df[found]) if found is not None else pd.Series([""] * len(df), index=df.index)
+
+    out = pd.DataFrame({
+        "partita": _s(df["Partia Col"]),
+        "bagno": column("Bagno", "N. Bagno"),
+        "codice": column("Codice"),
+        "colore": column("Des.Colore", "Des. Colore", "Colore"),
+        "rgb": [parse_rgb(v) for v in df["Color RGB"]],
+    })
+    start = column("Start")
+    out["_when"] = pd.to_datetime(start, errors="coerce", dayfirst=True)
+    out = out[out["rgb"].notna()].sort_values("_when", kind="stable", na_position="first")
+    out = out.drop(columns="_when").reset_index(drop=True)
     return out, []
 
 

@@ -27,7 +27,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
 from calculate.constants import MACHINE_CAPACITIES
-from calculate.raw_batch import MED_CODE, is_blank_raw, is_customer_lot
+from calculate.raw_batch import LOT_CUSTOMER_CODES, MED_CODE, is_blank_raw, is_customer_lot
 from utility.excel_io import safe_save_workbook
 from utility.master_data import raw_articolo_for
 
@@ -82,18 +82,21 @@ def _first_match(text: str, pattern: str) -> str:
     return m.group(1) if m else ""
 
 
-def _med_raw_batch(additional: str) -> str:
-    """Return MED's requested Partita GG from its order comment.
+def _raw_batch_from_comment(additional: str, customer_code: str) -> str:
+    """The raw batch / lot of a MED or ELVY order line, read ONLY from its comment.
 
-    The comment is still the sole source: ``PG-159233-PM...`` is one of our
-    assigned batches, while ``PG-X(837756)-PM...`` / ``PG-837756-PM...`` is
-    MED's customer lot.  Both must remain visible in the Excel and ticket so
-    their VMM22, density and tube-colour lookups can run.  The latter is kept
-    in PG-X (and never exported to Filato x Tinturia) by the shared raw-batch
-    classification helpers.
+    "PG-159233-PM-X" -> "159233": one of our own raw batches (digits starting with 1).
+    "PG-X(837756)-PM-X" / "PG-X(52_LOT 1251B.3)-PO-1500-2026" -> the customer's lot, which
+    is not a raw batch: the row has none yet, so it waits in PG-X and the lot is what
+    Smart Auto-Assign looks up.  MED lots are numbers; ELVY lots are numbers and letters.
+    "PG-X-..." names nothing: "".
     """
     batch = requested_lotto_from_comment(additional)
-    return batch if batch.isdigit() else ""              # a batch/lot is always a number
+    if not batch:
+        return ""
+    if customer_code == MED_CODE:
+        return batch if batch.isdigit() else ""            # a MED lot is always a number
+    return batch
 
 
 def requested_lotto_for(record: "OrderRecord") -> str:
@@ -114,7 +117,7 @@ def requested_lotto_from_comment(comment: str) -> str:
     "PG-X(837756)-PM..." -> "837756"; a bare "PG-X-..." or no PG token -> "".
     """
     text = comment or ""
-    waiting = re.search(r"(?i)PG-X\(\s*([^)\s]+)\s*\)", text)
+    waiting = re.search(r"(?i)PG-X\(\s*([^)]+?)\s*\)", text)          # the lot may hold spaces / dashes
     if waiting:
         return waiting.group(1).strip()
     token = re.search(r"(?i)PG-([^-\s(]+)", text)
@@ -208,12 +211,22 @@ def _polmoni_extra(additional: str) -> int:
     return int(m.group(1)) * 4 if m else 0
 
 
+_PG_PREFIX_RE = re.compile(r"^\s*PG-(?:X\([^)]*\)|[^-\s(]+)-", re.IGNORECASE)
+
+
 def _commento_for(customer: str, additional: str) -> str:
     """Per-customer Commento, mirroring the reference query's dash-split
     on ALL '-' occurrences:
     ELVY keeps everything after the 2nd '-' (e.g. 'PG-157474-PO-1466-2026'
     -> 'PO-1466-2026'); MED keeps the 6th segment (.6), which is usually
     absent -> blank, confirmed against real MED data."""
+    if customer == "ELVY":
+        # "PG-<partita>-" or "PG-X(<lot>)-" is dropped as a whole, so a lot containing a
+        # dash ("PG-X(AB-12)-PO-1500-2026") cannot shift the split.
+        text = _clean(additional)
+        prefix = _PG_PREFIX_RE.match(text)
+        if prefix:
+            return text[prefix.end():].strip()
     parts = [p.strip() for p in _clean(additional).split("-")]
     if customer == "ELVY":
         return "-".join(parts[2:]).strip() if len(parts) > 2 else ""
@@ -605,7 +618,16 @@ def apply_machine_surcharge(price: Any, machine: Any) -> Any:
 # ---------------------------------------------------------------------------
 
 def load_densita_query(path: Path | None = None) -> tuple[dict[int, dict[str, Any]], list[str]]:
-    """Return Densita data from SQLite first; *path* is legacy migration only."""
+    """Read an explicitly selected workbook; otherwise use the shared SQLite snapshot."""
+    if path is not None:
+        if not Path(path).is_file():
+            return {}, [f"Densita' Query file not found: {path}"]
+        from utility import disk_cache
+        return disk_cache.cached_load(
+            "densita_query", path, lambda: _load_densita_query_uncached(Path(path)),
+            is_valid=lambda result: bool(result[0]),
+        )
+
     try:
         from utility.source_manager import load as load_source
         frame = load_source("densita_lookup")
@@ -623,13 +645,7 @@ def load_densita_query(path: Path | None = None) -> tuple[dict[int, dict[str, An
             return out, []
     except Exception:
         pass
-    if path is None or not Path(path).is_file():
-        return {}, ["Densita' Query is not stored in SQLite yet. Upload it once to update the database."]
-    from utility import disk_cache
-    return disk_cache.cached_load(
-        "densita_query", path, lambda: _load_densita_query_uncached(path),
-        is_valid=lambda result: bool(result[0]),
-    )
+    return {}, ["Densita' Query is not stored in SQLite yet. Upload it once to update the database."]
 
 
 def _load_densita_query_uncached(path: Path) -> tuple[dict[int, dict[str, Any]], list[str]]:
@@ -640,8 +656,11 @@ def _load_densita_query_uncached(path: Path) -> tuple[dict[int, dict[str, Any]],
     out: dict[int, dict[str, Any]] = {}
     wb = openpyxl.load_workbook(path, data_only=True, read_only=True)
     try:
-        if "Entry" in wb.sheetnames:
-            for row in _read_sheet_rows(wb["Entry"]):
+        sheet_by_key = {_key(name): name for name in wb.sheetnames}
+        entry_sheet = sheet_by_key.get(_key("Entry"))
+        density_sheet = sheet_by_key.get(_key("Densita")) or sheet_by_key.get(_key("Densità"))
+        if entry_sheet:
+            for row in _read_sheet_rows(wb[entry_sheet]):
                 partita = _number(_get(row, "PARTITA", "Partita"))
                 peso_lord = _number(_get(row, "Peso Lord", "Peso Lordo"))
                 if partita is None:
@@ -653,8 +672,8 @@ def _load_densita_query_uncached(path: Path) -> tuple[dict[int, dict[str, Any]],
                     out[int(partita)]["color_tube"] = color_tube
         else:
             errors.append('Nel file Densita\' Query.xlsx manca il foglio "Entry" (serve per KG).')
-        if "Densita" in wb.sheetnames:
-            for row in _read_sheet_rows(wb["Densita"]):
+        if density_sheet:
+            for row in _read_sheet_rows(wb[density_sheet]):
                 partita = _number(_get(row, "PARTITA", "Partita"))
                 if partita is None:
                     continue
@@ -994,11 +1013,11 @@ def load_order(input_path: Path, dispo_path: Path | None = None) -> tuple[list[O
         article = _clean(_get(row, "Articolo"))
         raw = raw_by_article.get(("G" + article[1:]).upper(), {}) if article else {}
         additional = _clean(_get(row, "Descrizione aggiuntiva ordine"))
-        if code == MED_CODE:
-            # MED: Partita GG is never taken from the raw-yarn sheet.  Its
+        if code in LOT_CUSTOMER_CODES:
+            # MED / ELVY: Partita GG is never taken from the raw-yarn sheet.  Its
             # comment may name either one of our batches or MED's own lot;
             # the latter remains in PG-X but is retained for output/lookups.
-            raw_batch = _med_raw_batch(additional)
+            raw_batch = _raw_batch_from_comment(additional, code)
         else:
             raw_batch = _clean(_get(raw, "Partita.GG", "Partita")) or _first_match(additional, r"PG[- ]*([0-9]+)")
         riga = _clean(_get(row, "Riga"))
@@ -1055,7 +1074,7 @@ def load_order(input_path: Path, dispo_path: Path | None = None) -> tuple[list[O
             raw_batch=raw_batch,
             quantity_cones=_number(_get(row, "Ordinata", "Assegnata")) or _number(_get(raw, "عدد")),
             # A MED row still waiting for raw yarn gets no KG/VMM22 from the raw sheet.
-            raw_weight=None if (code == MED_CODE and not raw_batch) else _number(_get(raw, "وزن", "Peso")),
+            raw_weight=None if (code in LOT_CUSTOMER_CODES and not raw_batch) else _number(_get(raw, "وزن", "Peso")),
             dispo=_clean(_get(dispo, "Dispo")),
             bagno=_clean(_get(dispo, "Field2", "Bagno")),
             delivery=_get(row, "Consegna"),
@@ -1694,7 +1713,9 @@ def append_create_excel(path: Path, records: list[OrderRecord], customer: str) -
 
         def waits_in_pg_x(row_idx: int) -> bool:
             customer = _clean(ws.cell(row=row_idx, column=customer_col).value) if customer_col else ""
-            customer_code = MED_CODE if customer.upper().startswith("MED") else ""
+            customer_code = next(
+                (code for name, code in (("MED", MED_CODE), ("ELVY", ELVY_CODE)) if customer.upper().startswith(name)), "",
+            )
             return _is_pg_x(ws.cell(row=row_idx, column=raw_col).value, customer_code)
 
         waiting_rows = [row_idx for row_idx in range(2, ws.max_row + 1) if waits_in_pg_x(row_idx)]

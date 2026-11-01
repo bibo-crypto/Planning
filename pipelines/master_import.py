@@ -50,7 +50,7 @@ DIRECTORY_FILE_CANDIDATES: dict[str, list[str]] = {
     "lotti": ["lotti", "lotto"],
     "listini": ["listini", "prezzi"],
     "biglietti_template": ["biglietti", "forma biglietti"],
-    "densita": ["densita' query", "densita query", "densita", "density query"],
+    "densita": ["densita' query", "densita query", "densita", "densità query", "densità", "density query"],
     "data_ordine": ["data ordine", "data_ordine", "dataordine", "ordine data"],
     "dispo_bagno": ["dispo bagno", "dispo-bagno", "dispo_bagno", "doispo bagno", "doispo-bagno"],
 }
@@ -297,24 +297,12 @@ def import_master_file(master_path: str, situazione_tab, magazino_tab, biglietti
             skipped.append(LABELS[key])
 
     normalized = {_norm(s) for s in sheetnames}
-    if _norm("Entry") in normalized and _norm("Densita") in normalized:
+    if _norm("Entry") in normalized and normalized.intersection({_norm("Densita"), _norm("Densità")}):
         try:
-            import exporters.biglietti_exporter as biglietti_exporter
-            from utility.densita_cache import save_densita_cache
-            densita_map, _errors = biglietti_exporter.load_densita_query(Path(master_path))
-            if densita_map:
-                save_densita_cache(master_path)
-                if situazione_tab is not None and hasattr(situazione_tab, "refresh_prezzo_densita"):
-                    situazione_tab.refresh_prezzo_densita()
-                if biglietti_tab is not None:
-                    biglietti_tab.densita_path = Path(master_path)
-                    if hasattr(biglietti_tab, "_restore"):
-                        biglietti_tab._restore()
-                loaded.append(LABELS["densita"])
-            else:
-                skipped.append(LABELS["densita"])
-        except Exception:
-            skipped.append(LABELS["densita"])
+            _route("densita", master_path, master_path, situazione_tab, magazino_tab, biglietti_tab)
+            loaded.append(LABELS["densita"])
+        except Exception as exc:
+            skipped.append(f"{LABELS['densita']} (Error: {exc})")
     else:
         skipped.append(LABELS["densita"])
 
@@ -437,8 +425,10 @@ def _route(
             biglietti_tab.set_template_path(tmp_path)
 
     elif key == "densita":
-        from utility.densita_cache import save_densita_cache
-        save_densita_cache(master_path)
+        from utility import source_hub
+        rows, errors = source_hub.save_densita(master_path)
+        if not rows:
+            raise ValueError("; ".join(errors) or "No density rows were found.")
         if situazione_tab is not None and hasattr(situazione_tab, "refresh_prezzo_densita"):
             try:
                 situazione_tab.refresh_prezzo_densita()
@@ -446,7 +436,6 @@ def _route(
                 pass
         # Densita is shared by Biglietti and Ordine MED. Persist the same
         # source path and update Ordine MED's visible selection directly.
-        save_source("densita", master_path)
         if biglietti_tab is not None:
             biglietti_tab.densita_path = Path(master_path)
             if hasattr(biglietti_tab, "densita_label"):
@@ -479,4 +468,3 @@ def _route(
                 biglietti_tab.biglietti_dispo_path_label.config(text=str(master_path), foreground="#111827")
             if hasattr(biglietti_tab, "_save_prefs"):
                 biglietti_tab._save_prefs(biglietti_dispo_path=str(master_path))
-

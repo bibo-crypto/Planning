@@ -8,8 +8,15 @@ Run with:
 from __future__ import annotations
 
 import os
+import warnings
 from pathlib import Path
 import traceback
+
+# Harmless pandas notices (date-format guessing, dtype downcasting) that otherwise
+# print dozens of lines in the terminal on every upload.
+warnings.filterwarnings("ignore", message="Could not infer format", category=UserWarning)
+warnings.filterwarnings("ignore", message="Downcasting object dtype arrays", category=FutureWarning)
+warnings.filterwarnings("ignore", message="DataFrameGroupBy.apply operated on the grouping columns", category=FutureWarning)
 
 
 def _write_startup_error() -> Path | None:

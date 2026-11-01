@@ -3,6 +3,21 @@ import pytest
 from tests.git_helpers import git, write
 
 
+@pytest.fixture(autouse=True)
+def isolated_situazione_db(tmp_path_factory, monkeypatch):
+    """Give every test its own empty Situazione database with the schema created.
+
+    Without it a page built in a test (SituazioneTab reads the upload log in its
+    constructor) used the project's real ``situazione/dyeing_tracker.db``: missing on a
+    fresh checkout -- "no such table: upload_log" -- and polluted by earlier tests
+    otherwise.  Tests that point DB_PATH somewhere else simply override this.
+    """
+    from utility import situazione_db
+
+    monkeypatch.setattr(situazione_db, "DB_PATH", str(tmp_path_factory.mktemp("situazione") / "dyeing_tracker.db"))
+    situazione_db.init_db()
+
+
 @pytest.fixture
 def repo(tmp_path):
     """A repo with one commit, a .gitignore and a bare 'origin' it is already tracking."""

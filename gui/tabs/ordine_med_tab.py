@@ -27,10 +27,10 @@ from utility.ui_thread import post_to_ui
 
 class OrdineMedTab(ttk.Frame):
     """The "Ordine Med" page: reads the MED order file and creates the Ordine MED
-    workbook (orders to create, system-import sheet, filato availability) using the
-    shared Articoli, Listini and Magazino data.
+    workbook (orders to create, system-import sheet, filato availability) using
+    Articoli, DFM, Listini, Magazino and LOTTO; machine delivery scheduling follows Overview.
     """
-    def __init__(self, parent, situazione_tab=None, prefs: dict | None = None, save_prefs=None, logger=None, on_shared_cache_changed=None, on_notification=None):
+    def __init__(self, parent, situazione_tab=None, prefs: dict | None = None, save_prefs=None, logger=None, on_shared_cache_changed=None, on_notification=None, source_bar_factory=None, machine_totals_provider=None):
         """Create the Ordine Med page: keep the preferences and callbacks, the file/folder state, then build the widgets and restore the saved paths."""
         super().__init__(parent)
         self._situazione_tab = situazione_tab
@@ -39,6 +39,9 @@ class OrdineMedTab(ttk.Frame):
         self._logger = logger
         self._on_shared_cache_changed = on_shared_cache_changed
         self._on_notification = on_notification
+        self._source_bar_factory = source_bar_factory
+        self._machine_totals_provider = machine_totals_provider
+        self._machine_totals_snapshot: dict[int, int] | None = None
         self.ordine_path: Path | None = None
         self.output_path: Path | None = None
         self.erp_folder: Path | None = None
@@ -75,6 +78,7 @@ class OrdineMedTab(ttk.Frame):
             foreground="grey", anchor="w", wraplength=720, justify="left",
         )
         self._lbl_shared.grid(row=1, column=0, sticky="ew", padx=4, pady=(2, 0))
+        self._lbl_shared.grid_remove()
 
         yarn_frame = ttk.LabelFrame(self, text="Raw Yarn Matching", padding=6)
         yarn_frame.grid(row=2, column=0, sticky="ew", padx=4, pady=(4, 2))
@@ -85,6 +89,10 @@ class OrdineMedTab(ttk.Frame):
         ttk.Button(yarn_frame, text="📦 Select Densita Query", command=self._on_select_densita, width=20).grid(row=1, column=0, padx=4, pady=3, sticky="w")
         self._lbl_densita = ttk.Label(yarn_frame, text="No Densita Query file selected", foreground="grey", anchor="w")
         self._lbl_densita.grid(row=1, column=1, sticky="ew", padx=4)
+        # Shared input files are uploaded from the source bar at the top. This
+        # legacy panel is hidden when that bar is available.
+        if self._source_bar_factory is not None:
+            yarn_frame.grid_remove()
 
         bagno_frame = ttk.LabelFrame(self, text="Bagno Preposato (MED)", padding=6)
         bagno_frame.grid(row=3, column=0, sticky="ew", padx=4, pady=(3, 2))
@@ -126,6 +134,9 @@ class OrdineMedTab(ttk.Frame):
 
         action_frame = ttk.Frame(self, padding=(6, 4))
         action_frame.grid(row=5, column=0, sticky="ew", padx=4, pady=2)
+        if self._source_bar_factory is not None:
+            from gui.source_bar import attach_to_top
+            attach_to_top(self, self._source_bar_factory(self, "ordine_med"))
         self._btn_convert = ttk.Button(
             action_frame, text="▶  Convert", command=self._on_convert, style="Accent.TButton"
         )
@@ -265,6 +276,13 @@ class OrdineMedTab(ttk.Frame):
             return messagebox.showwarning("Missing input", "Select an Ordine file.")
         if not self.output_path or not self.output_path.is_dir():
             return self._on_select_output() or messagebox.showwarning("Missing output", "Select an output folder.")
+        if self._machine_totals_provider is not None:
+            try:
+                self._machine_totals_snapshot = self._machine_totals_provider()
+            except Exception as exc:
+                if self._logger:
+                    self._logger.exception("Could not read the Overview machine schedule")
+                return messagebox.showerror("Machine schedule", str(exc))
         # Snapshot Tk variables before entering the worker; Tkinter variables
         # must not be read from a background thread.
         self._bagno_enabled_snapshot = bool(self.bagno_enabled.get())
@@ -312,16 +330,18 @@ class OrdineMedTab(ttk.Frame):
                 dfm_pairs = set()
             ordine_med.compute_check_articolo(records, dfm_pairs)
 
-            machine_totals = {}
-            try:
-                st = self._situazione_tab
-                situation_df = getattr(st, "current_df", None)
-                copertura_df = getattr(st, "loaded_frames", {}).get("copertura") if st is not None else None
-                if situation_df is not None and copertura_df is not None:
-                    import calculate.situazione as situazione_logic
-                    machine_totals = situazione_logic.compute_machine_totals(situation_df, copertura_df)
-            except Exception:
+            machine_totals = self._machine_totals_snapshot
+            if machine_totals is None:
                 machine_totals = {}
+                try:
+                    st = self._situazione_tab
+                    situation_df = getattr(st, "current_df", None)
+                    copertura_df = getattr(st, "loaded_frames", {}).get("copertura") if st is not None else None
+                    if situation_df is not None and copertura_df is not None:
+                        import calculate.situazione as situazione_logic
+                        machine_totals = situazione_logic.compute_machine_totals(situation_df, copertura_df)
+                except Exception:
+                    machine_totals = {}
             ordine_med.assign_consegna(records, machine_totals)
             ordine_med.compute_data_riconsegna(records)
 

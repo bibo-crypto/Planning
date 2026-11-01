@@ -98,6 +98,17 @@ HEADERS_IT = {
     "prezzo": "Prezzo Ord.", "prezzo_lisini": "Prezzo Listini", "issue": "Problema",
     "title": "Titolo", "message": "Descrizione", "severity": "Gravità",
 }
+def price_error_card(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
+    """The rows of the "Errori Prezzo" window and the number on its card.
+
+    The window lists one row per erroneous order/colour line, so the card counts those
+    rows.  (Counting distinct colour codes made the card smaller than the list behind it
+    whenever one colour appeared on several machines or orders.)
+    """
+    anomalies = _price_color_anomalies(df)
+    return anomalies, len(anomalies)
+
+
 def _price_color_anomalies(situazione_df: pd.DataFrame) -> pd.DataFrame:
     """Return price anomalies sourced from Situazione Generale."""
     return pd.DataFrame(business_logic.find_price_anomalies(situazione_df))
@@ -433,6 +444,8 @@ class OverviewTab(ttk.Frame):
 
         self._data_signature = None
         self._auto_refresh_id = None
+        self._machine_schedule = None
+        self._machine_schedule_signature = None
         self._build_ui()
         self.refresh(force=True)
         self._schedule_auto_refresh()
@@ -874,12 +887,7 @@ class OverviewTab(ttk.Frame):
                         on_click=lambda: self._open_data_ticket(f"Elvy: consegna entro {DELIVERY_ALERT_DAYS} giorni", elvy_due_df, elvy_cols, "elvy_entro_giorni.xlsx"))
 
         price_change_df = self._price_change_df()
-        price_anomalies_df = _price_color_anomalies(df)
-        # The detail window shows one row per erroneous order/color record.
-        # Counting unique colour codes here made the card number smaller than
-        # the rows shown inside it whenever one colour appeared on multiple
-        # machines or orders.
-        price_problem_colors = len(price_anomalies_df)
+        price_anomalies_df, price_problem_colors = price_error_card(df)
         price_anomalies_cols = ["cliente", "articolo", "codice", "colore", "prezzo", "prezzo_lisini", "ordine", "riga", "partita_colore", "bagno", "mc", "issue"]
         self._add_card(
             8, "💲 Errori Prezzo — colori", str(price_problem_colors),
@@ -902,6 +910,11 @@ class OverviewTab(ttk.Frame):
         """Render clickable Copertura machine totals as schedule cards."""
         copertura = getattr(self.situazione_tab, "loaded_frames", {}).get("copertura")
         schedule = business_logic.build_machine_schedule(situation_df, copertura)
+        self._machine_schedule = schedule
+        self._machine_schedule_signature = (
+            getattr(self.situazione_tab, "_data_revision", 0),
+            getattr(self.situazione_tab, "_copertura_revision", 0),
+        )
         counts = {machine: 0 for machine in range(3, 13)}
         if not schedule.empty:
             counts.update(schedule["machine"].value_counts().to_dict())
@@ -946,6 +959,22 @@ class OverviewTab(ttk.Frame):
 
             for child in card.winfo_children():
                 child.bind("<Button-1>", click)
+
+    def machine_totals_for_med(self) -> dict[int, int]:
+        """Return the queue counts from the same machine schedule shown on Overview."""
+        signature = (
+            getattr(self.situazione_tab, "_data_revision", 0),
+            getattr(self.situazione_tab, "_copertura_revision", 0),
+        )
+        if signature != self._machine_schedule_signature or self._machine_schedule is None:
+            situation = getattr(self.situazione_tab, "current_df", None)
+            copertura = getattr(self.situazione_tab, "loaded_frames", {}).get("copertura")
+            self._machine_schedule = business_logic.build_machine_schedule(situation, copertura)
+            self._machine_schedule_signature = signature
+        schedule = self._machine_schedule
+        if schedule.empty:
+            return {}
+        return {int(machine): int(count) for machine, count in schedule["machine"].value_counts().items()}
 
     def _open_machine_schedule(self, machine: int, schedule: pd.DataFrame) -> None:
         """Show the Copertura-ordered dyeing sequence for one machine."""
@@ -1042,21 +1071,7 @@ class OverviewTab(ttk.Frame):
 
         prepare()
         fit_columns(tree, columns, model.rows)               # widths follow the data
-        tree.after(100, lambda: fit_columns(tree, columns, model.rows))
         render()
-
-        # The first fit happens before Tk has negotiated the final window
-        # width. Refit on resize as well; otherwise enlarging the Overview
-        # ticket leaves an unused white area on the right of the Treeview.
-        resize_job = [None]
-        def refit_on_resize(_event=None):
-            if resize_job[0] is not None:
-                try:
-                    tree.after_cancel(resize_job[0])
-                except tk.TclError:
-                    pass
-            resize_job[0] = tree.after_idle(lambda: fit_columns(tree, columns, model.rows))
-        tree.bind("<Configure>", refit_on_resize, add="+")
         search.trace_add("write", debounced(window, render))
 
         def export_visible() -> None:
@@ -1181,19 +1196,8 @@ class OverviewTab(ttk.Frame):
                 tree.insert("", "end", values=values, tags=("stripe_a" if index % 2 == 0 else "stripe_b",))
 
         model.load(subset_df)
-        fit_columns(tree, available_cols, model.rows, )        # widths follow the data, not a fixed 115/170
-        tree.after(100, lambda: fit_columns(tree, available_cols, model.rows))
+        fit_columns(tree, available_cols, model.rows)        # widths follow the data, not a fixed 115/170
         render()
-
-        resize_job = [None]
-        def refit_on_resize(_event=None):
-            if resize_job[0] is not None:
-                try:
-                    tree.after_cancel(resize_job[0])
-                except tk.TclError:
-                    pass
-            resize_job[0] = tree.after_idle(lambda: fit_columns(tree, available_cols, model.rows))
-        tree.bind("<Configure>", refit_on_resize, add="+")
         search.trace_add("write", debounced(window, render))
 
         def export_visible() -> None:

@@ -210,10 +210,7 @@ RE_ARTICLE_DESCRIPTION = re.compile(
     r"Nm\s*(?P<nm>\S+)\s*"
     r"Ne\s*(?P<ne>\S+)\s*"
     r"(?P<dye>.+?)\s*"
-    # Some PDFs contain the marker ``Lot :`` but no value. Keep all the
-    # preceding fields and return an empty Lot cell instead of rejecting the
-    # whole description.
-    r"Lot\s*:?\s*(?P<lot>.*)$",
+    r"Lot\b\s*:?\s*(?P<lot>.*)$",      # the lot may be empty: "... Vat Griege Lot :"
     re.IGNORECASE,
 )
 
@@ -237,6 +234,9 @@ def split_article_description(text: str) -> dict[str, str]:
     ... )
     {'yarn': '100% Cotton Pima Blend', 'nm': '170/2', 'ne': '100/2',
      'dye_type': 'Vat', 'lot': '52_LOT 1251B.3'}
+
+    The text after "Lot :" is the lot; when nothing follows it the lot stays empty
+    (the other fields are still read).
 
     If the text doesn't match the expected pattern (unexpected PDF layout,
     OCR noise, etc.), all fields come back empty so the caller can fall
@@ -263,7 +263,7 @@ def split_article_description(text: str) -> dict[str, str]:
         "nm": match.group("nm").strip(),
         "ne": match.group("ne").strip(),
         "dye_type": dye_type,
-        "lot": match.group("lot").strip(),
+        "lot": match.group("lot").strip(" :-"),     # nothing (or just punctuation) after "Lot :" = no lot
     }
 
 

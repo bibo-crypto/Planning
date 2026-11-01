@@ -493,12 +493,17 @@ def test_elvy_and_med_rows_are_still_read_next_to_kamal_rows(tmp_path):
     assert [r.customer_code for r in records] == ["3009", "3004", "3019"]
 
 
-def test_biglietti_tab_routes_3019_rows_to_the_el_kamal_outputs():
-    root = Path(__file__).resolve().parent.parent
-    tab = (root / "gui" / "tabs" / "biglietti_tab.py").read_text(encoding="utf-8")
-    assert 'has_kamal = any(r.customer_code == "3019"' in tab
-    assert "kamal_records = [r for r in records if r.customer_code == \"3019\"]" in tab
-    assert 'customer="EL_KAMAL"' in tab
+def test_the_el_kamal_page_converts_the_3019_rows_to_the_el_kamal_outputs(tmp_path):
+    """3019 rows belong to the EL KAMAL page and produce the EL_KAMAL workbook and tickets
+    (the page itself is covered by tests/test_create_pages.py)."""
+    from pipelines.create_conversion import CUSTOMERS, customer_records
+
+    assert CUSTOMERS["el_kamal"] == ("3019", "EL_KAMAL")
+    data = tmp_path / "ORD.xlsx"
+    _kamal_erp_dump(data, [(3009, "C130027S", 304, 1, 159001, 72, "PG-X-PO-1-2026"),
+                           (3019, "C170115S", 790351, 2, 159002, 330, "PG-1-ORD.Nr.28-2026(LETTER 108)")])
+    records, _raw, _format = customer_records("el_kamal", data, None)
+    assert [r.customer_code for r in records] == ["3019"]
 
 
 def test_kamal_colour_name_is_the_cell_after_the_colour_code_in_the_order_file(tmp_path):

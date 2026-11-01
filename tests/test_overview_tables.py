@@ -65,7 +65,39 @@ def test_columns_follow_their_data_not_a_fixed_width(root):
     assert widths["tiny"] < widths["long_text"] < widths["huge"]
     assert widths["tiny"] >= 70                          # never thinner than the minimum
     assert widths["huge"] == 380                         # nor wider than the maximum
-    assert tree.column("huge", "stretch") and not tree.column("tiny", "stretch")   # only the last one fills
+    assert all(tree.column(c, "stretch") for c in columns)                          # every column shares the spare width
+
+
+def test_few_columns_fill_the_window_instead_of_hugging_the_left(root):
+    columns = ["articolo", "titolo", "partita", "rocche", "peso"]
+    tree = ttk.Treeview(root, columns=columns, show="headings")
+    for column in columns:
+        tree.heading(column, text=column)
+    rows = [("G010003S", "0020 038.00 3", "140849", "25.0", "23.0")] * 5
+    natural = fit_columns(tree, columns, rows)
+    tree.pack(fill="both", expand=True)
+    root.geometry("1200x300")
+    _pump(root, 0.4)
+    shown = {c: int(tree.column(c, "width")) for c in columns}
+    assert sum(shown.values()) >= 1100                                 # the table is filled, not left-packed
+    assert all(shown[c] > natural[c] for c in columns)                 # each column got a share
+    gains = [shown[c] - natural[c] for c in columns]
+    assert max(gains) - min(gains) <= 1                                # the spare width is shared equally
+    assert all(str(tree.column(c, "anchor")) == "center" for c in columns)
+
+
+def test_the_stretch_follows_a_window_resize(root):
+    tree = ttk.Treeview(root, columns=["a", "b"], show="headings")
+    for column in ("a", "b"):
+        tree.heading(column, text=column)
+    fit_columns(tree, ["a", "b"], [("x", "y")])
+    tree.pack(fill="both", expand=True)
+    root.geometry("600x200")
+    _pump(root, 0.3)
+    small = sum(int(tree.column(c, "width")) for c in ("a", "b"))
+    root.geometry("1100x200")
+    _pump(root, 0.4)
+    assert sum(int(tree.column(c, "width")) for c in ("a", "b")) > small + 300
 
 
 def test_a_wide_heading_widens_a_column_of_short_values(root):

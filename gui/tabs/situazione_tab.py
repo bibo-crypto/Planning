@@ -126,7 +126,7 @@ class SourceRow(ttk.Frame):
 class SituazioneTab(SituationSourcesMixin, SituationRefreshMixin, ttk.Frame):
     """Embeddable 'Situazione' tab — hosted inside gui.py's main Notebook."""
 
-    def __init__(self, master, on_shared_cache_changed: Callable[[], None] | None = None, on_notification=None):
+    def __init__(self, master, on_shared_cache_changed: Callable[[], None] | None = None, on_notification=None, source_bar_factory=None):
         """Create the Situazione Generale page: styles, state (loaded frames, sort state,
         render generation), the child widgets and the deferred SQLite restore, which is
         scheduled after the first paint so the window never waits for the database.
@@ -137,6 +137,7 @@ class SituazioneTab(SituationSourcesMixin, SituationRefreshMixin, ttk.Frame):
 
         self._on_shared_cache_changed = on_shared_cache_changed
         self._on_notification = on_notification
+        self._source_bar_factory = source_bar_factory
         # Set post-construction from gui.py once MagazinoFilatoTab exists
         # (it's built after this tab). Used only to auto-fill the "Filato
         # Disponibile" column -- read lazily, so it's fine if it's not set
@@ -306,6 +307,10 @@ class SituazioneTab(SituationSourcesMixin, SituationRefreshMixin, ttk.Frame):
                                  self._queue_listini_upload)
         listini_row.grid(row=0, column=1, padx=2, pady=1, sticky="ew")
         self.listini_row = listini_row
+        if self._source_bar_factory is not None:
+            # Magazino, Lotto and Densita feed the Filato Disponibile / Densita columns
+            extra = self._source_bar_factory(codes_panel, "situazione_extra")
+            extra.grid(row=0, column=2, padx=(10, 2), pady=1, sticky="w")
 
     def _build_toolbar(self):
         bar = ttk.Frame(self)
@@ -634,6 +639,8 @@ class SituazioneTab(SituationSourcesMixin, SituationRefreshMixin, ttk.Frame):
             self.tree.tag_configure(status, background=color)
         self.tree.tag_configure("Ritinta", background="#d9c6f0")
         self.tree.tag_configure("price_error", background="#fee2e2", foreground="#991b1b")
+        # A row waiting for a named lot ("PG-X(<lot>)") that Magazino Filato does not have.
+        self.tree.tag_configure("yarn_missing", background="#fecaca", foreground="#7f1d1d")
         self.tree.tag_configure("stripe", background="#f3f6fa")
         self.tree.tag_configure("normal", background="#ffffff")
 
@@ -724,6 +731,19 @@ class SituazioneTab(SituationSourcesMixin, SituationRefreshMixin, ttk.Frame):
                 row_vals[prezzo_idx], row_vals[prezzo_lisini_idx], listini_available
             ) is not None
 
+        comment_idx = self.columns.index("comment") if "comment" in self.columns else None
+        match_idx = self.columns.index("raw_yarn_match") if "raw_yarn_match" in self.columns else None
+
+        def _lot_not_in_stock(row_vals):
+            """Red rule: the comment names a customer lot ("PG-X(<lot>)") and the raw-yarn
+            match found no batch of it -- by lot or by article -- in Magazino Filato."""
+            if comment_idx is None or match_idx is None:
+                return False
+            return (
+                str(row_vals[comment_idx] or "").strip().upper().startswith("PG-X(")
+                and not str(row_vals[match_idx] or "").strip()
+            )
+
         def insert_chunk(start=0):
             if generation != self._tree_render_generation:
                 return
@@ -734,6 +754,8 @@ class SituazioneTab(SituationSourcesMixin, SituationRefreshMixin, ttk.Frame):
                 tag = "Ritinta" if str(status).startswith("Ritinta") else status
                 if _is_price_error(values):
                     tag = "price_error"
+                elif _lot_not_in_stock(values):
+                    tag = "yarn_missing"
                 elif not tag:
                     tag = "stripe" if index % 2 else ""
                 self.tree.insert("", "end", values=values, tags=((tag,) if tag else ()))

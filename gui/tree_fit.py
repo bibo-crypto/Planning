@@ -66,17 +66,26 @@ def fit_columns(
     sample_rows: int = 800,
     min_width: int = MIN_COLUMN_WIDTH,
     max_width: int = MAX_COLUMN_WIDTH,
+    fill: bool = True,
 ) -> dict[str, int]:
-    """Size each column to its header and its data, within [min_width, max_width].
+    """Size each column to its header and its data, within [min_width, max_width], then
+    spread the window's spare width over all the columns.
 
-    A column holding short values stays narrow however wide its default was; one
-    holding long text grows (up to max_width).  Only the longest few strings of each
-    column are measured, so 10,000 rows cost the same as 800.  The last column is
-    allowed to stretch so the table still fills a wide window.  Returns the widths.
+    A column holding short values stays narrow however wide its default was; one holding
+    long text grows (up to max_width).  Only the longest few strings of each column are
+    measured, so 10,000 rows cost the same as 800.
+
+    With ``fill`` the columns are *stretched in proportion* whenever they add up to less
+    than the table's width, so a table with few columns fills the window instead of
+    hugging its left edge.
+    The spare width is shared EQUALLY by the columns (not by their size), so a table with
+    few columns ends up with comfortable, similar-looking columns; every column is centred.
+    The stretch follows the window when it is resized.  Returns the fitted (natural) widths.
     """
-    style_font = ttk.Style(tree).lookup("Treeview", "font") or "TkDefaultFont"
+    style = ttk.Style(tree)
+    style_font = style.lookup("Treeview", "font") or "TkDefaultFont"
     body_font = tkfont.Font(root=tree, font=style_font)
-    heading_font = tkfont.Font(root=tree, font=ttk.Style(tree).lookup("Treeview.Heading", "font") or style_font)
+    heading_font = tkfont.Font(root=tree, font=style.lookup("Treeview.Heading", "font") or style_font)
 
     rows = list(rows)
     if len(rows) > sample_rows:
@@ -91,33 +100,30 @@ def fit_columns(
         width = max(heading_font.measure(header) + HEADING_PADDING, text_width)
         widths[column] = max(min_width, min(max_width, width))
 
-    # When a report has only a few columns, content-based widths can leave a
-    # large unused area on the right. Distribute that free viewport space over
-    # all columns (rather than stretching only the last one), while retaining
-    # the content proportions and the horizontal scrollbar for genuinely wide
-    # reports. ``winfo_width`` is zero/one during initial construction, so the
-    # next caller pass after geometry negotiation naturally refines the widths.
-    viewport = max(0, int(tree.winfo_width()) - 4)
-    required = sum(widths.values())
-    fills_viewport = viewport > required and bool(widths)
-    if fills_viewport:
-        extra = viewport - required
-        columns_count = len(widths)
-        base, remainder = divmod(extra, columns_count)
-        for index, column in enumerate(widths):
-            widths[column] += base + (1 if index < remainder else 0)
+    def apply(available: int = 0) -> None:
+        """Set the column widths: the natural ones, plus an equal share of any spare width."""
+        total = sum(widths.values())
+        extra = max(0, available - total) if (fill and columns) else 0
+        base, remainder = divmod(extra, len(columns) or 1)
+        for position, column in enumerate(columns):
+            width = widths[column] + base + (1 if position < remainder else 0)
+            tree.column(
+                column, width=width, minwidth=min(widths[column], min_width),
+                stretch=bool(fill), anchor="center",
+            )
 
-    last = columns[-1] if columns else None
-    for column, width in widths.items():
-        tree.column(
-            column, width=width, minwidth=min(width, min_width),
-            # Once the viewport is known, either every column shares the free
-            # width or none does. This prevents the old last-column balloon.
-            # During construction winfo_width() can be 0/1; retain the legacy
-            # last-column stretch only for that initial pass.
-            stretch=(fills_viewport or (viewport <= 0 and column == last)),
-            anchor="center",
-        )
+    apply()
+    if fill and columns:
+        last_applied = [0]
+
+        def on_resize(event: tk.Event) -> None:
+            # the visible table width: the widget width minus the vertical scrollbar's share
+            available = max(0, int(event.width) - 4)
+            if abs(available - last_applied[0]) > 2:
+                last_applied[0] = available
+                apply(available)
+
+        tree.bind("<Configure>", on_resize, add="+")
     return widths
 
 

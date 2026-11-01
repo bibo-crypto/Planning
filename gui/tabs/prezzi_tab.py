@@ -49,12 +49,14 @@ def _filter_color_code(df: pd.DataFrame, query: str) -> pd.DataFrame:
 class PrezziTab(ttk.Frame):
     """Embeddable 'Prezzi' tab."""
 
-    def __init__(self, master, on_shared_cache_changed=None, on_notification=None, on_notifications=None):
+    def __init__(self, master, on_shared_cache_changed=None, on_notification=None, on_notifications=None, source_bar_factory=None):
         """Create the Prezzi page: the Listini frames and state, the notification callbacks and the widgets, then restore the saved Listini from SQLite."""
         super().__init__(master)
         self._on_shared_cache_changed = on_shared_cache_changed
         self._on_notification = on_notification
         self._on_notifications = on_notifications
+        self._source_bar_factory = source_bar_factory
+        self._listini_stamp = ""
         self._base_df = pd.DataFrame()
         self._validation_issues: list[dict[str, str]] = []
         self.prezzi_df = pd.DataFrame()
@@ -105,6 +107,10 @@ class PrezziTab(ttk.Frame):
         self.status_var = tk.StringVar(value="No Listini file uploaded")
         self._btn_upload = ttk.Button(row, text="📤 Upload Listini", command=self._on_upload)
         self._btn_upload.pack(side="left")
+        if self._source_bar_factory is not None:
+            # Listini and Articoli (the categories need it) are uploaded with the source bar
+            self._btn_upload.pack_forget()
+            self._source_bar_factory(row, "prezzi").pack(side="left")
         ttk.Label(row, textvariable=self.status_var, foreground="#666666").pack(side="left", padx=8)
 
         row_search = ttk.Frame(panel)
@@ -323,6 +329,22 @@ class PrezziTab(ttk.Frame):
             post_to_ui(self, apply_result)
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def sync_shared_listini(self) -> None:
+        """Listini (or Articoli, which drive the categories) were uploaded on another page: show the new data."""
+        if self._uploading:
+            return
+        try:
+            from utility import situazione_db as db
+            stamp = f"{db.snapshot_fingerprint('listini')}|{db.snapshot_fingerprint('codes')}"
+        except Exception:  # noqa: BLE001
+            return
+        if stamp == self._listini_stamp:
+            return
+        first = not self._listini_stamp
+        self._listini_stamp = stamp
+        if not first:                                   # the first call only records what is already shown
+            self._restore_from_cache(force=True)
 
     def reapply_categories(self, on_done=None) -> None:
         """Reload the current Listini source against saved category overrides."""
