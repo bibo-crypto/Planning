@@ -19,7 +19,7 @@ from utility.excel_io import safe_save_workbook
 
 from datetime import datetime
 from pathlib import Path
-from typing import Sequence
+from typing import Collection, Mapping, Sequence
 
 import openpyxl
 from openpyxl.styles import (
@@ -33,6 +33,7 @@ from openpyxl.utils import get_column_letter
 
 from parsers.pdf_parser import OrderRow
 from pipelines.ordini_elvy import build_ordini_elvy_rows, match_raw_yarn
+from utility.column_selection import pick_columns
 from utility.utils import logger
 
 # ---------------------------------------------------------------------------
@@ -308,8 +309,14 @@ class ExcelExporter(_LegacyMethodShims):
 
     def __init__(self, rows: Sequence[OrderRow], output_path: Path,
                  magazino_summary=None, codes_map: dict | None = None, lotti_summary=None,
-                 first_bagno: str | None = None) -> None:
+                 first_bagno: str | None = None,
+                 hidden_columns: Mapping[str, Collection[str]] | None = None) -> None:
         self.rows = rows
+        # {sheet title: labels} switched off in the column picker; nothing hidden by default.
+        self.hidden_columns = hidden_columns or {}
+        # The raw-yarn batches assigned by the last export(), so a caller can write the
+        # Filato file from them without reading the sheet back (that sheet may have lost columns).
+        self.raw_yarn_matches: list | None = None
         self.output_path = output_path
         self.magazino_summary = magazino_summary
         self.lotti_summary = lotti_summary
@@ -331,10 +338,11 @@ class ExcelExporter(_LegacyMethodShims):
         ws.title = "Purchase Orders"
         ws.sheet_view.rightToLeft = False
 
-        self._write_header(ws, COLUMNS)
-        self._write_data(ws, COLUMNS, self.rows)
-        self._apply_column_widths(ws, COLUMNS)
-        self._freeze_and_filter(ws, COLUMNS)
+        order_columns = pick_columns(COLUMNS, self.hidden_columns.get("Purchase Orders"))
+        self._write_header(ws, order_columns)
+        self._write_data(ws, order_columns, self.rows)
+        self._apply_column_widths(ws, order_columns)
+        self._freeze_and_filter(ws, order_columns)
 
         ordini_rows = build_ordini_elvy_rows(list(self.rows), first_bagno=self.first_bagno)
 
@@ -346,24 +354,27 @@ class ExcelExporter(_LegacyMethodShims):
                 ordini_rows, self.magazino_summary, self.codes_map, lotti_summary=self.lotti_summary,
             )
             logger.info("Raw yarn matched: %d batch(es) assigned", len(raw_yarn_matches))
+        self.raw_yarn_matches = raw_yarn_matches
 
+        ordini_columns = pick_columns(ORDINI_ELVY_COLUMNS, self.hidden_columns.get("Ordini ELVY"))
         ws2 = wb.create_sheet("Ordini ELVY")
         ws2.sheet_view.rightToLeft = False
-        self._write_header(ws2, ORDINI_ELVY_COLUMNS)
-        self._write_data(ws2, ORDINI_ELVY_COLUMNS, ordini_rows)
-        self._apply_column_widths(ws2, ORDINI_ELVY_COLUMNS)
-        self._freeze_and_filter(ws2, ORDINI_ELVY_COLUMNS)
+        self._write_header(ws2, ordini_columns)
+        self._write_data(ws2, ordini_columns, ordini_rows)
+        self._apply_column_widths(ws2, ordini_columns)
+        self._freeze_and_filter(ws2, ordini_columns)
 
         if raw_yarn_matches is not None:
+            filato_columns = pick_columns(FILATO_TINTURIA_COLUMNS, self.hidden_columns.get("Filato x Tinturia"))
             ws3 = wb.create_sheet("Filato x Tinturia")
             ws3.sheet_view.rightToLeft = False
-            self._write_header(ws3, FILATO_TINTURIA_COLUMNS)
-            self._write_data(ws3, FILATO_TINTURIA_COLUMNS, raw_yarn_matches)
-            self._apply_column_widths(ws3, FILATO_TINTURIA_COLUMNS)
-            self._freeze_and_filter(ws3, FILATO_TINTURIA_COLUMNS)
+            self._write_header(ws3, filato_columns)
+            self._write_data(ws3, filato_columns, raw_yarn_matches)
+            self._apply_column_widths(ws3, filato_columns)
+            self._freeze_and_filter(ws3, filato_columns)
 
             label_col_idx = next(
-                (i + 1 for i, (_, attr, _) in enumerate(FILATO_TINTURIA_COLUMNS) if attr == "label"), None
+                (i + 1 for i, (_, attr, _) in enumerate(filato_columns) if attr == "label"), None
             )
             if label_col_idx:
                 bold_label_font = Font(bold=True, name="Calibri", size=11)

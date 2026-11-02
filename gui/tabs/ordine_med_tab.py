@@ -141,6 +141,8 @@ class OrdineMedTab(ttk.Frame):
             action_frame, text="▶  Convert", command=self._on_convert, style="Accent.TButton"
         )
         self._btn_convert.pack(side="left")
+        from gui.column_picker import columns_button
+        columns_button(action_frame, "ordine_med").pack(side="left", padx=(8, 0))
         self._lbl_status = ttk.Label(action_frame, text="", foreground="grey")
         self._lbl_status.pack(side="left", padx=12)
 
@@ -276,6 +278,14 @@ class OrdineMedTab(ttk.Frame):
             return messagebox.showwarning("Missing input", "Select an Ordine file.")
         if not self.output_path or not self.output_path.is_dir():
             return self._on_select_output() or messagebox.showwarning("Missing output", "Select an output folder.")
+        from exporters.input_check import check_med_input
+        problems = check_med_input(self.ordine_path)
+        if problems and not messagebox.askyesno(
+            "Check the Ordine file",
+            "The file looks incomplete:\n\n" + "\n".join(f"• {p}" for p in problems)
+            + "\n\nConvert anyway?", icon="warning",
+        ):
+            return
         if self._machine_totals_provider is not None:
             try:
                 self._machine_totals_snapshot = self._machine_totals_provider()
@@ -287,6 +297,9 @@ class OrdineMedTab(ttk.Frame):
         # must not be read from a background thread.
         self._bagno_enabled_snapshot = bool(self.bagno_enabled.get())
         self._bagno_start_snapshot = self.bagno_start_var.get().strip()
+        # The columns the planner switched off in the column picker (also a UI-thread read).
+        from utility.column_selection import load_hidden
+        self._hidden_columns_snapshot = load_hidden("ordine_med")
         self._btn_convert.config(state="disabled")
         self._set_status("Converting...")
         threading.Thread(target=self._worker, daemon=True).start()
@@ -294,7 +307,7 @@ class OrdineMedTab(ttk.Frame):
     def _worker(self):
         """The Ordine MED conversion (worker thread): load the order, compute MC and
         group, optional bagno, Titolo, Cliente, Commento and Prezzo, check the filato
-        availability and write Ordine_MED.xlsx and Prezzi.xlsx (plus the optional ERP and
+        availability and write Ordine_MED.xlsx and Prezzi Ordine Med <n>.xlsx (plus the optional ERP and
         filato files); the result is reported through post_to_ui().
         """
         try:
@@ -361,9 +374,10 @@ class OrdineMedTab(ttk.Frame):
 
             output_dir = self.output_path
             output_file = output_dir / "Ordine_MED.xlsx"
-            ordine_med.export_ordine_med_workbook(output_file, records, availability)
-            prezzi_file = output_dir / "Prezzi.xlsx"
-            ordine_med.export_prezzi_workbook(prezzi_file, records)
+            hidden_columns = getattr(self, "_hidden_columns_snapshot", None) or {}
+            ordine_med.export_ordine_med_workbook(output_file, records, availability, hidden_columns=hidden_columns)
+            prezzi_file = ordine_med.next_prezzi_path(output_dir)
+            ordine_med.export_prezzi_workbook(prezzi_file, records, hidden_columns=hidden_columns.get("Prezzi"))
             if self.erp_enabled.get():
                 if not self.erp_folder or not self.erp_folder.is_dir():
                     raise ValueError("ERP extraction is enabled but no ERP Files Folder is selected.")

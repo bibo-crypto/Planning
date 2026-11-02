@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Collection, Mapping
 
 from exporters.biglietti_exporter import apply_machine_surcharge
 from exporters.prezzi_workbook import price_cell, write_prezzi_workbook
@@ -69,7 +69,12 @@ def prezzi_rows(rows: list[OrderRow], titolo_by_articolo: Mapping[str, str] | No
     return out
 
 
-def export_prezzi_po(folder: Path, rows: list[OrderRow], titolo_by_articolo: Mapping[str, str] | None = None) -> Path | None:
+def export_prezzi_po(
+    folder: Path,
+    rows: list[OrderRow],
+    titolo_by_articolo: Mapping[str, str] | None = None,
+    hidden_columns: Collection[str] | None = None,
+) -> Path | None:
     """Write ``Prezzi-PO-<PO number(s)>.xlsx`` in ``folder``; None when there are no lines.
 
     Without any POD No the file is called plain ``Prezzi-PO.xlsx``."""
@@ -77,6 +82,6 @@ def export_prezzi_po(folder: Path, rows: list[OrderRow], titolo_by_articolo: Map
         return None
     label = po_label(rows)
     path = folder / (f"Prezzi-PO-{label}.xlsx" if label else "Prezzi-PO.xlsx")
-    write_prezzi_workbook(path, prezzi_rows(rows, titolo_by_articolo), sheet_title="ELVY")
+    write_prezzi_workbook(path, prezzi_rows(rows, titolo_by_articolo), sheet_title="ELVY", hidden_columns=hidden_columns)
     logger.info("Saved: %s", path.name)
     return path

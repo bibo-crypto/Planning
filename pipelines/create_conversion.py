@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Collection, Mapping
 
 from calculate.raw_batch import is_assigned_raw
 from exporters.biglietti_exporter import (
@@ -51,6 +51,9 @@ class ConversionRequest:
     filato_dir: Path | None = None             # ELVY / MED: write the raw-yarn file there
     shared_excel: Path | None = None           # ELVY / MED: the Show Orders workbook
     hide_kamal_quantities: bool = True         # EL KAMAL: leave Rocche / KG empty
+    # Columns switched off in the column picker: {sheet title: labels} for the Excel sheets,
+    # and the labels of the customer's own sheet are also left empty on the Word tickets.
+    hidden_columns: Mapping[str, Collection[str]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -109,6 +112,12 @@ def _enrich(records, customer: str, sources: CommonSources) -> None:
     )
 
 
+def _ticket_hidden(request: ConversionRequest) -> dict[str, Collection[str]]:
+    """{customer code: labels} for export_word: the choice made for this customer's own sheet."""
+    code, customer = CUSTOMERS[request.kind]
+    return {code: request.hidden_columns.get(customer, ())}
+
+
 def _split_pg_x(records):
     """(ready, waiting): ready rows hold one of our raw batches; the others wait in PG-X."""
     ready, waiting = [], []
@@ -129,16 +138,16 @@ def _convert_shared_customer(request: ConversionRequest, records, raw, sources: 
 
     _enrich(records, customer, sources)
     export_workbook(xlsx, records, raw, include_filato=True, stem=stem, customer=customer,
-                    magazino_summary=sources.magazino_summary)
+                    magazino_summary=sources.magazino_summary, hidden_columns=request.hidden_columns)
     result = ConversionResult(tickets=len(records), files=[xlsx])
     shared = append_create_excel(request.shared_excel, records, customer) if request.shared_excel else None
 
     ready, waiting = _split_pg_x(records)
     if ready:
-        export_word(docx, request.template, ready, stem=stem)
+        export_word(docx, request.template, ready, stem=stem, hidden_columns=_ticket_hidden(request))
         result.files.append(docx)
     if waiting:
-        export_word(pgx_docx, request.template, waiting, stem=f"{stem}-PG-X")
+        export_word(pgx_docx, request.template, waiting, stem=f"{stem}-PG-X", hidden_columns=_ticket_hidden(request))
         result.files.append(pgx_docx)
 
     word_text = ", ".join(path.name for path in result.files[1:]) or "no Word tickets"
@@ -172,9 +181,11 @@ def _convert_kamal(request: ConversionRequest, records, raw, sources: CommonSour
     _enrich(records, "EL_KAMAL", sources)
     export_workbook(xlsx, records, raw, include_filato=True, stem=ticket_stem, customer="EL_KAMAL",
                     magazino_summary=sources.magazino_summary,
-                    hide_kamal_quantities=request.hide_kamal_quantities)
+                    hide_kamal_quantities=request.hide_kamal_quantities,
+                    hidden_columns=request.hidden_columns)
     export_word(docx, request.template, records, stem=ticket_stem,
-                hide_kamal_quantities=request.hide_kamal_quantities)
+                hide_kamal_quantities=request.hide_kamal_quantities,
+                hidden_columns=_ticket_hidden(request))
     return ConversionResult(
         tickets=len(records), files=[xlsx, docx],
         items=[f"• EL KAMAL: {len(records)} tickets ({docx.name})\n   ↳ Saved to: {xlsx}"],

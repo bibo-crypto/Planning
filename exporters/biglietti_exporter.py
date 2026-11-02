@@ -20,7 +20,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Collection, Mapping
 
 import openpyxl
 from openpyxl import Workbook
@@ -28,6 +28,7 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
 from calculate.constants import MACHINE_CAPACITIES
 from calculate.raw_batch import LOT_CUSTOMER_CODES, MED_CODE, is_blank_raw, is_customer_lot
+from utility.column_selection import pick_headers, pick_values, visible_positions
 from utility.excel_io import safe_save_workbook
 from utility.master_data import raw_articolo_for
 
@@ -838,25 +839,28 @@ def _read_sheet_rows(ws) -> list[dict[str, Any]]:
     return out
 
 
+# Other header spellings each name is also looked up under (shared with the input check).
+HEADER_ALIASES: dict[str, tuple[str, ...]] = {
+    "articolo": ("codice articolo", "articolo codice"),
+    "colore": ("codice colore", "colore codice", "descrizione colore"),
+    "ordinata": ("qta", "q ta", "q.t.a", "quantita", "quantità", "rocche"),
+    "riga": ("numero riga", "nr riga", "n riga"),
+    "consegna": ("data consegna", "delivery date"),
+    "descrizione aggiuntiva ordine": ("descrizione ordine", "commento ordine", "commento"),
+    "dispo": ("disposizione", "sigla disposizione"),
+    "bagno": ("n bagno", "numero bagno"),
+    "partita": ("partita col", "partita colore"),
+    "partita.gg": ("partita gg", "partita grezzo", "partita filato"),
+}
+
+
 def _get(row: dict[str, Any], *names: str) -> Any:
     """Read a value from a sheet row by any of several header names (case/spacing-insensitive).
     Known aliases are added automatically (e.g. "colore" also tries "codice colore"); the first non-blank hit wins, else "".
     """
-    aliases = {
-        "articolo": ("codice articolo", "articolo codice"),
-        "colore": ("codice colore", "colore codice", "descrizione colore"),
-        "ordinata": ("qta", "q ta", "q.t.a", "quantita", "quantità", "rocche"),
-        "riga": ("numero riga", "nr riga", "n riga"),
-        "consegna": ("data consegna", "delivery date"),
-        "descrizione aggiuntiva ordine": ("descrizione ordine", "commento ordine", "commento"),
-        "dispo": ("disposizione", "sigla disposizione"),
-        "bagno": ("n bagno", "numero bagno"),
-        "partita": ("partita col", "partita colore"),
-        "partita.gg": ("partita gg", "partita grezzo", "partita filato"),
-    }
     expanded = list(names)
     for name in names:
-        expanded.extend(aliases.get(_key(name), ()))
+        expanded.extend(HEADER_ALIASES.get(_key(name), ()))
     for name in expanded:
         if _key(name) in row and _clean(row[_key(name)]):
             return row[_key(name)]
@@ -1446,6 +1450,58 @@ def _filato_rows(
     return out
 
 
+# Columns every customer sheet starts with, and the extras that follow them per customer.
+COMMON_HEADERS = [
+    "Dispo/Riga", "Articolo", "Titolo", "Formato", "Ordine", "Codice", "Colore", "Rocche", "KG",
+    "M/C", "Partita Col", "Consegna", "Commento", "Bagno", "Cliente", "Partita GG",
+]
+EXTRA_HEADERS = ["Color Tube", "VMM22", "Prezzo", "Densita` (360-390)"]
+FILATO_HEADERS = ["Articolo", "Titolo", "Partita", "Rocche", "Peso", "تحضير خام"]
+
+# What each Word ticket prints, as (row, cell) of the template table -> the Excel column it
+# shows.  Switching a column off in the column picker leaves the matching cell empty.
+TICKET_CELL_COLUMNS: dict[tuple[int, int], str] = {
+    (2, 2): "Titolo", (2, 3): "Formato", (2, 4): "Articolo",
+    (3, 2): "Partita GG", (4, 2): "Colore", (5, 2): "Partita Col",
+    (6, 2): "Dispo/Riga", (6, 3): "Ordine", (7, 3): "Bagno",
+    (8, 2): "Rocche", (9, 2): "KG", (10, 2): "M/C", (11, 3): "VMM22",
+}
+# The columns that make up the first line of a ticket, per customer (see _ticket_header).
+TICKET_HEADER_COLUMNS: dict[str, tuple[str, ...]] = {
+    "ELVY": ("Cliente", "Commento"),
+    "MED": ("Cliente", "Commento", "POLMON", "Cliente MED"),
+    "EL_KAMAL": ("Cliente", "Consegna"),
+}
+# Customer code -> sheet name, to find the Excel columns a ticket may print.
+CUSTOMER_BY_CODE: dict[str, str] = {"3009": "ELVY", "3004": "MED", "3019": "EL_KAMAL"}
+
+
+def customer_headers(customer: str) -> list[str]:
+    """The headers of one customer's sheet: ELVY, MED or EL_KAMAL (Kamal has no extra columns)."""
+    if customer == "MED":
+        return COMMON_HEADERS + ["Partita MED", "Cliente MED", "POLMON"] + EXTRA_HEADERS
+    if customer == "EL_KAMAL":
+        return list(COMMON_HEADERS)
+    return COMMON_HEADERS + ["Delivery Date"] + EXTRA_HEADERS
+
+
+def ticket_columns(customer: str) -> list[str]:
+    """The labels (column names) a customer's Word ticket prints, in the picker's order."""
+    printed = set(TICKET_CELL_COLUMNS.values()) | set(TICKET_HEADER_COLUMNS.get(customer, ()))
+    return [label for label in customer_headers(customer) if label in printed]
+
+
+def ticket_hidden_labels(customer_code: str, hidden: Collection[str] = ()) -> frozenset[str]:
+    """Labels a ticket must leave empty: the ones switched off, plus every ticket field
+    whose column the customer's Excel sheet does not have (e.g. VMM22 for EL KAMAL)."""
+    customer = CUSTOMER_BY_CODE.get(customer_code)
+    if customer is None:
+        return frozenset(hidden)
+    sheet_columns = set(customer_headers(customer))
+    printable = set(TICKET_CELL_COLUMNS.values()) | set(TICKET_HEADER_COLUMNS.get(customer, ()))
+    return frozenset(hidden) | {label for label in printable if label not in sheet_columns}
+
+
 def export_workbook(
     path: Path,
     records: list[OrderRecord],
@@ -1455,6 +1511,7 @@ def export_workbook(
     customer: str = "",
     magazino_summary=None,
     hide_kamal_quantities: bool = False,
+    hidden_columns: Mapping[str, Collection[str]] | None = None,
 ) -> None:
     """Write the "Create (EXCEL+Biglietti)" workbook for one customer.
 
@@ -1463,8 +1520,12 @@ def export_workbook(
     the optional filato (yarn) section, and styles the sheet.
     hide_kamal_quantities (EL KAMAL only) leaves the Rocche and KG cells empty.
     The EL KAMAL sheet has no VMM22 column.
+    hidden_columns ({sheet title: labels}) leaves out the columns the planner switched off
+    in the column picker -- the customer's sheet is named after the customer, the raw-yarn
+    sheet "Filato x Tinturia".  Nothing hidden (the default) writes every column.
     """
     customer = customer or ("ELVY" if records[0].customer_code == "3009" else "MED")
+    hidden_columns = hidden_columns or {}
     # The Create (EXCEL+Biglietti) extract is consumed in Partita Col order.
     # Sort numerically (not lexicographically, so 20 comes after 3) and keep
     # rows with an empty/non-numeric Partita Col at the end.
@@ -1478,17 +1539,9 @@ def export_workbook(
     wb = Workbook()
     ws = wb.active
     ws.title = customer
-    common = ["Dispo/Riga", "Articolo", "Titolo", "Formato", "Ordine", "Codice", "Colore", "Rocche", "KG", "M/C", "Partita Col", "Consegna", "Commento", "Bagno", "Cliente", "Partita GG"]
-    extra_cols = ["Color Tube", "VMM22", "Prezzo", "Densita` (360-390)"]
-    if customer == "MED":
-        headers = common + ["Partita MED", "Cliente MED", "POLMON"] + extra_cols
-    elif customer == "EL_KAMAL":
-        # Kamal's sheet has no extra columns: no VMM22 (Rocche and KG can still
-        # be hidden with the dedicated option).
-        headers = common
-    else:
-        headers = common + ["Delivery Date"] + extra_cols
-    ws.append(headers)
+    headers = customer_headers(customer)
+    shown = visible_positions(headers, hidden_columns.get(customer))
+    ws.append(pick_headers(headers, hidden_columns.get(customer)))
     for r in records:
         quantity = None if customer == "EL_KAMAL" and hide_kamal_quantities else r.quantity_cones
         kg = None if customer == "EL_KAMAL" and hide_kamal_quantities else r.kg
@@ -1502,10 +1555,11 @@ def export_workbook(
             pass                                  # nothing beyond the common columns
         else:
             row += [r.delivery_date, r.color_tube, r.vmm22, r.prezzo, r.densita]
-        ws.append(row)
+        ws.append(pick_values(row, shown))
     if include_filato:
         fws = wb.create_sheet("Filato x Tinturia")
-        fheaders = ["Articolo", "Titolo", "Partita", "Rocche", "Peso", "تحضير خام"]
+        filato_hidden = hidden_columns.get("Filato x Tinturia")
+        fheaders = pick_headers(FILATO_HEADERS, filato_hidden)
         fws.append(fheaders)
         for r in _filato_rows(records, raw_rows, magazino_summary):
             fws.append([r[h] for h in fheaders])
@@ -2368,8 +2422,13 @@ def export_word(
     records: list[OrderRecord],
     stem: str = "",
     hide_kamal_quantities: bool = False,
+    hidden_columns: Mapping[str, Collection[str]] | None = None,
 ) -> None:
     """Create one Word file, one Biglietto page per order color.
+
+    hidden_columns ({customer code: labels}) are the columns switched off in the column
+    picker: the ticket cell that would print such a column is left empty (see
+    TICKET_CELL_COLUMNS).  Nothing hidden (the default) prints the whole ticket.
 
     Uses python-docx (lxml-backed) instead of the stdlib ElementTree, and
     deep-copies the template's own table element rather than re-parsing a
@@ -2419,7 +2478,8 @@ def export_word(
 
     for idx, record in enumerate(records):
         new_tbl = copy.deepcopy(template_tbl)
-        _fill_ticket_table(new_tbl, record, qn, OxmlElement, stem, hide_kamal_quantities)
+        hidden = ticket_hidden_labels(record.customer_code, (hidden_columns or {}).get(record.customer_code, ()))
+        _fill_ticket_table(new_tbl, record, qn, OxmlElement, stem, hide_kamal_quantities, hidden)
         for row in new_tbl.findall(qn("w:tr")):
             cant_split = OxmlElement("w:cantSplit")
             row.get_or_add_trPr().append(cant_split)
@@ -2438,13 +2498,15 @@ def export_word(
 
 
 def _fill_ticket_table(
-    tbl, r: OrderRecord, qn, OxmlElement, stem: str, hide_kamal_quantities: bool = False
+    tbl, r: OrderRecord, qn, OxmlElement, stem: str, hide_kamal_quantities: bool = False,
+    hidden: Collection[str] = (),
 ) -> None:
     """Fill one ticket (a Word table of the Biglietti template) with an order record.
 
     Works on the raw WordprocessingML: each put(row, cell, text) clears the cell's
     runs, writes the text into the first run and applies the template's font size.
     hide_kamal_quantities leaves the quantity/kg cells empty for EL KAMAL (customer 3019) tickets.
+    hidden: the column labels switched off -- their cells are written empty.
     """
     rows = tbl.findall(qn("w:tr"))
 
@@ -2473,18 +2535,20 @@ def _fill_ticket_table(
                 size.set(qn("w:val"), "28")
             break
 
-    put(1, 2, _ticket_header(r, stem))
-    put(2, 2, r.title); put(2, 3, r.formato); put(2, 4, r.article)
-    put(3, 2, r.raw_batch); put(4, 2, r.color_name); put(5, 2, r.colored_batch)
-    put(6, 2, r.dispo); put(6, 3, f"Ordine.  {r.order_no}"); put(7, 3, r.bagno)
+    def show(row: int, cell: int, text: Any) -> None:
+        """put() the text, or an empty cell when the column this cell prints is switched off."""
+        label = TICKET_CELL_COLUMNS.get((row, cell))
+        put(row, cell, "" if label in hidden else text)
+
+    put(1, 2, _ticket_header(r, stem, hidden))
+    show(2, 2, r.title); show(2, 3, r.formato); show(2, 4, r.article)
+    show(3, 2, r.raw_batch); show(4, 2, r.color_name); show(5, 2, r.colored_batch)
+    show(6, 2, r.dispo); show(6, 3, f"Ordine.  {r.order_no}"); show(7, 3, r.bagno)
     ticket_quantity = None if r.customer_code == "3019" and hide_kamal_quantities else r.quantity_cones
     ticket_kg = None if r.customer_code == "3019" and hide_kamal_quantities else r.kg
-    put(8, 2, ticket_quantity); put(9, 2, ticket_kg); put(10, 2, r.machine)
-    if r.customer_code == "3019" and hide_kamal_quantities:
-        put(11, 3, "")
-    else:
-        vmm = r.vmm22 if r.vmm22 is not None else r.raw_weight
-        put(11, 3, f"VMM22( {float(vmm):.2f} )Kg" if vmm is not None else "VMM22(       )Kg")
+    show(8, 2, ticket_quantity); show(9, 2, ticket_kg); show(10, 2, r.machine)
+    vmm = r.vmm22 if r.vmm22 is not None else r.raw_weight
+    show(11, 3, f"VMM22( {float(vmm):.2f} )Kg" if vmm is not None else "VMM22(       )Kg")
 
 
 def _format_date(value: Any) -> str:
@@ -2494,17 +2558,26 @@ def _format_date(value: Any) -> str:
         return _clean(value)
 
 
-def _ticket_header(r: OrderRecord, stem: str) -> str:
+def _ticket_header(r: OrderRecord, stem: str, hidden: Collection[str] = ()) -> str:
     """Top line of the ticket. Differs per customer:
     - MED: first 3 letters of Cliente - Commento - Polmon - Cliente MED
       (blank segments dropped rather than left as bare dashes).
     - EL KAMAL: Cliente - Consegna.
     - Everything else (ELVY): Cliente - Commento.  The header is per ticket,
-      so it must never inherit a batch/file suffix such as ``PG-X``."""
+      so it must never inherit a batch/file suffix such as ``PG-X``.
+    A part whose column is in ``hidden`` (switched off in the column picker) is left out."""
+    def keep(label: str, text: str) -> str:
+        return "" if label in hidden else text
+
     if r.customer_code == "3004":  # MED
         polmon = _polmoni_segment(r.additional_raw)
-        parts = [r.customer_name[:3], r.commento, polmon, r.cliente_med]
+        parts = [keep("Cliente", r.customer_name[:3]), keep("Commento", r.commento),
+                 keep("POLMON", polmon), keep("Cliente MED", r.cliente_med)]
         return "-".join(p for p in parts if p)
     if r.customer_code == "3019":  # EL KAMAL
-        return f"{r.customer_name} - {_format_date(r.delivery)}"
-    return "-".join(part for part in (r.customer_name, r.commento) if part)
+        if not ({"Cliente", "Consegna"} & set(hidden)):
+            return f"{r.customer_name} - {_format_date(r.delivery)}"
+        parts = [keep("Cliente", r.customer_name), keep("Consegna", _format_date(r.delivery))]
+        return " - ".join(p for p in parts if p)
+    parts = [keep("Cliente", r.customer_name), keep("Commento", r.commento)]
+    return "-".join(part for part in parts if part)

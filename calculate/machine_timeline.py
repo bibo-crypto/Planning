@@ -22,7 +22,13 @@ from datetime import datetime, timedelta
 import pandas as pd
 
 from calculate.constants import MACHINE_NUMBER_BY_CODE
-from calculate.situazione import bagno_key, clean_text, machine_number_from_label
+from calculate.situazione import (
+    _is_elvy_client,
+    _parse_delivery_date,
+    bagno_key,
+    clean_text,
+    machine_number_from_label,
+)
 
 DEFAULT_BATCH_HOURS = 12.0        # "2 colours per day per machine"
 MAX_ESTIMATED_HOURS = 36.0        # an estimated end never runs past the next batch or this
@@ -32,7 +38,7 @@ _RGB_RE = re.compile(r"(\d{1,3})\D+(\d{1,3})\D+(\d{1,3})")
 
 BLOCK_COLUMNS = [
     "machine", "start", "end", "end_known", "status", "bagno", "codice", "colore",
-    "partita", "rgb", "has_color", "label", "rows",
+    "partita", "rgb", "has_color", "label", "planedate", "rows",
 ]
 
 
@@ -224,6 +230,48 @@ def block_status(start: datetime, end: datetime, now: datetime) -> str:
     return "queued"
 
 
+def _parse_planedate(value):
+    text = clean_text(value)
+    if text.upper().startswith("PROD."):
+        text = text[5:].strip()
+    return _parse_delivery_date(text)
+
+
+def delivery_delay_days(planedate, row) -> int | None:
+    """Days late after allowing three calendar days for quality checks and invoicing.
+
+    Positive values are late days; zero is exactly on time; negative values are
+    the remaining buffer. Elvy's Delivery Date takes priority when valid.
+    """
+    dye_date = _parse_planedate(planedate)
+    if dye_date is None:
+        return None
+
+    if _is_elvy_client(row.get("cliente", "")):
+        target_date = _parse_delivery_date(row.get("delivery_date"))
+        if target_date is None:
+            target_date = _parse_delivery_date(row.get("consegna"))
+    else:
+        target_date = _parse_delivery_date(row.get("consegna"))
+
+    if target_date is None:
+        return None
+    available_days = (target_date.date() - dye_date.date()).days
+    return 3 - available_days
+
+
+def delivery_delay_text(planedate, row) -> str:
+    delay = delivery_delay_days(planedate, row)
+    if delay is None:
+        return "RITARDO: unavailable (missing valid PlaneDate or delivery date)"
+    if delay > 0:
+        unit = "day" if delay == 1 else "days"
+        return f"RITARDO: late by {delay} {unit}"
+    buffer_days = 3 - delay
+    unit = "day" if buffer_days == 1 else "days"
+    return f"RITARDO: no - on time ({buffer_days} {unit} buffer)"
+
+
 def build_blocks(situation_df, copertura_df, colors_df=None, now: datetime | None = None,
                  default_hours: float = DEFAULT_BATCH_HOURS) -> pd.DataFrame:
     """Turn Copertura (+ Situazione, + Produzione colours) into the timeline blocks.
@@ -296,6 +344,7 @@ def build_blocks(situation_df, copertura_df, colors_df=None, now: datetime | Non
                 "rgb": rgb or NO_COLOR,
                 "has_color": bool(rgb),
                 "label": " - ".join(part for part in (codice, colore, bagno) if part),
+                "planedate": record.get("planedate"),
                 "rows": rows,
             })
     return pd.DataFrame(blocks, columns=BLOCK_COLUMNS)

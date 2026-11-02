@@ -22,6 +22,7 @@ from .biglietti_exports import (
     load_vmm22_ratio_from_magazino,
 )
 from utility.articoli_cache import load_articoli_cache, save_articoli_cache
+from utility.column_selection import load_hidden
 from utility.densita_cache import load_densita_cache, save_densita_cache
 from utility.magazino_cache import load_magazino_cache
 from utility.prezzi_cache import load_prezzi_cache
@@ -217,13 +218,18 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
 
         action_box = ttk.LabelFrame(page, text=" 5. Convert ", style="Section.TLabelframe")
         action_box.pack(fill="x", pady=(8, 4))
+        button_row = ttk.Frame(action_box)
+        button_row.pack(anchor="w", pady=(0, 8))
         convert_button = ttk.Button(
-            action_box, text=f"⚡ Convert {label} Excel + Biglietti",
+            button_row, text=f"⚡ Convert {label} Excel + Biglietti",
             command=lambda customer=kind: self._on_client_convert(customer),
             width=38, style="Bold.TButton",
         )
-        convert_button.pack(anchor="w", pady=(0, 8))
+        convert_button.pack(side="left")
         self._convert_buttons.append(convert_button)
+        # Which columns the Excel sheets and the Word ticket of this customer contain.
+        from gui.column_picker import columns_button
+        columns_button(button_row, f"biglietti_{kind.lower()}", width=16).pack(side="left", padx=(8, 0))
         if kind == "EL_KAMAL":
             note = "Kamal uses its own output workbook and Biglietti files."
         elif kind == "ELVY":
@@ -662,6 +668,14 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
             return messagebox.showwarning("Missing Input", "Please select the Order Data file first.")
         if not self.template_path or not self.template_path.is_file():
             return messagebox.showwarning("Missing Input", "Please select the Forma Biglietti (Biglietti.docx) template first.")
+        from exporters.input_check import check_order_file
+        problems = check_order_file(kind, self.data_path, self.dispo_path)
+        if problems and not messagebox.askyesno(
+            "Check the Order Data file",
+            "The file looks incomplete:\n\n" + "\n".join(f"• {p}" for p in problems)
+            + "\n\nConvert anyway?", icon="warning",
+        ):
+            return
         try:
             customer_records(kind, self.data_path, self.dispo_path)
         except ValueError as exc:
@@ -681,6 +695,7 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
             output_dir=Path(getattr(self, f"{kind}_output_dir")), filato_dir=filato_dir,
             shared_excel=self.shared_excel_path if kind in SHARED_ORDER_KINDS else None,
             hide_kamal_quantities=self.kamal_hide_quantities.get(),
+            hidden_columns=load_hidden(f"biglietti_{kind}"),
         )
         self._set_convert_buttons_state("disabled")
         self._set_status(f"Converting {title} orders and generating tickets in progress...")

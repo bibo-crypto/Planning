@@ -25,7 +25,7 @@ import re
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Collection, Mapping
 
 import openpyxl
 
@@ -34,6 +34,7 @@ from exporters.biglietti_exporter import (
     _clean, _get, _key, _number, _prezzo_match_for, _read_sheet_rows,
 )  # noqa: F401 -- shared normalization helpers
 from calculate.constants import ABBINA_MACHINE_CODES
+from utility.column_selection import pick_headers, pick_values, visible_positions
 from utility.master_data import raw_articolo_for
 
 
@@ -696,10 +697,10 @@ def _system_value(header: str, value: Any) -> Any:
     return "" if value is None else str(value)
 
 
-def system_row(r: "OrdineMedRow") -> list[Any]:
-    """CLIENTE..GRUPPO MACCHINA with every value in its proper Excel type."""
+def system_row(r: "OrdineMedRow", headers: list[str] | None = None) -> list[Any]:
+    """CLIENTE..GRUPPO MACCHINA (or only ``headers`` of them) with every value in its proper Excel type."""
     full = _full_row(r)
-    return [_system_value(header, full[header]) for header in SYSTEM_IMPORT_HEADERS]
+    return [_system_value(header, full[header]) for header in (headers or SYSTEM_IMPORT_HEADERS)]
 
 
 def _apply_system_formats(ws) -> None:
@@ -732,9 +733,25 @@ def _prezzi_row(r: OrdineMedRow) -> list[Any]:
     ]
 
 
-def export_prezzi_workbook(path: Path, records: list[OrdineMedRow]) -> None:
-    """Write Prezzi.xlsx for the MED order (layout: exporters.prezzi_workbook)."""
-    write_prezzi_workbook(path, [_prezzi_row(record) for record in records])
+PREZZI_FILE_STEM = "Prezzi Ordine Med"
+
+
+def next_prezzi_path(folder: Path) -> Path:
+    """``Prezzi Ordine Med <n>.xlsx`` in ``folder``, n being one more than the highest number there.
+
+    Each order keeps its own price file: a new order never overwrites an earlier one."""
+    pattern = re.compile(rf"^{re.escape(PREZZI_FILE_STEM)}\s+(\d+)\.xlsx$", re.IGNORECASE)
+    taken = [int(m.group(1)) for p in folder.glob(f"{PREZZI_FILE_STEM}*.xlsx") if (m := pattern.match(p.name))] if folder.is_dir() else []
+    return folder / f"{PREZZI_FILE_STEM} {max(taken, default=0) + 1}.xlsx"
+
+
+def export_prezzi_workbook(
+    path: Path, records: list[OrdineMedRow], hidden_columns: Collection[str] | None = None,
+) -> None:
+    """Write the Prezzi file ("Prezzi Ordine Med <n>.xlsx") for the MED order (layout: exporters.prezzi_workbook).
+
+    hidden_columns: Prezzi columns switched off in the column picker."""
+    write_prezzi_workbook(path, [_prezzi_row(record) for record in records], hidden_columns=hidden_columns)
 
 
 def export_erp_order_workbook(path: Path, records: list[OrdineMedRow]) -> None:
@@ -774,6 +791,21 @@ def export_filato_availability_workbook(
                 (sheet for sheet in source_wb.worksheets if _key(sheet.title) == _key("Filato X Tinturia")),
                 None,
             )
+            if source_ws is not None and [c.value for c in source_ws[1]][:5] != FILATO_AVAILABILITY_HEADERS[:5]:
+                # The planner switched some of these columns off in the column picker, so the
+                # sheet no longer has the layout this file copies.  This file feeds the ERP
+                # side: it always carries the five columns, written from the data itself.
+                wb = Workbook()
+                ws = wb.active
+                ws.title = "Filato X Tinturia"
+                ws.append(FILATO_AVAILABILITY_HEADERS[:5])
+                for row in availability:
+                    ws.append([row.articolo, row.titolo, row.pt_grg, row.rocche, row.kg])
+                _style_sheet(ws)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                safe_save_workbook(wb, path, keep_backup=False)
+                wb.close()
+                return
             if source_ws is not None:
                 wb = Workbook()
                 ws = wb.active
@@ -822,47 +854,70 @@ def export_ordine_med_workbook(
     path: Path,
     records: list[OrdineMedRow],
     availability: list[FilatoAvailabilityRow],
+    hidden_columns: Mapping[str, Collection[str]] | None = None,
 ) -> None:
     """Write the Ordine MED workbook and save it (no backup kept).
 
     Three styled sheets: "Ordine da creare", the system-import sheet
     "Dati sistema (B-N)", and "Filato X Tinturia" where every row whose
     Disponibilita' is NO is shown in red.
+
+    hidden_columns ({sheet title: labels}) leaves out the columns switched off in the
+    column picker; nothing hidden (the default) writes every column.
     """
     from openpyxl import Workbook
     from openpyxl.formatting.rule import FormulaRule
     from openpyxl.styles import PatternFill
     from exporters.biglietti_exporter import _style_sheet
 
+    hidden_columns = hidden_columns or {}
     wb = Workbook()
 
     ws = wb.active
     ws.title = "Ordine da creare"
-    ws.append(ORDINE_DA_CREARE_HEADERS)
+    creare_hidden = hidden_columns.get("Ordine da creare")
+    creare_shown = visible_positions(ORDINE_DA_CREARE_HEADERS, creare_hidden)
+    ws.append(pick_headers(ORDINE_DA_CREARE_HEADERS, creare_hidden))
     for r in records:
-        ws.append(_ordine_da_creare_row(r))
+        ws.append(pick_values(_ordine_da_creare_row(r), creare_shown))
     _style_sheet(ws, date_columns=("CONSEGNA", "DATA RICONSEGNA"))
     _style_ordine_da_creare_extras(ws)
 
     ws2 = wb.create_sheet("Dati sistema (B-N)")
-    ws2.append(SYSTEM_IMPORT_HEADERS)
+    system_headers = pick_headers(SYSTEM_IMPORT_HEADERS, hidden_columns.get("Dati sistema (B-N)"))
+    ws2.append(system_headers)
     for r in records:
-        ws2.append(system_row(r))
+        ws2.append(system_row(r, system_headers))
     _style_sheet(ws2, date_columns=("CONSEGNA", "DATA RICONSEGNA"))
     _apply_system_formats(ws2)
 
     ws3 = wb.create_sheet("Filato X Tinturia")
-    ws3.append(FILATO_AVAILABILITY_HEADERS)
+    filato_hidden = hidden_columns.get("Filato X Tinturia")
+    filato_shown = visible_positions(FILATO_AVAILABILITY_HEADERS, filato_hidden)
+    filato_headers = pick_headers(FILATO_AVAILABILITY_HEADERS, filato_hidden)
+    ws3.append(filato_headers)
     for a in availability:
-        ws3.append([a.articolo, a.titolo, a.pt_grg, a.rocche, a.kg, a.mag_rocche, a.manca, a.disponibilita])
+        ws3.append(pick_values(
+            [a.articolo, a.titolo, a.pt_grg, a.rocche, a.kg, a.mag_rocche, a.manca, a.disponibilita],
+            filato_shown,
+        ))
     _style_sheet(ws3)
     # Highlight shortages (Disponibilita' = NO) in red.
     if ws3.max_row > 1:
         red_fill = PatternFill(start_color="FFFFC7CE", end_color="FFFFC7CE", fill_type="solid")
-        rng = f"A2:H{ws3.max_row}"
-        ws3.conditional_formatting.add(
-            rng, FormulaRule(formula=['$H2="NO"'], fill=red_fill, stopIfTrue=False)
-        )
+        if "Disponibilita'" in filato_headers:
+            # Live rule on the Disponibilita' column, wherever it sits now.
+            dispo = ws3.cell(row=1, column=filato_headers.index("Disponibilita'") + 1).column_letter
+            ws3.conditional_formatting.add(
+                f"A2:{ws3.cell(row=1, column=len(filato_headers)).column_letter}{ws3.max_row}",
+                FormulaRule(formula=[f'${dispo}2="NO"'], fill=red_fill, stopIfTrue=False),
+            )
+        else:
+            # The column itself is switched off: the shortage rows are still marked.
+            for offset, a in enumerate(availability, start=2):
+                if a.disponibilita == "NO":
+                    for cell in ws3[offset]:
+                        cell.fill = red_fill
 
     path.parent.mkdir(parents=True, exist_ok=True)
     safe_save_workbook(wb, path, keep_backup=False)

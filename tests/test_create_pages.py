@@ -136,8 +136,11 @@ def page(monkeypatch):
     tab.attach_show_orders_page(show_parent, lambda: None)
     warnings, redirects = [], []
     monkeypatch.setattr("gui.tabs.biglietti_tab.messagebox.showwarning", lambda title, msg, **k: warnings.append((title, msg)))
+    # The new "file looks incomplete" question answers itself in tests (a real dialog would block).
+    asked = []
+    monkeypatch.setattr("gui.tabs.biglietti_tab.messagebox.askyesno", lambda title, msg, **k: asked.append(msg) or True)
     tab._goto_show_orders = lambda: redirects.append(True)
-    yield SimpleNamespace(root=root, tab=tab, warnings=warnings, redirects=redirects)
+    yield SimpleNamespace(root=root, tab=tab, warnings=warnings, redirects=redirects, asked=asked)
     root.destroy()
 
 

@@ -80,12 +80,13 @@ class MachineTimelineTab(ttk.Frame):
         self._machines = timeline.all_machines()
         self._machine_state: dict[int, tuple[str, int]] = {}      # machine -> (state, colours still to dye)
         self._label_state = None
+        self._row_height = self.ROW_H
         self._blocks = pd.DataFrame(columns=timeline.BLOCK_COLUMNS)
         self._rects: list[tuple[float, float, float, float, int]] = []
         self._pinned_left: datetime | None = None       # None = live (red line fixed)
         self._pph = self.ZOOMS["50%"]
         self._tip: tk.Toplevel | None = None
-        self._tip_label: tk.Label | None = None
+        self._tip_label: tk.Text | None = None
         self._hover_pos: int | None = None
         self._pointer: tuple[int, int] | None = None
         self._drag: tuple[int, datetime] | None = None
@@ -148,7 +149,7 @@ class MachineTimelineTab(ttk.Frame):
         ttk.Button(self._file_buttons, text="COPERTURA", command=self._choose_copertura).pack(side="left", padx=(8, 2))
         self._cop_state = ttk.Label(self._file_buttons, text="✖", foreground="#dc2626", font=("Segoe UI", 10, "bold"))
         self._cop_state.pack(side="left")
-        self._legend = ttk.Label(self._file_area, text="✔ finished   ▶ on machine   red machine = no colours   grey = colour not in Produzione",
+        self._legend = ttk.Label(self._file_area, text="✔ done   ▶ running   red = no colours   grey = colour not in Produzione",
                                  foreground="#475467")
         self._legend.grid(row=0, column=1, sticky="e", padx=2)
         self._file_area.columnconfigure(0, weight=1)
@@ -216,9 +217,9 @@ class MachineTimelineTab(ttk.Frame):
         """Machine names as raised buttons; a machine that has dyed everything on it turns red."""
         canvas = self._labels
         canvas.delete("all")
-        canvas.configure(height=len(self._machines) * self.ROW_H)
+        row_height = self._row_height
         for index, machine in enumerate(self._machines):
-            y1, y2 = index * self.ROW_H, (index + 1) * self.ROW_H
+            y1, y2 = index * row_height, (index + 1) * row_height
             state, left = self._machine_state.get(machine, ("empty", 0))
             if state == "empty":
                 fill, edge, text, sub_text, sub = "#dc2626", "#7f1d1d", "#ffffff", "#ffe4e6", "no colours"
@@ -227,18 +228,28 @@ class MachineTimelineTab(ttk.Frame):
             else:
                 fill, edge, text, sub_text, sub = "#e2e8f0", "#64748b", "#334155", "#475467", "✔ finished"
             tag = f"machine{machine}"
-            x1, x2, top, bottom = 5, self.LABEL_W - 7, y1 + 6, y2 - 8
+            padding = max(2, min(6, row_height // 9))
+            x1, x2, top, bottom = 5, self.LABEL_W - 7, y1 + padding, y2 - padding
             canvas.create_rectangle(x1 + 3, top + 3, x2 + 3, bottom + 3, fill="#c4c9d2", outline="", tags=(tag,))
             canvas.create_rectangle(x1, top, x2, bottom, fill=fill, outline=edge, width=2, tags=(tag, f"{tag}bg"))
             canvas.create_line(x1 + 2, top + 2, x2 - 2, top + 2, fill="#ffffff" if state != "empty" else "#f87171", tags=(tag,))
-            canvas.create_text(x1 + 9, (top + bottom) / 2 - 9, text=timeline.machine_row_label(machine), anchor="w",
-                               font=("Segoe UI", 11, "bold"), fill=text, tags=(tag,))
-            canvas.create_text(x1 + 9, (top + bottom) / 2 + 11, text=sub, anchor="w",
-                               font=("Segoe UI", 9, "bold"), fill=sub_text, tags=(tag,))
+            center = (top + bottom) / 2
+            main_size = max(8, min(11, round(row_height * 0.24)))
+            sub_size = max(7, min(9, round(row_height * 0.20)))
+            canvas.create_text(x1 + 9, center - row_height * 0.21, text=timeline.machine_row_label(machine), anchor="w",
+                               font=("Segoe UI", main_size, "bold"), fill=text, tags=(tag,))
+            canvas.create_text(x1 + 9, center + row_height * 0.21, text=sub, anchor="w",
+                               font=("Segoe UI", sub_size, "bold"), fill=sub_text, tags=(tag,))
             canvas.create_text(x2 - 8, (top + bottom) / 2, text="▸", anchor="e", fill=sub_text, tags=(tag,))
             canvas.tag_bind(tag, "<Button-1>", lambda _e, m=machine: self._open_machine(m))
             canvas.tag_bind(tag, "<Enter>", lambda _e: canvas.configure(cursor="hand2"))
             canvas.tag_bind(tag, "<Leave>", lambda _e: canvas.configure(cursor=""))
+
+    @classmethod
+    def _fit_row_height(cls, available_height: int, machine_count: int) -> int:
+        if machine_count <= 0:
+            return cls.ROW_H
+        return max(1, min(cls.ROW_H, available_height // machine_count))
 
     # ------------------------------------------------------------- time <-> x
     def _width(self) -> int:
@@ -259,7 +270,13 @@ class MachineTimelineTab(ttk.Frame):
             return
         now = datetime.now()
         width = self._width()
-        height = len(self._machines) * self.ROW_H
+        available_height = self._main.winfo_height()
+        row_height = self._fit_row_height(available_height, len(self._machines))
+        if row_height != self._row_height:
+            self._row_height = row_height
+            self._label_state = None
+        height = len(self._machines) * row_height
+        self._labels.configure(height=max(height, 1))
         left = self._left_time(now, width)
         main, header = self._main, self._header
         main.delete("all")
@@ -284,10 +301,10 @@ class MachineTimelineTab(ttk.Frame):
         for index, machine in enumerate(self._machines):             # red row: no colours; grey row: all dyed
             kind = self._machine_state.get(machine, ("", 0))[0]
             if kind in ("empty", "finished"):
-                main.create_rectangle(0, index * self.ROW_H, width, (index + 1) * self.ROW_H,
+                main.create_rectangle(0, index * row_height, width, (index + 1) * row_height,
                                       fill="#fee2e2" if kind == "empty" else "#e5e7eb", outline="")
         for index in range(len(self._machines) + 1):
-            main.create_line(0, index * self.ROW_H, width, index * self.ROW_H, fill="#d0d5dd")
+            main.create_line(0, index * row_height, width, index * row_height, fill="#d0d5dd")
 
         # grid + time scale: a label every `step` hours, a date at each midnight
         step = next((s for s in (1, 2, 3, 4, 6, 12, 24) if s * self._pph >= 58), 24)
@@ -326,8 +343,6 @@ class MachineTimelineTab(ttk.Frame):
         if 0 <= x_now <= width:
             main.create_line(x_now, 0, x_now, height, fill="#dc2626", width=2, tags="redline")
             header.create_line(x_now, 0, x_now, self.HEADER_H, fill="#dc2626", width=2)
-            header.create_text(min(x_now + 4, width - 4), 20, anchor="nw" if x_now + 150 < width else "ne",
-                               text="NOW " + now.strftime("%d.%m %H:%M"), fill="#dc2626", font=self._font_bold)
         self._update_status(now)
         self._refresh_hover()
 
@@ -335,7 +350,8 @@ class MachineTimelineTab(ttk.Frame):
         """One colour as a raised tile: a small gap on both sides (neighbours never merge), a dark
         outline, a light top edge and a drop shadow, so even two nearly identical colours stay apart."""
         main = self._main
-        top, bottom = row * self.ROW_H + 6, (row + 1) * self.ROW_H - 9
+        row_height = self._row_height
+        top, bottom = row * row_height + max(3, row_height // 10), (row + 1) * row_height - max(4, row_height // 7)
         x1, x2 = x1 + 2, x2 - 2                                          # the gap between neighbours
         if x2 - x1 < 3:
             x2 = x1 + 3
@@ -347,16 +363,31 @@ class MachineTimelineTab(ttk.Frame):
             text_color, outline, outline_w, dash, prefix = "#475467", "#667085", 1, (4, 2), "✔ "
         elif status == "running":
             outline, outline_w, prefix = "#15803d", 3, "▶ "
+        delays = [
+            timeline.delivery_delay_days(block.planedate, row)
+            for row in block.rows
+        ]
+        is_late = any(delay is not None and delay > 0 for delay in delays)
+        if is_late:
+            outline, outline_w, dash = "#dc2626", 3, None
         if pos == self._highlight:
             outline, outline_w, dash = ("#f97316" if self._flash_on else "#c2410c"), 4, None
         if status != "done":
             main.create_rectangle(x1 + 3, top + 3, x2 + 3, bottom + 3, fill="#c4c9d2", outline="")   # shadow
         main.create_rectangle(x1, top, x2, bottom, fill=fill, outline=outline, width=outline_w, dash=dash)
+        warning_badge = is_late and x2 - x1 >= 18
+        if warning_badge:
+            badge_x, badge_y = x2 - 8, top + 8
+            main.create_oval(badge_x - 6, badge_y - 6, badge_x + 6, badge_y + 6,
+                             fill="#dc2626", outline="#ffffff", width=1)
+            main.create_text(badge_x, badge_y, text="!", fill="#ffffff", font=("Segoe UI", 8, "bold"))
         if status != "done" and x2 - x1 > 8:
             main.create_line(x1 + 2, top + 2, x2 - 2, top + 2, fill=timeline.blend(block.rgb, "#ffffff", 0.6))
             main.create_line(x1 + 2, bottom - 2, x2 - 2, bottom - 2, fill=timeline.darker(block.rgb, 0.25))
         text_x = max(x1, 0) + 7
         room = min(x2, width) - text_x - 5
+        if warning_badge:
+            room -= 14
         if room > 28:
             main.create_text(text_x, (top + bottom) / 2, anchor="w",
                              font=self._font_bold,
@@ -409,7 +440,7 @@ class MachineTimelineTab(ttk.Frame):
             finished = bisect_right(self._sorted_ends, now)
             started = bisect_right(self._sorted_starts, now)
             missing = int((~blocks["has_color"]).sum())
-            message = (f"Now {now:%d.%m.%Y %H:%M}  |  {len(blocks)} colours: {finished} finished, "
+            message = (f"{len(blocks)} colours: {finished} finished, "
                        f"{started - finished} on machines, {len(blocks) - started} queued")
             if missing:
                 message += f"  |  {missing} without a Produzione colour (grey)"
@@ -425,7 +456,9 @@ class MachineTimelineTab(ttk.Frame):
     def set_source_bar(self, bar) -> None:
         """Use the program's shared source bar (Copertura, Produzione, Wincoint, DFM) instead of the two own buttons."""
         self._file_frame.grid_remove()
-        bar.grid(row=0, column=7, sticky="w", padx=(4, 0))
+        # second row, left: Search / Zoom / Refresh keep the first row to themselves, so nothing is
+        # pushed out of the window on a 1366 px screen; the legend stays at the right of this row
+        bar.grid(row=0, column=0, sticky="w", padx=(0, 6))
 
     # ----------------------------------------------------------------- hover
     def _hit(self, x: float, y: float) -> int | None:
@@ -475,14 +508,18 @@ class MachineTimelineTab(ttk.Frame):
         rows = block["rows"]
         for index, row in enumerate(rows[:_MAX_ROWS_IN_TIP]):
             lines.append("─" * 34 if index == 0 else "· · ·")
+            lines.append(timeline.delivery_delay_text(block.get("planedate"), row))
             for key, label in _FIELD_LABELS.items():
                 value = _fmt(row.get(key))
+                if key == "planedate":
+                    value = _fmt(block.get("planedate")) or value
                 if value:
                     lines.append(f"{label:<19}: {value}")
         if len(rows) > _MAX_ROWS_IN_TIP:
             lines.append(f"… +{len(rows) - _MAX_ROWS_IN_TIP} more order rows")
         if not rows:
             lines.append("(this Bagno is not in Situazione Generale)")
+            lines.append("RITARDO: unavailable (no matched customer/order details)")
         return "\n".join(lines)
 
     def _show_tip(self, pos: int) -> None:
@@ -490,11 +527,21 @@ class MachineTimelineTab(ttk.Frame):
             self._tip = tk.Toplevel(self)
             self._tip.wm_overrideredirect(True)
             self._tip.attributes("-topmost", True)
-            self._tip_label = tk.Label(self._tip, justify="left", anchor="nw", bg="#fffbe6", fg="#1f2937",
-                                       relief="solid", borderwidth=1, padx=8, pady=6,
-                                       font=("Consolas", 9))
+            self._tip_label = tk.Text(
+                self._tip, wrap="word", bg="#fffbe6", fg="#1f2937", relief="solid",
+                borderwidth=1, padx=8, pady=6, font=("Consolas", 9), cursor="arrow",
+                takefocus=False, height=1,
+            )
             self._tip_label.pack()
-        self._tip_label.configure(text=self._tooltip_text(pos))
+            self._tip_label.tag_configure("late", foreground="#dc2626", font=("Consolas", 9, "bold"))
+        text = self._tooltip_text(pos)
+        self._tip_label.configure(state="normal")
+        self._tip_label.delete("1.0", "end")
+        self._tip_label.insert("1.0", text)
+        for line_number, line in enumerate(text.splitlines(), start=1):
+            if line.startswith("RITARDO: late"):
+                self._tip_label.tag_add("late", f"{line_number}.0", f"{line_number}.end")
+        self._tip_label.configure(height=max(1, len(text.splitlines())), state="disabled")
         self._tip.update_idletasks()
         self._tip.deiconify()
 
@@ -692,7 +739,13 @@ class MachineTimelineTab(ttk.Frame):
         def worker():
             from parsers import situazione_loaders
             try:
-                df, errors = situazione_loaders.load_produzione_colors(path)
+                from utility import disk_cache
+                # cached on disk by (path, mtime, size): the 6k-row workbook is parsed only when it changes
+                df, errors = disk_cache.cached_load(
+                    "produzione_colors", Path(path),
+                    lambda: situazione_loaders.load_produzione_colors(path),
+                    is_valid=lambda result: result[0] is not None and not result[0].empty,
+                )
             except Exception as exc:  # noqa: BLE001
                 df, errors = None, [str(exc)]
 

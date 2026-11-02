@@ -4,6 +4,7 @@ from datetime import datetime
 import pandas as pd
 
 from calculate import machine_timeline as mt
+from gui.tabs.machine_timeline_tab import MachineTimelineTab
 
 NOW = datetime(2026, 10, 31, 11, 25)
 
@@ -45,11 +46,57 @@ def test_status_boundaries():
     assert mt.block_status(s, e, datetime(2026, 10, 30)) == "queued"
 
 
+def test_machine_rows_fit_in_available_chart_height():
+    row_height = MachineTimelineTab._fit_row_height(420, 10)
+    assert row_height == 42
+    assert row_height * 10 <= 420
+    assert MachineTimelineTab._fit_row_height(900, 10) == MachineTimelineTab.ROW_H
+
+
+def test_delivery_delay_allows_three_days_after_dyeing():
+    planedate = "2026-11-02"
+    assert mt.delivery_delay_days(planedate, {"cliente": "OTHER", "consegna": "2026-11-05"}) == 0
+    assert mt.delivery_delay_days(planedate, {"cliente": "OTHER", "consegna": "2026-11-06"}) == -1
+    assert mt.delivery_delay_days(planedate, {"cliente": "OTHER", "consegna": "2026-11-04"}) == 1
+
+
+def test_delivery_delay_reads_actual_copertura_planedate_and_flags_short_buffer():
+    planedate = "PROD.03/11/2026"
+    row = {"cliente": "OTHER", "consegna": "05/11/2026"}
+    assert mt.delivery_delay_days(planedate, row) == 1
+    assert mt.delivery_delay_text(planedate, row) == "RITARDO: late by 1 day"
+
+
+def test_timeline_block_carries_plane_date_into_delay_warning():
+    situation, copertura, colours = _frames()
+    situation["consegna"] = ["05/11/2026", ""]
+    copertura["planedate"] = ["PROD.03/11/2026", "IN MACC.", None]
+    blocks = mt.build_blocks(situation, copertura, colours, now=NOW)
+    first = blocks.iloc[0]
+    assert first["planedate"] == "PROD.03/11/2026"
+    assert mt.delivery_delay_text(first["planedate"], first["rows"][0]) == "RITARDO: late by 1 day"
+
+
+def test_elvy_delivery_date_is_preferred_and_consegna_is_fallback():
+    planedate = "2026-11-02"
+    assert mt.delivery_delay_days(planedate, {
+        "cliente": "ELVY", "delivery_date": "2026-11-07", "consegna": "2026-11-04",
+    }) == -2
+    assert mt.delivery_delay_days(planedate, {
+        "cliente": "ELVY", "delivery_date": "Pending for yarn", "consegna": "2026-11-04",
+    }) == 1
+    assert mt.delivery_delay_days(planedate, {
+        "cliente": "OTHER", "delivery_date": "2026-11-07", "consegna": "2026-11-04",
+    }) == 1
+
+
 def test_real_batch_end_is_used():
     sit, cop, col = _frames()
     cop["batch_end"] = pd.to_datetime(["2026-10-31 06:00", None, None])
+    cop["planedate"] = ["2026-11-01", "2026-11-02", "2026-11-03"]
     blocks = mt.build_blocks(sit, cop, col, now=NOW)
     assert blocks.iloc[0]["end"] == datetime(2026, 10, 31, 6) and blocks.iloc[0]["end_known"]
+    assert blocks.iloc[0]["planedate"] == "2026-11-01"
 
 
 def test_search():

@@ -130,7 +130,7 @@ class PurchaseOrderWorkflowMixin:
         # ── Options + Convert ────────────────────────────────────────
         opt_frame = ttk.Frame(parent, padding=(6, 3))
         opt_frame.grid(row=5, column=0, sticky="ew", padx=4, pady=1)
-        opt_frame.columnconfigure(0, weight=1)
+        opt_frame.columnconfigure(2, weight=1)
 
         self._po_btn_convert = ttk.Button(
             opt_frame,
@@ -140,6 +140,8 @@ class PurchaseOrderWorkflowMixin:
             width=12,
         )
         self._po_btn_convert.grid(row=0, column=0, sticky="w", pady=(0, 1))
+        from gui.column_picker import columns_button
+        columns_button(opt_frame, "ordine_elvy").grid(row=0, column=1, sticky="w", padx=(8, 0), pady=(0, 1))
 
         # ── Progress + status ────────────────────────────────────────
         prog_frame = ttk.Frame(parent, padding=(4, 2))
@@ -253,6 +255,10 @@ class PurchaseOrderWorkflowMixin:
                 messagebox.showwarning("First bagno", FIRST_BAGNO_FORMAT_ERROR)
                 return
 
+        # The columns the planner switched off, read here (UI thread) and handed to the worker.
+        from utility.column_selection import load_hidden
+        hidden_columns = load_hidden("ordine_elvy")
+
         self._set_po_ui_enabled(False)
         self._po_progress["value"] = 0
         self._po_progress["maximum"] = len(pdf_list)
@@ -269,6 +275,7 @@ class PurchaseOrderWorkflowMixin:
                 self._po_filato_export_dir,
                 self._po_raw_yarn_path,
                 first_bagno,
+                hidden_columns,
             ),
             daemon=True,
         )
@@ -284,8 +291,13 @@ class PurchaseOrderWorkflowMixin:
         filato_export_dir: Path | None,
         raw_yarn_path: Path | None = None,
         first_bagno: str | None = None,
+        hidden_columns: dict | None = None,
     ) -> None:
-        """Run the Purchase Order conversion and optional ERP extracts."""
+        """Run the Purchase Order conversion and optional ERP extracts.
+
+        hidden_columns ({sheet title: labels}) are the columns switched off in the column
+        picker: they are left out of the order workbook and of the Prezzi-PO file.  The ERP
+        files keep their fixed layout."""
         from calculate.abbina_calculator import AbbinaCalculator
         from calculate import prezzi as prezzi_logic
         from exporters.excel_exporter import ExcelExporter
@@ -302,26 +314,32 @@ class PurchaseOrderWorkflowMixin:
             export_filato_full,
             export_ordini_full,
             match_raw_yarn,
-            read_filato_tinturia_sheet,
         )
         from pipelines.prezzi_elvy import export_prezzi_po
+        hidden_columns = hidden_columns or {}
         errors: list[str] = []
         merged_rows: list[OrderRow] = []
+        last_matches: list = []
         all_rows: list[OrderRow] = []
         last_export_path: Path | None = None
         total = len(pdf_list)
         calculator = AbbinaCalculator()
         elvy_mapping = load_elvy_mapping()
         dfm_entries = load_dfm_cache().get("entries", [])
-        prezzi_df = getattr(self._prezzi_tab, "prezzi_df", None)
-        price_lookup = prezzi_logic.build_price_lookup(prezzi_df)
+        # The same Listini lookup and matching rules as Ordine MED, Biglietti and Situazione
+        # (exact colour spellings first, then the article's category price); the Prezzi page's
+        # own table is only the fallback when the stored Listini snapshot is not available.
+        from exporters.biglietti_exporter import load_prezzo_lookup, prezzo_match_for
+        price_lookup, _price_source = load_prezzo_lookup()
+        if not price_lookup:
+            price_lookup = prezzi_logic.build_price_lookup(getattr(self._prezzi_tab, "prezzi_df", None))
         # Titolo of each article (DFM reference) for the Prezzi-PO file.
         titolo_lookup = {e["articolo"]: e["titolo"] for e in dfm_entries if e.get("articolo") and e.get("titolo")}
 
         def write_prezzi_po(po_rows: list[OrderRow]) -> None:
             """Prezzi-PO-<PO>.xlsx next to the order Excel; a failure is reported, not fatal."""
             try:
-                export_prezzi_po(output_dir, po_rows, titolo_lookup)
+                export_prezzi_po(output_dir, po_rows, titolo_lookup, hidden_columns=hidden_columns.get("Prezzi"))
             except Exception as exc:  # noqa: BLE001
                 msg = f"Error saving Prezzi-PO file: {exc}"
                 logger.error(msg)
@@ -392,16 +410,20 @@ class PurchaseOrderWorkflowMixin:
                         row.check_articolo = "prima volta tint."
                     finished_articolo = raw_to_finished_articolo(row.articolo_delta)
                     if finished_articolo:
-                        row.livello, row.prezzo = price_lookup.get(
-                            (finished_articolo, row.coloredfm), (None, None)
+                        price, _from_category, _category, level = prezzo_match_for(
+                            finished_articolo, row.coloredfm, price_lookup
                         )
+                        row.livello, row.prezzo = (level, price if price != "" else None)
 
                 calculator.calculate(rows, only_if_missing=True)
                 all_rows.extend(rows)
 
                 if one_per_file:
                     out_path = make_output_path(pdf_path, output_dir)
-                    ExcelExporter(rows, out_path, magazino_summary, codes_map, lotti_summary=lotti_summary, first_bagno=first_bagno).export()
+                    exporter = ExcelExporter(rows, out_path, magazino_summary, codes_map, lotti_summary=lotti_summary,
+                                             first_bagno=first_bagno, hidden_columns=hidden_columns)
+                    exporter.export()
+                    last_matches = exporter.raw_yarn_matches or []
                     last_export_path = out_path
                     logger.info("Saved: %s", out_path.name)
                     write_prezzi_po(rows)
@@ -419,7 +441,10 @@ class PurchaseOrderWorkflowMixin:
         if not one_per_file and merged_rows:
             try:
                 out_path = output_dir / "Ordine_Elvy.xlsx"
-                ExcelExporter(merged_rows, out_path, magazino_summary, codes_map, lotti_summary=lotti_summary, first_bagno=first_bagno).export()
+                exporter = ExcelExporter(merged_rows, out_path, magazino_summary, codes_map, lotti_summary=lotti_summary,
+                                         first_bagno=first_bagno, hidden_columns=hidden_columns)
+                exporter.export()
+                last_matches = exporter.raw_yarn_matches or []
                 last_export_path = out_path
                 logger.info("Merged export saved: %s", out_path.name)
                 write_prezzi_po(merged_rows)
@@ -459,8 +484,9 @@ class PurchaseOrderWorkflowMixin:
             elif last_export_path is not None:
                 filato_path = filato_export_dir / "Filato x Tinturia.xlsx"
                 try:
-                    matches = read_filato_tinturia_sheet(last_export_path, missing_ok=True)
-                    n2 = export_filato_full(filato_path, matches)
+                    # From the matches themselves, not from the workbook's sheet: that sheet
+                    # may have lost columns in the column picker, the ERP file never does.
+                    n2 = export_filato_full(filato_path, last_matches)
                     logger.info("Extracted Filato x Tinturia file: %s (%d rows)", filato_path.name, n2)
                 except Exception as exc:  # noqa: BLE001
                     msg = f"Error extracting {filato_path.name}: {exc}"

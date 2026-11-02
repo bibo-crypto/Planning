@@ -35,7 +35,6 @@ for _name, _module_path in (
     ("export_filato_full", "pipelines.ordini_elvy"),
     ("export_ordini_full", "pipelines.ordini_elvy"),
     ("match_raw_yarn", "pipelines.ordini_elvy"),
-    ("read_filato_tinturia_sheet", "pipelines.ordini_elvy"),
 ):
     globals()[_name] = lazy_call(_module_path, _name)
 
@@ -214,6 +213,8 @@ class KamalTab(ttk.Frame):
             action_frame, text="▶  Convert", command=self._on_convert, style="Accent.TButton"
         )
         self._btn_convert.pack(side="left")
+        from gui.column_picker import columns_button
+        columns_button(action_frame, "ordine_kamal").pack(side="left", padx=(8, 0))
         self._lbl_status = ttk.Label(action_frame, text="", foreground="grey")
         self._lbl_status.pack(side="left", padx=12)
         if self._source_bar_factory is not None:
@@ -448,6 +449,10 @@ class KamalTab(ttk.Frame):
                 return
             self._order_no_snapshot = order_no
 
+        # The columns the planner switched off (read here, on the UI thread).
+        from utility.column_selection import load_hidden
+        self._hidden_columns_snapshot = load_hidden("ordine_kamal")
+
         self._btn_convert.config(state="disabled")
         self._lbl_status.config(text="Converting…", foreground="grey")
         thread = threading.Thread(target=self._run_conversion, args=(pdf_paths,), daemon=True)
@@ -467,6 +472,7 @@ class KamalTab(ttk.Frame):
         """
         errors: list[str] = []
         all_rows = []
+        raw_yarn_matches: list = []      # what the workbook's Filato sheet lists (for the ERP Filato file)
         pdf_paths = pdf_paths if pdf_paths is not None else list(self._pdf_paths)
         self._set_status("Reading PDF(s)…")
         try:
@@ -539,7 +545,7 @@ class KamalTab(ttk.Frame):
         self._set_status("Matching raw yarn and exporting…")
         if all_rows:
             try:
-                KamalExcelExporter(
+                exporter = KamalExcelExporter(
                     all_rows, self._output_path,
                     dfm_c170_entries=dfm_c170_entries,
                     magazino_summary=magazino_summary,
@@ -547,7 +553,10 @@ class KamalTab(ttk.Frame):
                     lotti_summary=lotti_summary,
                     first_bagno=self._first_bagno_snapshot,
                     order_no=self._order_no_snapshot,
-                ).export()
+                    hidden_columns=getattr(self, "_hidden_columns_snapshot", None),
+                )
+                exporter.export()
+                raw_yarn_matches = exporter.raw_yarn_matches
             except Exception as exc:  # noqa: BLE001
                 errors.append(f"Error exporting: {exc}")
 
@@ -577,8 +586,9 @@ class KamalTab(ttk.Frame):
                 else:
                     filato_path = self._kamal_filato_export_dir / "Filato x Tinturia.xlsx"
                     try:
-                        matches = read_filato_tinturia_sheet(self._output_path, missing_ok=True)
-                        n2 = export_filato_full(filato_path, matches)
+                        # From the matches themselves, not from the workbook's sheet: that sheet
+                        # may have lost columns in the column picker, the ERP file never does.
+                        n2 = export_filato_full(filato_path, raw_yarn_matches)
                         logger.info("Filato x Tinturia: extracted %s (%d rows)", filato_path.name, n2)
                     except Exception as exc:  # noqa: BLE001
                         errors.append(f"Error extracting {filato_path.name}: {exc}")

@@ -290,6 +290,8 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
         self._startup_label.config(text="Loading application pages...")
         self.update_idletasks()
         self._build_ui()
+        from gui.backup_menu import install_backup_menu
+        install_backup_menu(self)
         self._attach_log_handler()
         self._poll_log_queue()
         self._startup_label.destroy()
@@ -784,7 +786,7 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
         )
         notebook.insert(1, self._timeline_tab, text="🕒 Machine Timeline")
         timeline_source_bar = self._source_bar(
-            self._timeline_tab._controls, "timeline", button_width=9,
+            self._timeline_tab._file_area, "timeline", button_width=9,
         )
         self._timeline_tab.set_source_bar(timeline_source_bar)
         notebook.select(0)

@@ -399,7 +399,10 @@ class SharedOrdersActionsMixin:
         lines = []
         had_error = False
         try:
-            export_word(destination, self.template_path, records, stem="Selected Orders")
+            # Each ticket follows the column choice made for its customer on the Biglietti page.
+            from utility.column_selection import ticket_hidden_by_customer_code
+            export_word(destination, self.template_path, records, stem="Selected Orders",
+                        hidden_columns=ticket_hidden_by_customer_code())
             self._set_status(f"Created {len(records)} selected Biglietti.")
             lines.append(f"Created:\n{destination}")
         except Exception as exc:

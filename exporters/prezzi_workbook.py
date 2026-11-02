@@ -7,8 +7,9 @@ both hand over plain lists in PREZZI_HEADERS order.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Iterable, Sequence
+from typing import Any, Collection, Iterable, Sequence
 
+from utility.column_selection import pick_headers, pick_values, visible_positions
 from utility.excel_io import safe_save_workbook
 
 # The column order the planner works with (same as the reference sheet).
@@ -23,8 +24,15 @@ def price_cell(value: Any) -> Any:
     return None if value in (None, "") else value
 
 
-def write_prezzi_workbook(path: Path, rows: Iterable[Sequence[Any]], sheet_title: str = "MED") -> None:
+def write_prezzi_workbook(
+    path: Path,
+    rows: Iterable[Sequence[Any]],
+    sheet_title: str = "MED",
+    hidden_columns: Collection[str] | None = None,
+) -> None:
     """Write ``path``: one sheet (``sheet_title``), with PREZZI_HEADERS and one line per row.
+
+    hidden_columns: header labels switched off in the column picker -- those columns are left out.
 
     Styled like the planner's reference sheet: navy headers for the order columns,
     red headers for the two price columns, LIVELLO shaded red, prices with two
@@ -38,9 +46,11 @@ def write_prezzi_workbook(path: Path, rows: Iterable[Sequence[Any]], sheet_title
     wb = Workbook()
     ws = wb.active
     ws.title = sheet_title
-    ws.append(PREZZI_HEADERS)
+    shown = visible_positions(PREZZI_HEADERS, hidden_columns)
+    headers = pick_headers(PREZZI_HEADERS, hidden_columns)
+    ws.append(headers)
     for row in rows:
-        ws.append(list(row))
+        ws.append(pick_values(list(row), shown))
     _style_sheet(ws)
 
     navy, dark, red = "1F2A5C", "000000", "C00000"
@@ -53,7 +63,7 @@ def write_prezzi_workbook(path: Path, rows: Iterable[Sequence[Any]], sheet_title
         fill = header_fills[cell.value]
         cell.fill = PatternFill("solid", fgColor=fill)
         cell.font = Font(bold=True, color=red if fill == pink else "FFFFFF")
-    for column, name in enumerate(PREZZI_HEADERS, start=1):
+    for column, name in enumerate(headers, start=1):
         for row in range(2, ws.max_row + 1):
             cell = ws.cell(row=row, column=column)
             if name == "LIVELLO":
@@ -65,8 +75,8 @@ def write_prezzi_workbook(path: Path, rows: Iterable[Sequence[Any]], sheet_title
         ws.column_dimensions[ws.cell(row=1, column=column).column_letter].width = max(12, len(name) + 4, longest + 3)
 
     last = ws.max_row
-    if last > 1:
-        colore = ws.cell(row=1, column=PREZZI_HEADERS.index("COLORE") + 1).column_letter
+    if last > 1 and "COLORE" in headers:
+        colore = ws.cell(row=1, column=headers.index("COLORE") + 1).column_letter
         green = PatternFill(start_color="FFC6EFCE", end_color="FFC6EFCE", fill_type="solid")
         ws.conditional_formatting.add(
             f"{colore}2:{colore}{last}",

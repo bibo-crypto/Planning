@@ -9,9 +9,10 @@ from __future__ import annotations
 from utility.excel_io import safe_save_workbook
 
 from pathlib import Path
-from typing import Sequence
+from typing import Collection, Mapping, Sequence
 
 import openpyxl
+from utility.column_selection import pick_columns
 from utility.utils import clean_text
 from utility.master_data import raw_articolo_for
 from parsers.dfm_lookup import is_first_time_dyeing
@@ -80,8 +81,14 @@ class KamalExcelExporter:
                  dfm_c170_entries: list[dict] | None = None,
                  magazino_summary=None, codes_map: dict | None = None,
                  lotti_summary=None, first_bagno: str | None = None,
-                 order_no: str | None = None) -> None:
+                 order_no: str | None = None,
+                 hidden_columns: Mapping[str, Collection[str]] | None = None) -> None:
         self.rows = rows
+        # {sheet title: labels} switched off in the column picker; nothing hidden by default.
+        self.hidden_columns = hidden_columns or {}
+        # The raw-yarn batches of the last export(), so the Filato file can be written from
+        # them without reading the sheet back (that sheet may have lost columns).
+        self.raw_yarn_matches: list[RawYarnMatch] = []
         self.output_path = output_path
         self.dfm_c170_entries = dfm_c170_entries or []
         self.magazino_summary = magazino_summary
@@ -110,10 +117,11 @@ class KamalExcelExporter:
         ws = wb.active
         ws.title = "Kamal Order"
         ws.sheet_view.rightToLeft = False
-        write_header(ws, RAW_KAMAL_COLUMNS)
-        write_data(ws, RAW_KAMAL_COLUMNS, self.rows)
-        apply_column_widths(ws, RAW_KAMAL_COLUMNS)
-        freeze_and_filter(ws, RAW_KAMAL_COLUMNS)
+        raw_columns = pick_columns(RAW_KAMAL_COLUMNS, self.hidden_columns.get("Kamal Order"))
+        write_header(ws, raw_columns)
+        write_data(ws, raw_columns, self.rows)
+        apply_column_widths(ws, raw_columns)
+        freeze_and_filter(ws, raw_columns)
 
         kamal_rows = build_ordine_kamal_rows(
             list(self.rows), self.dfm_c170_entries, order_no=self.order_no
@@ -164,7 +172,7 @@ class KamalExcelExporter:
         # Update its Abbina cells after the machine assignment so the parsed
         # Kamal Order sheet contains the same values used by Ordine Kamal.
         abbina_col = next(
-            (index + 1 for index, (_header, attr, _dtype) in enumerate(RAW_KAMAL_COLUMNS)
+            (index + 1 for index, (_header, attr, _dtype) in enumerate(raw_columns)
              if attr == "abbina"),
             None,
         )
@@ -173,7 +181,7 @@ class KamalExcelExporter:
                 ws.cell(row=row_index, column=abbina_col).value = getattr(parsed_row, "abbina", "") or ""
 
         check_articolo_col = next(
-            (index + 1 for index, (_header, attr, _dtype) in enumerate(RAW_KAMAL_COLUMNS)
+            (index + 1 for index, (_header, attr, _dtype) in enumerate(raw_columns)
              if attr == "check_articolo"),
             None,
         )
@@ -183,22 +191,25 @@ class KamalExcelExporter:
                     getattr(parsed_row, "check_articolo", "") or ""
                 )
 
-        write_header(ws2, ORDINE_KAMAL_COLUMNS)
-        write_data(ws2, ORDINE_KAMAL_COLUMNS, kamal_rows)
-        apply_column_widths(ws2, ORDINE_KAMAL_COLUMNS)
-        freeze_and_filter(ws2, ORDINE_KAMAL_COLUMNS)
+        ordine_columns = pick_columns(ORDINE_KAMAL_COLUMNS, self.hidden_columns.get("Ordine Kamal"))
+        write_header(ws2, ordine_columns)
+        write_data(ws2, ordine_columns, kamal_rows)
+        apply_column_widths(ws2, ordine_columns)
+        freeze_and_filter(ws2, ordine_columns)
 
+        self.raw_yarn_matches = list(raw_yarn_matches)
         if raw_yarn_matches:
+            filato_columns = pick_columns(FILATO_TINTURIA_COLUMNS, self.hidden_columns.get("Filato x Tinturia"))
             ws3 = wb.create_sheet("Filato x Tinturia")
             ws3.sheet_view.rightToLeft = False
-            write_header(ws3, FILATO_TINTURIA_COLUMNS)
-            write_data(ws3, FILATO_TINTURIA_COLUMNS, raw_yarn_matches)
-            apply_column_widths(ws3, FILATO_TINTURIA_COLUMNS)
-            freeze_and_filter(ws3, FILATO_TINTURIA_COLUMNS)
+            write_header(ws3, filato_columns)
+            write_data(ws3, filato_columns, raw_yarn_matches)
+            apply_column_widths(ws3, filato_columns)
+            freeze_and_filter(ws3, filato_columns)
 
             from openpyxl.styles import Alignment, Font
             label_col_idx = next(
-                (i + 1 for i, (_, attr, _) in enumerate(FILATO_TINTURIA_COLUMNS) if attr == "label"), None
+                (i + 1 for i, (_, attr, _) in enumerate(filato_columns) if attr == "label"), None
             )
             if label_col_idx:
                 bold_label_font = Font(bold=True, name="Calibri", size=11)
