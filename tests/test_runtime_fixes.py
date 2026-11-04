@@ -297,7 +297,7 @@ def test_a_new_listini_with_the_same_shape_replaces_the_cached_price_lookup(sqli
     from exporters import biglietti_exporter as exporter
     from utility import prezzi_cache, source_manager
 
-    monkeypatch.setattr(exporter, "_PREZZO_LOOKUP_CACHE", None)
+    monkeypatch.setattr("exporters.biglietti.lookups._PREZZO_LOOKUP_CACHE", None)
     monkeypatch.setattr(prezzi_cache, "load_prezzi_cache", lambda: {})
     source_manager.save("listini", _listini(4.0), None)
     first, _ = exporter.load_prezzo_lookup()
@@ -313,7 +313,7 @@ def test_the_price_lookup_is_not_rebuilt_while_the_listini_is_unchanged(sqlite_d
     from exporters import biglietti_exporter as exporter
     from utility import prezzi_cache, source_manager
 
-    monkeypatch.setattr(exporter, "_PREZZO_LOOKUP_CACHE", None)
+    monkeypatch.setattr("exporters.biglietti.lookups._PREZZO_LOOKUP_CACHE", None)
     monkeypatch.setattr(prezzi_cache, "load_prezzi_cache", lambda: {})
     source_manager.save("listini", _listini(4.0), None)
     first, _ = exporter.load_prezzo_lookup()

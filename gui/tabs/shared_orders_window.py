@@ -20,6 +20,7 @@ from .biglietti_exports import (
     sync_workbook_history,
 )
 from utility.ui_thread import post_to_ui
+from utility.utils import logger
 
 
 class SharedOrdersWindowMixin:
@@ -648,8 +649,8 @@ class SharedOrdersWindowMixin:
                                 articolo_by_titolo.setdefault(title_text.casefold(), article_key)
                                 titolo_choices.add(title_text)
                                 articolo_choices.add(article_key)
-                    except Exception:
-                        pass
+                    except Exception as _ignored:
+                        logger.debug("gui.tabs.shared_orders_window.load_stock: ignored %r", _ignored)
                     if summary is not None:
                         for row in summary.itertuples(index=False):
                             article = str(getattr(row, "articolo", "") or "").strip().upper()
@@ -685,8 +686,8 @@ class SharedOrdersWindowMixin:
                     article_key = values.get("Articolo", "").strip().upper()
                     title_key = raw_articolo_for(article_key) if article_key.startswith("C") else article_key
                     values["Titolo"] = title_map.get(article_key, title_map.get(title_key, values.get("Titolo", "")))
-                except Exception:
-                    pass
+                except Exception as _ignored:
+                    logger.debug("gui.tabs.shared_orders_window.save_from_editor: ignored %r", _ignored)
                 values["Print"] = "☑" if print_var.get() else ""
                 value = values["Partita GG"]
                 if value and not availability_state["ready"]:

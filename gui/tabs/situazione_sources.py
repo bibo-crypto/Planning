@@ -408,8 +408,8 @@ class SituationSourcesMixin:
                 df, changed, msg, error = None, False, str(exc), exc
                 try:
                     db.save_upload(key, os.path.basename(path), 0, "error", msg, file_path=str(path))
-                except Exception:
-                    pass
+                except Exception as _ignored:
+                    logger.debug("gui.tabs.situazione_sources.worker: ignored %r", _ignored)
 
             def apply_result():
                 try:
@@ -638,10 +638,10 @@ class SituationSourcesMixin:
                     from utility.source_manager import save as save_source_frame
                     marca_df = pd.DataFrame({"articolo": list(marca_map), "marca": list(marca_map.values())})
                     save_source_frame("articoli_marca", marca_df, display_path)
-                except Exception:
-                    pass
-        except Exception:
-            pass
+                except Exception as _ignored:
+                    logger.debug("gui.tabs.situazione_sources._handle_codes_upload: ignored %r", _ignored)
+        except Exception as _ignored:
+            logger.debug("gui.tabs.situazione_sources._handle_codes_upload: ignored %r", _ignored)
     def _handle_listini_upload(self, _key, path, cache_path=None):
         display_path = cache_path or path
         try:

@@ -53,6 +53,7 @@ from utility import notifications
 import calculate.situazione as business_logic
 from utility.ui_thread import post_to_ui
 from gui.tree_fit import TableModel, debounced, fit_columns
+from utility.utils import logger
 
 
 def _focus_entry_when_ready(window: tk.Toplevel, entry: ttk.Entry) -> None:
@@ -703,8 +704,8 @@ class OverviewTab(ttk.Frame):
                     required = {"wincoint", "dfm", "data_prod", "copertura", "uscita", "qualita"}
                     if st is not None and required.issubset(getattr(st, "loaded_frames", {}).keys()):
                         st._on_refresh()
-                except Exception:
-                    pass
+                except Exception as _ignored:
+                    logger.debug("gui.tabs.overview_tab.apply_result: ignored %r", _ignored)
 
                 # Propagate to every other tab that keeps its own live
                 # in-memory copy of a shared source (Kamal/Ordine MED/
@@ -714,8 +715,8 @@ class OverviewTab(ttk.Frame):
                 if self._on_shared_cache_changed:
                     try:
                         self._on_shared_cache_changed()
-                    except Exception:
-                        pass
+                    except Exception as _ignored:
+                        logger.debug("gui.tabs.overview_tab.apply_result: ignored %r", _ignored)
                     # Magazino and the shared DFM/Produzione consumers finish
                     # their own parsing in workers. Re-run the fan-out after
                     # those caches have had time to become available.
@@ -742,8 +743,8 @@ class OverviewTab(ttk.Frame):
         if self._on_shared_cache_changed:
             try:
                 self._on_shared_cache_changed()
-            except Exception:
-                pass
+            except Exception as _ignored:
+                logger.debug("gui.tabs.overview_tab._refresh_shared_tabs: ignored %r", _ignored)
         if attempt < 7:
             self.after(1000, lambda: self._refresh_shared_tabs(attempt + 1))
 

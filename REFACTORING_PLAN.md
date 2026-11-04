@@ -14,6 +14,14 @@ every tab (17 pages, 0 Tk callback errors).
 | SRP | Kamal colour handling: `parsers/dfm_lookup.colour_name_key` / `lookup_dfm_color_by_name` (matching rule) is separate from `pipelines/ordine_kamal.resolve_kamal_colours` (applying it to rows). |
 | Docs | Docstrings on 474 of the 517 functions/classes longer than 14 lines (91%); 667 of 1108 definitions overall (60%). |
 
+## Done in the 2026-11 pass
+
+| Item | Change |
+|------|--------|
+| #4 | `exporters/biglietti_exporter.py` (2583 lines) split into `exporters/biglietti/` (records, fields, machines, loaders, lookups, enrichment, workbook_io, excel_writer, shared_workbook, word_writer); the old module is a re-exporting facade. Each module imports only earlier ones (`tests/test_architecture_rules.py`). |
+| #5 | `style_sheet` is public (old `_style_sheet` kept as an alias); `prezzo_match_for` already was. |
+| Docs | `ARCHITECTURE_AR.md` + `docs/architecture_*.png` (regenerate with `docs/make_architecture_png.py`). |
+
 ## Findings that still need work (in priority order)
 
 1. **God mixins in the GUI.** `SharedOrdersWindowMixin` (~760 lines),
@@ -35,7 +43,7 @@ every tab (17 pages, 0 Tk callback errors).
    `situazione_tab._on_export` / `_export_abbina`, `situazione_settimana_tab._on_export`,
    `prezzi_tab._write_export_file`: extract one `write_styled_table(...)` helper
    (the Kamal/Elvy/Bolla exporters already share `exporters/excel_common`).
-4. **`exporters/biglietti_exporter.py` (2300 lines)** holds loading, enrichment,
+4. ~~`exporters/biglietti_exporter.py`~~ (done, see above) held loading, enrichment,
    Excel writing and Word writing.  Split into `loaders`, `enrichment`,
    `excel_writer`, `word_writer` (keep the current module as a re-exporting facade
    so imports and tests do not change).

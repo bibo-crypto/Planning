@@ -38,7 +38,7 @@ _RGB_RE = re.compile(r"(\d{1,3})\D+(\d{1,3})\D+(\d{1,3})")
 
 BLOCK_COLUMNS = [
     "machine", "start", "end", "end_known", "status", "bagno", "codice", "colore",
-    "partita", "rgb", "has_color", "label", "planedate", "rows",
+    "partita", "rgb", "has_color", "label", "planedate", "late", "rows",
 ]
 
 
@@ -267,7 +267,7 @@ def delivery_delay_text(planedate, row) -> str:
     if delay > 0:
         unit = "day" if delay == 1 else "days"
         return f"RITARDO: late by {delay} {unit}"
-    buffer_days = 3 - delay
+    buffer_days = -delay                    # days to spare after the three reserved ones
     unit = "day" if buffer_days == 1 else "days"
     return f"RITARDO: no - on time ({buffer_days} {unit} buffer)"
 
@@ -345,6 +345,11 @@ def build_blocks(situation_df, copertura_df, colors_df=None, now: datetime | Non
                 "has_color": bool(rgb),
                 "label": " - ".join(part for part in (codice, colore, bagno) if part),
                 "planedate": record.get("planedate"),
+                # Worked out once here (not on every redraw): some order row would arrive late.
+                "late": any(
+                    (delay := delivery_delay_days(record.get("planedate"), order_row)) is not None and delay > 0
+                    for order_row in rows
+                ),
                 "rows": rows,
             })
     return pd.DataFrame(blocks, columns=BLOCK_COLUMNS)

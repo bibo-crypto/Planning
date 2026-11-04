@@ -56,6 +56,7 @@ def _refresh_gruppo_macchina_table() -> None:
 
 
 from calculate import constants as _constants_module  # noqa: E402
+from utility.utils import logger
 _constants_module.register_machine_listener(_refresh_gruppo_macchina_table)
 
 
@@ -486,8 +487,8 @@ def load_filato_disponibile(path: Path | None = None) -> dict[int, int]:
                 except (TypeError, ValueError):
                     continue
             return out
-    except Exception:
-        pass
+    except Exception as _ignored:
+        logger.debug("pipelines.ordine_med.load_filato_disponibile: ignored %r", _ignored)
     if path is None or not Path(path).is_file():
         return {}
     """{PARTITA: Mag.Rocche} -- filters to MAGAZZINO in {900160, 900910},
@@ -757,7 +758,7 @@ def export_prezzi_workbook(
 def export_erp_order_workbook(path: Path, records: list[OrdineMedRow]) -> None:
     """Write the ERP-ready CLIENTE..GRUPPO MACCHINA sheet separately."""
     from openpyxl import Workbook
-    from exporters.biglietti_exporter import _style_sheet
+    from exporters.biglietti_exporter import style_sheet
 
     wb = Workbook()
     ws = wb.active
@@ -765,7 +766,7 @@ def export_erp_order_workbook(path: Path, records: list[OrdineMedRow]) -> None:
     ws.append(SYSTEM_IMPORT_HEADERS)
     for record in records:
         ws.append(system_row(record))
-    _style_sheet(ws, date_columns=("CONSEGNA", "DATA RICONSEGNA"))
+    style_sheet(ws, date_columns=("CONSEGNA", "DATA RICONSEGNA"))
     _apply_system_formats(ws)
     path.parent.mkdir(parents=True, exist_ok=True)
     safe_save_workbook(wb, path, keep_backup=False)
@@ -782,7 +783,7 @@ def export_filato_availability_workbook(
     from openpyxl import Workbook, load_workbook
     from openpyxl.formatting.rule import FormulaRule
     from openpyxl.styles import PatternFill
-    from exporters.biglietti_exporter import _style_sheet
+    from exporters.biglietti_exporter import style_sheet
 
     if source_path is not None and source_path.is_file():
         source_wb = load_workbook(source_path)
@@ -801,7 +802,7 @@ def export_filato_availability_workbook(
                 ws.append(FILATO_AVAILABILITY_HEADERS[:5])
                 for row in availability:
                     ws.append([row.articolo, row.titolo, row.pt_grg, row.rocche, row.kg])
-                _style_sheet(ws)
+                style_sheet(ws)
                 path.parent.mkdir(parents=True, exist_ok=True)
                 safe_save_workbook(wb, path, keep_backup=False)
                 wb.close()
@@ -839,7 +840,7 @@ def export_filato_availability_workbook(
     for row in availability:
         ws.append([row.articolo, row.titolo, row.pt_grg, row.rocche, row.kg,
                    row.mag_rocche, row.manca, row.disponibilita])
-    _style_sheet(ws)
+    style_sheet(ws)
     if ws.max_row > 1:
         red_fill = PatternFill(start_color="FFFFC7CE", end_color="FFFFC7CE", fill_type="solid")
         ws.conditional_formatting.add(
@@ -868,7 +869,7 @@ def export_ordine_med_workbook(
     from openpyxl import Workbook
     from openpyxl.formatting.rule import FormulaRule
     from openpyxl.styles import PatternFill
-    from exporters.biglietti_exporter import _style_sheet
+    from exporters.biglietti_exporter import style_sheet
 
     hidden_columns = hidden_columns or {}
     wb = Workbook()
@@ -880,7 +881,7 @@ def export_ordine_med_workbook(
     ws.append(pick_headers(ORDINE_DA_CREARE_HEADERS, creare_hidden))
     for r in records:
         ws.append(pick_values(_ordine_da_creare_row(r), creare_shown))
-    _style_sheet(ws, date_columns=("CONSEGNA", "DATA RICONSEGNA"))
+    style_sheet(ws, date_columns=("CONSEGNA", "DATA RICONSEGNA"))
     _style_ordine_da_creare_extras(ws)
 
     ws2 = wb.create_sheet("Dati sistema (B-N)")
@@ -888,7 +889,7 @@ def export_ordine_med_workbook(
     ws2.append(system_headers)
     for r in records:
         ws2.append(system_row(r, system_headers))
-    _style_sheet(ws2, date_columns=("CONSEGNA", "DATA RICONSEGNA"))
+    style_sheet(ws2, date_columns=("CONSEGNA", "DATA RICONSEGNA"))
     _apply_system_formats(ws2)
 
     ws3 = wb.create_sheet("Filato X Tinturia")
@@ -901,7 +902,7 @@ def export_ordine_med_workbook(
             [a.articolo, a.titolo, a.pt_grg, a.rocche, a.kg, a.mag_rocche, a.manca, a.disponibilita],
             filato_shown,
         ))
-    _style_sheet(ws3)
+    style_sheet(ws3)
     # Highlight shortages (Disponibilita' = NO) in red.
     if ws3.max_row > 1:
         red_fill = PatternFill(start_color="FFFFC7CE", end_color="FFFFC7CE", fill_type="solid")
@@ -926,7 +927,7 @@ def export_ordine_med_workbook(
 
 def _style_ordine_da_creare_extras(ws) -> None:
     """The bespoke formatting "Ordine da creare" needs beyond the shared
-    _style_sheet borders/banding: Check Articolo highlighted red when
+    style_sheet borders/banding: Check Articolo highlighted red when
     'NEW', LIVELLO solid red throughout, ABBIN duplicates highlighted
     green, and the PREZZO + 2$ header given a distinct fill so it reads
     as a derived column rather than raw input."""

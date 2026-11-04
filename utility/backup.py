@@ -1,8 +1,9 @@
 """Portable backup/restore for Planning application state."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
+import re
 import shutil
 import sqlite3
 import tempfile
@@ -11,30 +12,52 @@ import zipfile
 from utility.utils import APP_DATA_DIR
 
 BACKUP_PREFIX = "planning_backup"
-MAX_BACKUPS = 10
+KEEP_DAYS = 10
+BACKUP_DIR = APP_DATA_DIR / "backups"
+_STAMP = re.compile(rf"^{BACKUP_PREFIX}_(\d{{8}})_\d{{6}}\.zip$")
+
+
+def _backup_day(path: Path) -> date:
+    """The day a backup was made: from its name (planning_backup_YYYYMMDD_HHMMSS.zip), else its file time."""
+    match = _STAMP.match(path.name)
+    if match:
+        try:
+            return datetime.strptime(match.group(1), "%Y%m%d").date()
+        except ValueError:
+            pass
+    return datetime.fromtimestamp(path.stat().st_mtime).date()
 
 
 def _prune_old_backups(directory: Path) -> None:
-    """Keep only the ten newest Planning-created backup archives.
+    """Keep only the backups of the ten most recent DAYS (every backup of those days stays).
 
     Only this application's timestamped archives are considered, so a user
     can safely save a backup in a folder that also contains other ZIP files.
     """
     try:
-        backups = sorted(
-            (
-                path for path in directory.glob(f"{BACKUP_PREFIX}_*.zip")
-                if path.is_file()
-            ),
-            key=lambda path: path.stat().st_mtime,
-            reverse=True,
-        )
-        for path in backups[MAX_BACKUPS:]:
-            path.unlink()
+        backups = [path for path in directory.glob(f"{BACKUP_PREFIX}_*.zip") if path.is_file()]
+        keep = set(sorted({_backup_day(path) for path in backups}, reverse=True)[:KEEP_DAYS])
+        for path in backups:
+            if _backup_day(path) not in keep:
+                path.unlink()
     except OSError:
         # A backup must never fail merely because an older archive is open or
         # protected by another process.  It will be pruned on a later run.
         pass
+
+
+def daily_backup(directory: Path | None = None, today: date | None = None) -> Path | None:
+    """Make today's automatic backup unless one was already made today; None when nothing was done.
+
+    Never raises: the program must start even when the backup cannot be written."""
+    directory = Path(directory) if directory else BACKUP_DIR
+    today = today or date.today()
+    try:
+        if any(_backup_day(path) == today for path in directory.glob(f"{BACKUP_PREFIX}_*.zip")):
+            return None
+        return create_backup(directory / f"{BACKUP_PREFIX}_{datetime.combine(today, datetime.now().time()):%Y%m%d_%H%M%S}.zip")
+    except Exception:  # noqa: BLE001
+        return None
 
 
 # Never part of a backup, at any depth.  When the app runs from source,

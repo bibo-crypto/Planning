@@ -35,8 +35,8 @@ def save_prod_cache(source_path: Path | str) -> None:
         from utility.path_manager import save_source
         save_source("data_prod", source_path)
         save_source("produzione", source_path)
-    except Exception:
-        pass
+    except Exception as _ignored:
+        logger.debug("parsers.prod_lookup.save_prod_cache: ignored %r", _ignored)
 
 
 def load_prod_cache() -> dict[str, Any]:
@@ -63,8 +63,8 @@ def load_prod_cache() -> dict[str, Any]:
             p = source_path(key, existing_only=True)
             if p and p.is_file():
                 return {"source_file": p.name, "source_path": str(p), "loaded_at": ""}
-    except Exception:
-        pass
+    except Exception as _ignored:
+        logger.debug("parsers.prod_lookup.load_prod_cache: ignored %r", _ignored)
 
     # Fallback 2: check SQLite upload_log
     try:
@@ -74,7 +74,7 @@ def load_prod_cache() -> dict[str, Any]:
             fp = info.get("file_path", "")
             if fp and Path(fp).is_file():
                 return {"source_file": Path(fp).name, "source_path": str(fp), "loaded_at": info.get("uploaded_at", "")}
-    except Exception:
-        pass
+    except Exception as _ignored:
+        logger.debug("parsers.prod_lookup.load_prod_cache: ignored %r", _ignored)
 
     return empty

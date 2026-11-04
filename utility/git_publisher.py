@@ -339,6 +339,8 @@ def area_of(path: str) -> str:
         return "build"
     if p.startswith("data/"):
         return "data"
+    if p.startswith("exporters/biglietti/"):
+        return "biglietti"
     if p.lower().endswith((".md", ".rst")):
         return "docs"
     stem = PurePosixPath(p).stem

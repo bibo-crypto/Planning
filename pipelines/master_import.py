@@ -23,6 +23,7 @@ import openpyxl
 from utility.path_manager import save_source
 from utility.file_cache import CACHE_DIR
 from utility.ui_thread import post_to_ui
+from utility.utils import logger
 
 SHEET_CANDIDATES: dict[str, list[str]] = {
     "dfm": ["dfm"],
@@ -384,8 +385,8 @@ def _route(
             if hasattr(biglietti_tab, "_restore"):
                 try:
                     biglietti_tab._restore()
-                except Exception:
-                    pass
+                except Exception as _ignored:
+                    logger.debug("pipelines.master_import._route: ignored %r", _ignored)
 
     elif key == "listini":
         if situazione_tab is not None:
@@ -399,13 +400,13 @@ def _route(
                     post_to_ui(prezzi_tab, lambda: prezzi_tab._load_path(master_path, save_cache=False))
                 elif hasattr(prezzi_tab, "load_file"):
                     post_to_ui(prezzi_tab, lambda: prezzi_tab.load_file(master_path))
-            except Exception:
-                pass
+            except Exception as _ignored:
+                logger.debug("pipelines.master_import._route: ignored %r", _ignored)
         if biglietti_tab is not None and hasattr(biglietti_tab, "_restore"):
             try:
                 biglietti_tab._restore()
-            except Exception:
-                pass
+            except Exception as _ignored:
+                logger.debug("pipelines.master_import._route: ignored %r", _ignored)
 
     elif key == "magazino":
         if magazino_tab is not None:
@@ -413,8 +414,8 @@ def _route(
         if biglietti_tab is not None and hasattr(biglietti_tab, "_restore"):
             try:
                 biglietti_tab._restore()
-            except Exception:
-                pass
+            except Exception as _ignored:
+                logger.debug("pipelines.master_import._route: ignored %r", _ignored)
 
     elif key == "lotti":
         if magazino_tab is not None:
@@ -432,8 +433,8 @@ def _route(
         if situazione_tab is not None and hasattr(situazione_tab, "refresh_prezzo_densita"):
             try:
                 situazione_tab.refresh_prezzo_densita()
-            except Exception:
-                pass
+            except Exception as _ignored:
+                logger.debug("pipelines.master_import._route: ignored %r", _ignored)
         # Densita is shared by Biglietti and Ordine MED. Persist the same
         # source path and update Ordine MED's visible selection directly.
         if biglietti_tab is not None:
@@ -443,8 +444,8 @@ def _route(
             if hasattr(biglietti_tab, "_restore"):
                 try:
                     biglietti_tab._restore()
-                except Exception:
-                    pass
+                except Exception as _ignored:
+                    logger.debug("pipelines.master_import._route: ignored %r", _ignored)
         ordine_med_tab = getattr(situazione_tab, "ordine_med_tab", None) if situazione_tab is not None else None
         if ordine_med_tab is not None:
             ordine_med_tab.densita_path = Path(master_path)

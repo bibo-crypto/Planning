@@ -38,6 +38,7 @@ from utility.email_compose import (
 from utility.utils import keep_window_on_top, bind_escape_to_close
 from calculate.raw_batch import is_assigned_raw
 from utility.ui_thread import post_to_ui
+from utility.utils import logger
 
 # Filato x Tinturia here follows the same convention as Ordine Kamal/Ordine
 # ELVY: a fixed filename, cleared and rewritten with only this run's rows
@@ -513,8 +514,8 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
             articoli_cache = load_articoli_cache()
             if articoli_cache.get("source_path"):
                 self._set_mirrored_label("articoli", f"Shared: {Path(articoli_cache['source_path']).name}")
-        except Exception:
-            pass
+        except Exception as _ignored:
+            logger.debug("gui.tabs.biglietti_tab._restore: ignored %r", _ignored)
         cache = load_densita_cache()
         if cache.get("source_path") and Path(cache["source_path"]).is_file():
             self.densita_path = Path(cache["source_path"])
@@ -749,8 +750,8 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
                 from utility.source_manager import save as save_source_frame
                 marca_df = pd.DataFrame({"articolo": list(marca_map), "marca": list(marca_map.values())})
                 save_source_frame("articoli_marca", marca_df, p)
-            except Exception:
-                pass
+            except Exception as _ignored:
+                logger.debug("gui.tabs.biglietti_tab._pick_articoli: ignored %r", _ignored)
             parts.append(f"{len(marca_map)} articles (Brand/Marca)")
         if titolo_df is not None and not titolo_df.empty:
             situazione_db.save_codes(titolo_df)
@@ -774,8 +775,8 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
                 rows = [{"partita": partita, **values} for partita, values in density_map.items()]
                 if rows:
                     save_source_frame("densita_lookup", pd.DataFrame(rows), p)
-            except Exception:
-                pass
+            except Exception as _ignored:
+                logger.debug("gui.tabs.biglietti_tab._pick_densita: ignored %r", _ignored)
             if self._on_shared_cache_changed:
                 self._on_shared_cache_changed()
 

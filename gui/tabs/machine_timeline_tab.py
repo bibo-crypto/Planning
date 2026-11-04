@@ -247,7 +247,7 @@ class MachineTimelineTab(ttk.Frame):
 
     @classmethod
     def _fit_row_height(cls, available_height: int, machine_count: int) -> int:
-        if machine_count <= 0:
+        if machine_count <= 0 or available_height < 50:      # not laid out yet (height 1): keep the normal rows
             return cls.ROW_H
         return max(1, min(cls.ROW_H, available_height // machine_count))
 
@@ -363,11 +363,7 @@ class MachineTimelineTab(ttk.Frame):
             text_color, outline, outline_w, dash, prefix = "#475467", "#667085", 1, (4, 2), "✔ "
         elif status == "running":
             outline, outline_w, prefix = "#15803d", 3, "▶ "
-        delays = [
-            timeline.delivery_delay_days(block.planedate, row)
-            for row in block.rows
-        ]
-        is_late = any(delay is not None and delay > 0 for delay in delays)
+        is_late = bool(block.late)
         if is_late:
             outline, outline_w, dash = "#dc2626", 3, None
         if pos == self._highlight:

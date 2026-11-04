@@ -45,7 +45,7 @@ def category_env(tmp_path, monkeypatch):
     monkeypatch.setattr(prezzi_db, "DB_PATH", tmp_path / "orders.sqlite3")
     monkeypatch.setattr(prezzi, "_PREZZI_CACHE", {})
     monkeypatch.setattr(notifications, "_PATH", tmp_path / "settings" / "notifications.json")
-    monkeypatch.setattr(exporter, "_PREZZO_LOOKUP_CACHE", None)
+    monkeypatch.setattr("exporters.biglietti.lookups._PREZZO_LOOKUP_CACHE", None)
     monkeypatch.setattr(prezzi_cache, "save_prezzi_cache", lambda *a, **k: None)
     monkeypatch.setattr(prezzi_cache, "load_prezzi_cache", lambda: {})
     # Prevent the tab's after-idle restore from loading the developer's real

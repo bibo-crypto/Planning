@@ -41,7 +41,7 @@ def write_prezzi_workbook(
     from openpyxl import Workbook
     from openpyxl.formatting.rule import FormulaRule
     from openpyxl.styles import Font, PatternFill
-    from exporters.biglietti_exporter import _style_sheet
+    from exporters.biglietti_exporter import style_sheet
 
     wb = Workbook()
     ws = wb.active
@@ -51,7 +51,7 @@ def write_prezzi_workbook(
     ws.append(headers)
     for row in rows:
         ws.append(pick_values(list(row), shown))
-    _style_sheet(ws)
+    style_sheet(ws)
 
     navy, dark, red = "1F2A5C", "000000", "C00000"
     pink = "F4B6B6"

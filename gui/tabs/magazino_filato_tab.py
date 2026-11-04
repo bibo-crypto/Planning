@@ -161,8 +161,8 @@ class MagazinoFilatoTab(ttk.Frame):
                     self.lotti_status_var.set(f"✅ {len(self.lotti_summary)} Partita/Lotto pairs - SQLite ({source_name('lotti_summary')})")
                     self._recompute()
                     return
-        except Exception:
-            pass
+        except Exception as _ignored:
+            logger.debug("gui.tabs.magazino_filato_tab.sync_shared_lotti_async: ignored %r", _ignored)
         source_path = str(load_lotti_cache().get("source_path", ""))
         if not source_path or not Path(source_path).is_file() or self._shared_lotti_path == source_path:
             return
@@ -187,8 +187,8 @@ class MagazinoFilatoTab(ttk.Frame):
                     from utility.source_manager import save as save_source_frame
                     save_source_frame("lotti_data", df, source_path)
                     save_source_frame("lotti_summary", self.lotti_summary, source_path)
-                except Exception:
-                    pass
+                except Exception as _ignored:
+                    logger.debug("gui.tabs.magazino_filato_tab.apply_result: ignored %r", _ignored)
                 self.lotti_status_var.set(
                     f"✅ {len(self.lotti_summary)} Partita/Lotto pairs - {Path(source_path)}"
                 )
@@ -305,8 +305,8 @@ class MagazinoFilatoTab(ttk.Frame):
                 try:
                     from utility.source_manager import save as save_source_frame
                     save_source_frame("magazino_summary", self.magazino_summary, display_path)
-                except Exception:
-                    pass
+                except Exception as _ignored:
+                    logger.debug("gui.tabs.magazino_filato_tab.apply_result: ignored %r", _ignored)
                 if self._on_shared_cache_changed:
                     self._on_shared_cache_changed()
                 self.status_var.set(f"✅ {len(self.magazino_summary)} batches - {os.path.basename(display_path)}")
@@ -391,8 +391,8 @@ class MagazinoFilatoTab(ttk.Frame):
                     self.status_var.set(f"✅ {len(self.magazino_summary)} batches - SQLite ({source_name('magazino_summary')})")
                     self._recompute()
                     return
-        except Exception:
-            pass
+        except Exception as _ignored:
+            logger.debug("gui.tabs.magazino_filato_tab.sync_shared_async: ignored %r", _ignored)
         cache = load_magazino_cache()
         source_path = str(cache.get("source_path", ""))
         if not source_path or self._shared_path == source_path or not os.path.isfile(source_path):
@@ -421,8 +421,8 @@ class MagazinoFilatoTab(ttk.Frame):
                     # The file was chosen on another page: bring SQLite up to date with it.
                     from utility.source_manager import save as save_source_frame
                     save_source_frame("magazino_summary", self.magazino_summary, source_path)
-                except Exception:
-                    pass
+                except Exception as _ignored:
+                    logger.debug("gui.tabs.magazino_filato_tab.apply_result: ignored %r", _ignored)
                 self.status_var.set(f"✅ {len(self.magazino_summary)} batches - {source_path}")
                 self._recompute()
                 if self._on_shared_cache_changed:

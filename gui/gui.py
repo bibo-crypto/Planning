@@ -31,6 +31,7 @@ import logging
 import os
 import queue
 import sys
+import threading
 import tkinter as tk
 from datetime import datetime
 from pathlib import Path
@@ -40,7 +41,7 @@ from utility.magazino_cache import load_magazino_cache
 from utility.utils import APP_DATA_DIR, load_settings, logger, save_settings
 from utility.updater import APP_VERSION, ReleaseInfo, check_for_updates_async, download_installer, install_update
 from utility import notifications
-from utility.backup import create_backup, restore_backup
+from utility.backup import BACKUP_DIR, create_backup, daily_backup, restore_backup
 from gui.modern_widgets import RoundedButton
 from utility.utils import keep_window_on_top, bind_escape_to_close
 
@@ -290,8 +291,8 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
         self._startup_label.config(text="Loading application pages...")
         self.update_idletasks()
         self._build_ui()
-        from gui.backup_menu import install_backup_menu
-        install_backup_menu(self)
+        # One automatic backup per day, in the background (the Backup button stays for manual ones).
+        threading.Thread(target=daily_backup, daemon=True).start()
         self._attach_log_handler()
         self._poll_log_queue()
         self._startup_label.destroy()
@@ -1157,7 +1158,7 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
         """Ask where to save and create a backup ZIP of the settings and cached data."""
         from utility.backup import BACKUP_PREFIX
 
-        backup_dir = APP_DATA_DIR / "backups"
+        backup_dir = BACKUP_DIR
         backup_dir.mkdir(parents=True, exist_ok=True)
         backup_name = f"{BACKUP_PREFIX}_{datetime.now():%Y%m%d_%H%M%S}.zip"
         path = filedialog.asksaveasfilename(
@@ -1177,6 +1178,7 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
         """Restore a backup ZIP chosen by the user after a confirmation (current settings and caches may be replaced)."""
         path = filedialog.askopenfilename(
             title="Restore Planning Backup", filetypes=[("Planning backup", "*.zip")],
+            initialdir=str(BACKUP_DIR) if BACKUP_DIR.is_dir() else None,   # opens on the backups folder
         )
         if not path:
             return

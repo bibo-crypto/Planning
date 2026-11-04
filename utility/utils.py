@@ -315,8 +315,8 @@ def keep_window_on_top(window) -> None:
         # Some non-Windows window managers do not support ``-topmost``.
         try:
             window.lift()
-        except Exception:
-            pass
+        except Exception as _ignored:
+            logger.debug("utility.utils.keep_window_on_top: ignored %r", _ignored)
 
 
 def bind_escape_to_close(window, close_command=None) -> None:

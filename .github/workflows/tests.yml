@@ -1,0 +1,27 @@
+name: tests
+
+# Runs the whole pytest suite on Windows (the platform the application ships on)
+# for every push and pull request.  It only reads the repository: it never builds
+# or publishes anything.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  pytest:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+      - name: Install dependencies
+        run: python -m pip install -r requirements-dev.txt
+      - name: Run the test suite
+        run: python -m pytest -q

@@ -16,6 +16,7 @@ Usage (see calculate/prezzi.py for a real example)::
 from __future__ import annotations
 
 import copy
+import functools
 import hashlib
 import re
 import os
@@ -24,6 +25,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from utility.utils import APP_DATA_DIR
+from utility.utils import logger
 
 _MEMORY_CACHE: dict[tuple, Any] = {}
 
@@ -38,6 +40,32 @@ def file_cache_key(path) -> tuple | None:
         return None
 
 
+# Bump this when the *shape* of a cached result changes without a release (the
+# application version below already invalidates the cache on every new release).
+CACHE_SCHEMA_VERSION = "1"
+
+
+@functools.lru_cache(maxsize=1)
+def _app_version() -> str:
+    try:
+        from utility.updater import get_installed_version
+
+        return str(get_installed_version())
+    except Exception as _ignored:  # noqa: BLE001 -- an unknown version only means a coarser key
+        logger.debug("utility.disk_cache._app_version: ignored %r", _ignored)
+        return ""
+
+
+def _code_version() -> str:
+    """Identifies the code that produced a cached result.
+
+    The cache key (path, mtime, size) only describes the *source file*.  Without
+    this, a new release whose loader parses the same, unchanged file differently
+    would keep being served the pickle written by the previous release.
+    """
+    return f"{CACHE_SCHEMA_VERSION}|{_app_version()}"
+
+
 def _cache_dir() -> Path:
     directory = APP_DATA_DIR / "cache"
     directory.mkdir(parents=True, exist_ok=True)
@@ -50,7 +78,8 @@ def _cache_path(namespace: str, cache_key: tuple) -> Path:
     # disk cache silently never worked).  The digest covers the FULL namespace,
     # so two namespaces that sanitise to the same prefix still never collide.
     digest = hashlib.sha1(
-        "|".join([str(namespace), *(str(part) for part in cache_key)]).encode("utf-8")
+        "|".join([_code_version(), str(namespace), *(str(part) for part in cache_key)]).encode("utf-8"),
+        usedforsecurity=False,  # a file-name fingerprint, not a security hash
     ).hexdigest()
     safe_prefix = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(namespace)).strip("_.")[:40] or "cache"
     return _cache_dir() / f"{safe_prefix}_{digest}.pkl"
@@ -95,8 +124,8 @@ def cached_load(namespace: str, path, compute: Callable[[], Any],
             if disk_path.is_file():
                 result = pickle.loads(disk_path.read_bytes())
                 loaded_from_disk = True
-        except Exception:  # noqa: BLE001 -- cache access failures must never block a real load
-            pass
+        except Exception as _ignored:  # noqa: BLE001 -- cache access failures must never block a real load
+            logger.debug("utility.disk_cache.cached_load: ignored %r", _ignored)
         if loaded_from_disk:
             _MEMORY_CACHE[memory_key] = result
             return _private_copy(result)
@@ -108,8 +137,8 @@ def cached_load(namespace: str, path, compute: Callable[[], Any],
         try:
             from utility.atomic import atomic_write_bytes
             atomic_write_bytes(_cache_path(namespace, cache_key), pickle.dumps(result))
-        except Exception:  # noqa: BLE001 -- caching is best-effort, never blocks returning the real result
-            pass
+        except Exception as _ignored:  # noqa: BLE001 -- caching is best-effort, never blocks returning the real result
+            logger.debug("utility.disk_cache.cached_load: ignored %r", _ignored)
     return result
 
 

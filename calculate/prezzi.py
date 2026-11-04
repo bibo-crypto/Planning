@@ -142,8 +142,8 @@ def _articoli_marca_fingerprint() -> tuple | None:
         fp = snapshot_fingerprint("articoli_marca")
         if fp:
             return ("sqlite", fp)
-    except Exception:
-        pass
+    except Exception as _ignored:
+        logger.debug("calculate.prezzi._articoli_marca_fingerprint: ignored %r", _ignored)
     try:
         from utility.articoli_cache import load_articoli_cache
         source = clean_text(load_articoli_cache().get("source_path"))

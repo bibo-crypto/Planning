@@ -127,3 +127,15 @@ def test_codice_alone_gives_the_rgb_even_when_the_colour_name_differs():
                             "colore": ["OTHER NAME", "OTHER NAME 2"], "rgb": ["#111111", "#22aa22"]})
     blocks = mt.build_blocks(sit, cop, colours, now=NOW)
     assert blocks.iloc[0]["rgb"] == "#22aa22"          # latest row of the Codice wins
+
+
+def test_on_time_text_reports_the_days_to_spare_and_blocks_carry_the_late_flag():
+    row = {"cliente": "OTHER", "consegna": "2026-11-05"}
+    assert mt.delivery_delay_text("2026-11-02", row) == "RITARDO: no - on time (0 days buffer)"
+    row["consegna"] = "2026-11-08"
+    assert mt.delivery_delay_text("2026-11-02", row) == "RITARDO: no - on time (3 days buffer)"
+    situation, copertura, colours = _frames()
+    situation["consegna"] = ["05/11/2026", ""]
+    copertura["planedate"] = ["PROD.03/11/2026", "IN MACC.", None]
+    blocks = mt.build_blocks(situation, copertura, colours, now=NOW)
+    assert bool(blocks.iloc[0]["late"]) is True

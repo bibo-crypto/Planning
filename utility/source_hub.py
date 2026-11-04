@@ -100,14 +100,14 @@ def _all_paths(key: str) -> list[str]:
     try:
         from utility.path_manager import load_source
         add(load_source(_PATH_KEY.get(key, key)).get("source_path"))
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as _ignored:  # noqa: BLE001
+        logger.debug("utility.source_hub._all_paths: ignored %r", _ignored)
     for module, loader in _LEGACY_CACHES.get(key, ()):
         try:
             import importlib
             add(getattr(importlib.import_module(module), loader)().get("source_path"))
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as _ignored:  # noqa: BLE001
+            logger.debug("utility.source_hub._all_paths: ignored %r", _ignored)
     try:
         from utility import situazione_db as db
         upload = db.get_upload(_UPLOAD_NAME.get(key, key))
@@ -116,8 +116,8 @@ def _all_paths(key: str) -> list[str]:
         meta = db.snapshot_meta(_SNAPSHOT_NAME.get(key, key))
         if meta:
             add(meta.get("source_path"))
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as _ignored:  # noqa: BLE001
+        logger.debug("utility.source_hub._all_paths: ignored %r", _ignored)
     return found
 
 
@@ -166,8 +166,8 @@ def file_label(key: str) -> str:
         upload = db.get_upload(_UPLOAD_NAME.get(key, key))
         if upload and upload.get("file_name"):
             return str(upload["file_name"])
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as _ignored:  # noqa: BLE001
+        logger.debug("utility.source_hub.file_label: ignored %r", _ignored)
     path = stored_path(key)
     return os.path.basename(path) if path else ""
 

@@ -23,6 +23,7 @@ from utility.densita_cache import load_densita_cache, save_densita_cache
 from utility.magazino_cache import load_magazino_cache, save_magazino_cache
 from utility.path_manager import save_source, source_path
 from utility.ui_thread import post_to_ui
+from utility.utils import logger
 
 
 class OrdineMedTab(ttk.Frame):
@@ -207,8 +208,8 @@ class OrdineMedTab(ttk.Frame):
             rows = [{"partita": partita, **values} for partita, values in density_map.items()]
             if rows:
                 save_source_frame("densita_lookup", pd.DataFrame(rows), path)
-        except Exception:
-            pass
+        except Exception as _ignored:
+            logger.debug("gui.tabs.ordine_med_tab._on_select_densita: ignored %r", _ignored)
         if self._on_shared_cache_changed:
             self._on_shared_cache_changed()
 
