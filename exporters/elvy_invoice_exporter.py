@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Sequence
 
 import openpyxl
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.styles import Alignment
 from openpyxl.utils import get_column_letter
 
 from parsers.elvy_invoice_parser import ElvyInvoiceRow
@@ -33,16 +33,10 @@ COLUMNS: list[tuple[str, str, str]] = [
     ("Rocche",         "rocche",         "integer"),
 ]
 
-HEADER_FILL = PatternFill("solid", fgColor="BDD7EE")
-HEADER_FONT = Font(bold=True, name="Calibri", size=11)
-BODY_FONT = Font(name="Calibri", size=11)
-THIN_BORDER_SIDE = Side(style="thin", color="D9D9D9")
-CELL_BORDER = Border(
-    left=THIN_BORDER_SIDE, right=THIN_BORDER_SIDE,
-    bottom=THIN_BORDER_SIDE, top=THIN_BORDER_SIDE,
+# Styling constants: shared with the other table exporters (exporters/excel_styles.py)
+from exporters.excel_styles import (
+    BODY_FONT, CELL_BORDER, HEADER_FILL, HEADER_FONT, NUMBER_FORMAT,
 )
-
-NUMBER_FORMAT = "#,##0.00"
 INTEGER_FORMAT = "0"
 TEXT_FORMAT = "@"
 MAX_COL_WIDTH = 60

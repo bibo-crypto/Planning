@@ -42,7 +42,9 @@ every tab (17 pages, 0 Tk callback errors).
 3. **Duplicated Excel export styling** in `magazino_filato_tab._on_export`,
    `situazione_tab._on_export` / `_export_abbina`, `situazione_settimana_tab._on_export`,
    `prezzi_tab._write_export_file`: extract one `write_styled_table(...)` helper
-   (the Kamal/Elvy/Bolla exporters already share `exporters/excel_common`).
+   (the three table exporters -- Purchase Orders/Ordini ELVY, Bolla and Elvy Invoice -- now share
+   their style constants from `exporters/excel_styles.py`; the GUI-tab exports above still repeat
+   their own styling and are not covered by that module yet).
 4. ~~`exporters/biglietti_exporter.py`~~ (done, see above) held loading, enrichment,
    Excel writing and Word writing.  Split into `loaders`, `enrichment`,
    `excel_writer`, `word_writer` (keep the current module as a re-exporting facade

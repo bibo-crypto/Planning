@@ -2,7 +2,9 @@ pdfplumber==0.11.4
 openpyxl==3.1.5
 python-docx>=1.1,<2
 pypdfium2>=4.30,<5
-numpy>=1.24,<3
+# numpy 2.5+ makes pandas 2.3 emit a DeprecationWarning for every pd.Timedelta(...) call (numpy plans to
+# turn it into an error); 2.3.x/2.4.x are clean and are what the test-suite was verified on.
+numpy>=1.24,<2.5
 pandas>=2.0,<3
 pyinstaller>=6,<7
 xlrd>=2.0.1

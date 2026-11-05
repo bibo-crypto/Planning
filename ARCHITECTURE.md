@@ -32,6 +32,7 @@ parsers/                 read a specific file shape into a dataframe/rows
 exporters/               write Excel/Word output
   excel_exporter.py, bolla_exporter.py, elvy_invoice_exporter.py
   kamal_excel_exporter.py, biglietti_exporter.py
+  excel_styles.py         style constants shared by the table exporters
 
 pipelines/               customer-specific "raw order -> ticket/workbook" flows
   ordine_kamal.py, ordine_med.py, ordini_elvy.py

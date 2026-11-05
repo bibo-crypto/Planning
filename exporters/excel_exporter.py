@@ -22,13 +22,7 @@ from pathlib import Path
 from typing import Collection, Mapping, Sequence
 
 import openpyxl
-from openpyxl.styles import (
-    Alignment,
-    Border,
-    Font,
-    PatternFill,
-    Side,
-)
+from openpyxl.styles import Alignment, Font
 from openpyxl.utils import get_column_letter
 
 from parsers.pdf_parser import OrderRow
@@ -97,19 +91,10 @@ FILATO_TINTURIA_COLUMNS: list[tuple[str, str, str]] = [
     ("تحضير خام", "label",   "text"),
 ]
 
-# Styling constants
-HEADER_FILL = PatternFill("solid", fgColor="BDD7EE")   # light blue
-HEADER_FONT = Font(bold=True, name="Calibri", size=11)
-BODY_FONT = Font(name="Calibri", size=11)
-THIN_BORDER_SIDE = Side(style="thin", color="D9D9D9")
-CELL_BORDER = Border(
-    left=THIN_BORDER_SIDE,
-    right=THIN_BORDER_SIDE,
-    bottom=THIN_BORDER_SIDE,
-    top=THIN_BORDER_SIDE,
+# Styling constants: shared with the other table exporters (exporters/excel_styles.py)
+from exporters.excel_styles import (
+    BODY_FONT, CELL_BORDER, HEADER_FILL, HEADER_FONT, NUMBER_FORMAT,
 )
-
-NUMBER_FORMAT = "#,##0.00"
 GENERAL_FORMAT = "General"
 INTEGER_FORMAT = "0"
 DATE_FORMAT = "DD/MM/YYYY"
