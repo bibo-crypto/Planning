@@ -174,7 +174,7 @@ def write_data(
             cell.border = CELL_BORDER
 
             if dtype == "text":
-                cell.value = str(raw_value) if raw_value not in (None, "") else ""
+                cell.value = str(raw_value) if raw_value not in (None, "") else None
                 cell.number_format = TEXT_FORMAT
                 if col_idx == description_col_idx:
                     cell.alignment = Alignment(

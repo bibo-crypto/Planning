@@ -3,6 +3,7 @@ from datetime import datetime
 from unittest.mock import patch
 
 import openpyxl
+from openpyxl.styles.numbers import is_date_format
 import pytest
 
 from calculate.bagno import is_valid_first_bagno, parse_first_bagno, sequence_bagno
@@ -88,7 +89,7 @@ def test_elvy_erp_file_has_typed_columns_and_bagno_text(tmp_path):
     AbbinaCalculator().calculate(rows)
     target = tmp_path / "erp.xlsx"
     export_ordini_full(target, build_ordini_elvy_rows(rows, first_bagno="T1200"))
-    ws = openpyxl.load_workbook(target)["ORDINE VENDITA EGITTO"]
+    ws = openpyxl.load_workbook(target)["Foglio1"]
     header = [c.value for c in ws[1]]
     second = {h: ws.cell(row=3, column=i + 1) for i, h in enumerate(header)}
     assert second["BAGNO PREPOSTO"].value == "T1200"
@@ -226,7 +227,7 @@ def test_med_erp_sheet_columns_have_real_types(tmp_path):
 
     target = tmp_path / "erp.xlsx"
     export_erp_order_workbook(target, [_med_record(), _med_record(colore="A12")])
-    ws = openpyxl.load_workbook(target)["Dati sistema (B-N)"]
+    ws = openpyxl.load_workbook(target)["Foglio1"]
     header = [c.value for c in ws[1]]
     assert "SIGLA DISPOSIZIONE" in header and "SIGLA DISPOSIZONE" not in header
     cell = {h: ws.cell(row=2, column=i + 1) for i, h in enumerate(header)}
@@ -235,8 +236,9 @@ def test_med_erp_sheet_columns_have_real_types(tmp_path):
     assert cell["CLIENTE"].value == 3009 and cell["LAVORANTE"].value == 900901
     for name in ("CONSEGNA", "DATA RICONSEGNA"):
         assert isinstance(cell[name].value, datetime), name
-        assert cell[name].number_format == "dd/mm/yyyy"
-    assert cell["BAGNO PREPOSTO"].value == "T1201" and cell["BAGNO PREPOSTO"].number_format == "@"
+        # A real date shown day/month/year for the local ERP workflow.
+        assert cell[name].number_format == "dd/mm/yyyy" and is_date_format(cell[name].number_format), name
+    assert cell["BAGNO PREPOSTO"].value == "T1201" and cell["BAGNO PREPOSTO"].data_type == "s"   # text
     assert ws.cell(row=3, column=header.index("COLORE") + 1).value == "A12"   # non-numeric stays text
 
 
@@ -339,7 +341,7 @@ def test_kamal_tab_conversion_uses_sqlite_stock_and_lotti_and_first_bagno(root, 
     tab._set_status = lambda text: None
     tab._run_conversion()
 
-    erp = openpyxl.load_workbook(erp_dir / "EXCEL PER ORDINE VENDITA EGITTO.xlsx")["ORDINE VENDITA EGITTO"]
+    erp = openpyxl.load_workbook(erp_dir / "EXCEL PER ORDINE VENDITA EGITTO.xlsx")["Foglio1"]
     header = [c.value for c in erp[1]]
     comment = [erp.cell(row=r, column=header.index("COMMENTO") + 1).value for r in (2, 3)]
     bagno = [erp.cell(row=r, column=header.index("BAGNO PREPOSTO") + 1).value for r in (2, 3)]

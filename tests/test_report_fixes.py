@@ -401,9 +401,16 @@ def test_pyinstaller_spec_collects_every_package_that_is_loaded_lazily_by_name()
     packages = {p.name for p in root.iterdir() if (p / "__init__.py").is_file() and p.name != "tests"}
     assert packages <= collected, f"packages not collected into the EXE: {sorted(packages - collected)}"
 
+    def _is_not_ours(path):
+        parts = path.relative_to(root).parts
+        if {"tests", ".git", "build", "dist", "site-packages", "node_modules", "__pycache__"} & set(parts):
+            return True
+        # any virtual environment, whatever its folder is called (E:\Planning\venv, .venv, ...)
+        return any((root.joinpath(*parts[:i]) / "pyvenv.cfg").is_file() for i in range(1, len(parts)))
+
     referenced = set()
     for path in root.rglob("*.py"):
-        if "tests" in path.parts or ".git" in path.parts:
+        if _is_not_ours(path):
             continue
         text = path.read_text(encoding="utf-8", errors="ignore")
         referenced |= set(re.findall(r"(?:lazy_call|LazyModule|import_module)\(\s*[\"']([\w.]+)[\"']", text))

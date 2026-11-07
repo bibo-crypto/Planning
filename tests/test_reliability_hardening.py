@@ -122,3 +122,16 @@ def test_no_broad_except_swallows_errors_without_a_trace():
             if broad and all(isinstance(statement, ast.Pass) for statement in node.body):
                 offenders.append(f"{path.relative_to(ROOT)}:{node.lineno}")
     assert not offenders, "except Exception: pass with no logging at " + ", ".join(offenders)
+
+
+# ------------------------------------------------------------------ the suite is isolated from the real machine
+def test_the_suite_never_uses_the_real_settings_folder_or_home():
+    import os
+
+    from utility import utils
+
+    sandbox = pathlib.Path(os.environ["PLANNING_DATA_DIR"])
+    assert utils.APP_DATA_DIR == sandbox
+    assert sandbox != ROOT and ROOT not in sandbox.parents          # not the project folder
+    assert pathlib.Path.home().parent == sandbox.parent               # a throw-away home (Desktop lookups)
+    assert os.environ.get("GIT_CONFIG_NOSYSTEM") == "1"

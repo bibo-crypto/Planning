@@ -4,7 +4,9 @@ from pathlib import Path
 
 
 def git(cwd, *args, check=True):
-    proc = subprocess.run(["git", *args], cwd=str(cwd), capture_output=True, text=True)
+    # UTF-8 explicitly: without it Windows decodes git's output with the ANSI code page.
+    proc = subprocess.run(["git", *args], cwd=str(cwd), capture_output=True, text=True,
+                          encoding="utf-8", errors="replace")
     if check and proc.returncode != 0:
         raise AssertionError(f"git {' '.join(args)} failed: {proc.stderr}")
     return proc.stdout.strip()
@@ -18,5 +20,9 @@ def write(root, relative, text="x\n"):
 
 
 def remote_log(repo):
-    remote = git(repo, "remote", "get-url", "origin")
-    return git(remote, "log", "--format=%s", "main").splitlines()
+    remote = Path(git(repo, "remote", "get-url", "origin"))
+    if not remote.is_absolute():
+        remote = Path(repo) / remote
+    # --git-dir is explicit, so it works even when the user's git has safe.bareRepository=explicit
+    # (running "git log" with a bare repository as the working directory is refused then).
+    return git(repo, "--git-dir", str(remote), "log", "--format=%s", "main").splitlines()

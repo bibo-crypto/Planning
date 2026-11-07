@@ -33,6 +33,7 @@ exporters/               write Excel/Word output
   excel_exporter.py, bolla_exporter.py, elvy_invoice_exporter.py
   kamal_excel_exporter.py, biglietti_exporter.py
   excel_styles.py         style constants shared by the table exporters
+  master_formats.py       look of the separate ERP / Filato x Tinturia files (the master workbooks)
 
 pipelines/               customer-specific "raw order -> ticket/workbook" flows
   ordine_kamal.py, ordine_med.py, ordini_elvy.py

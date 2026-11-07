@@ -476,8 +476,14 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
         Biglietti.docx template (saved path, Desktop or next to the app), and the
         output folder of each customer -- each only when it still exists on disk.
         """
-        for key, attr, source in [("biglietti_data_path", "data_path", "data_ordine"), ("biglietti_dispo_path", "dispo_path", "dispo_bagno")]:
-            p = self._prefs.get(key) or (str(source_path(source)) if source_path(source) else "")
+        for key, attr, source in [
+            ("biglietti_data_path", "data_path", None),
+            ("biglietti_dispo_path", "dispo_path", "dispo_bagno"),
+        ]:
+            p = self._prefs.get(key)
+            if not p and source:
+                shared_path = source_path(source)
+                p = str(shared_path) if shared_path else ""
             if p and Path(p).is_file():
                 setattr(self, attr, Path(p))
                 self._set_mirrored_label("data" if key == "biglietti_data_path" else "dispo", p)
@@ -549,7 +555,6 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
         if p:
             self.data_path = Path(p)
             self._set_mirrored_label("data", p)
-            save_source("data_ordine", self.data_path)
             self._save_prefs(biglietti_data_path=p)
 
     def _pick_dispo(self):

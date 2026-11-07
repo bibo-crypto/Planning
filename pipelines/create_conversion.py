@@ -156,7 +156,7 @@ def _convert_shared_customer(request: ConversionRequest, records, raw, sources: 
         line += f"\n   ↳ Shared Excel: +{shared['added']} rows, {shared['skipped']} duplicate Partita Col skipped"
     result.items.append(line)
 
-    if request.filato_dir and raw:
+    if request.filato_dir:
         filato_dir = Path(request.filato_dir)
         filato_dir.mkdir(parents=True, exist_ok=True)
         filato_file = filato_dir / FILATO_FILE_NAME.format(customer=customer)

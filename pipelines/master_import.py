@@ -453,7 +453,6 @@ def _route(
                 post_to_ui(ordine_med_tab, lambda: ordine_med_tab._lbl_densita.config(text=str(master_path), foreground="black"))
 
     elif key == "data_ordine":
-        save_source("data_ordine", master_path)
         if biglietti_tab is not None:
             biglietti_tab.data_path = Path(master_path)
             if hasattr(biglietti_tab, "biglietti_data_path_label"):

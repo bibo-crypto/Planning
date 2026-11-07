@@ -265,7 +265,19 @@ _FILATO_HEADER_TO_ATTR = {
     "rocce": "rocce",  # backwards compatibility with older exports
     "peso": "peso",
     "تحضير خام": "label",
+    # the Filato x Tinturia master's own headers
+    "partita.gg": "partita",
+    "عدد": "rocce",
+    "وزن": "peso",
+    "custom": "label",
 }
+
+
+def _partita_text(value) -> str:
+    """A Partita read from Excel: a number (159806, or 159806.0) is shown without a decimal part."""
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value or "")
 
 
 def read_filato_tinturia_sheet(source_path: Path, missing_ok: bool = False) -> list[RawYarnMatch]:
@@ -306,7 +318,7 @@ def read_filato_tinturia_sheet(source_path: Path, missing_ok: bool = False) -> l
             rows.append(RawYarnMatch(
                 articolo=str(values.get("articolo") or ""),
                 titolo=str(values.get("titolo") or ""),
-                partita=str(values.get("partita") or ""),
+                partita=_partita_text(values.get("partita")),
                 rocce=float(values.get("rocce") or 0),
                 peso=float(values.get("peso") or 0),
                 label=str(values.get("label") or "تحضير خام"),
@@ -362,7 +374,9 @@ def update_existing_filato_file(target_path: Path, matches: list[RawYarnMatch]) 
 def export_ordini_full(target_path: Path, ordini_rows: list) -> int:
     """
     Write the "EXCEL PER ORDINE VENDITA EGITTO" workbook at *target_path*,
-    fully formatted (header styling, column widths, freeze panes/filter).
+    formatted exactly like the master file (exporters/master_formats.py): header,
+    fonts, column widths, a real date / number / text type per column, the Excel
+    table and the duplicate highlighting.
 
     Always writes only THIS run's ordini_rows -- if *target_path* already
     exists (e.g. it's a shared path another client's Ordine Kamal/Ordine
@@ -373,6 +387,7 @@ def export_ordini_full(target_path: Path, ordini_rows: list) -> int:
     """
     import openpyxl  # local import: this module doesn't need openpyxl otherwise
     from exporters.excel_exporter import ORDINI_ELVY_COLUMNS, apply_column_widths, freeze_and_filter, write_data, write_header
+    from exporters.master_formats import apply_erp_master_format
 
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -380,8 +395,9 @@ def export_ordini_full(target_path: Path, ordini_rows: list) -> int:
     ws.sheet_view.rightToLeft = False
     write_header(ws, ORDINI_ELVY_COLUMNS)
     write_data(ws, ORDINI_ELVY_COLUMNS, ordini_rows)
-    apply_column_widths(ws, ORDINI_ELVY_COLUMNS)
-    freeze_and_filter(ws, ORDINI_ELVY_COLUMNS)
+    if not apply_erp_master_format(ws):   # never expected: keep the generic styling rather than fail
+        apply_column_widths(ws, ORDINI_ELVY_COLUMNS)
+        freeze_and_filter(ws, ORDINI_ELVY_COLUMNS)
 
     target_path.parent.mkdir(parents=True, exist_ok=True)
     safe_save_workbook(wb, target_path, keep_backup=False)
@@ -394,8 +410,10 @@ def export_filato_full(
     matches: list["RawYarnMatch"],
 ) -> int:
     """
-    Write the "Filato x Tinturia" workbook at *target_path*, styled the
-    same way every time (header fill, bold label column, freeze/filter).
+    Write the "Filato x Tinturia" workbook at *target_path*, formatted exactly like the
+    master file (exporters/master_formats.py): the master's headers, a real number / text type
+    per column, the Excel table, the duplicate highlighting and the four empty "complete from
+    another raw yarn" columns.
 
     Always writes only THIS run's matches -- if *target_path* already
     exists (e.g. Ordine Kamal and Ordine ELVY are both pointed at the same
@@ -407,27 +425,13 @@ def export_filato_full(
     created. Returns the number of rows written.
     """
     import openpyxl  # local import: this module doesn't need openpyxl otherwise
-    from openpyxl.styles import Alignment, Font
-    from exporters.excel_exporter import FILATO_TINTURIA_COLUMNS, apply_column_widths, freeze_and_filter, write_data, write_header
+    from exporters.master_formats import write_filato_master_sheet
 
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Filato x Tinturia"
     ws.sheet_view.rightToLeft = False
-    write_header(ws, FILATO_TINTURIA_COLUMNS)
-    write_data(ws, FILATO_TINTURIA_COLUMNS, matches)
-    apply_column_widths(ws, FILATO_TINTURIA_COLUMNS)
-    freeze_and_filter(ws, FILATO_TINTURIA_COLUMNS)
-
-    label_col_idx = next(
-        (i + 1 for i, (_, attr, _) in enumerate(FILATO_TINTURIA_COLUMNS) if attr == "label"), None
-    )
-    if label_col_idx:
-        bold_label_font = Font(bold=True, name="Calibri", size=11)
-        for row in ws.iter_rows(min_row=2, max_row=ws.max_row, min_col=label_col_idx, max_col=label_col_idx):
-            for cell in row:
-                cell.font = bold_label_font
-                cell.alignment = Alignment(horizontal="center", vertical="center")
+    write_filato_master_sheet(ws, matches)
 
     target_path.parent.mkdir(parents=True, exist_ok=True)
     safe_save_workbook(wb, target_path, keep_backup=False)

@@ -54,6 +54,13 @@ def _get_app_data_dir() -> Path:
     directory keeps the app stable when launched from a shortcut or another
     directory.
     """
+    override = os.environ.get("PLANNING_DATA_DIR", "").strip()
+    if override and not getattr(sys, "frozen", False):
+        # Source checkouts only (the packaged EXE ignores it): the test-suite uses this so it never
+        # reads or writes the real settings/data/cache.
+        override_dir = Path(override)
+        override_dir.mkdir(parents=True, exist_ok=True)
+        return override_dir
     if getattr(sys, "frozen", False):
         base = os.environ.get("LOCALAPPDATA") or str(Path.home())
         new_dir = Path(base) / "Planning"

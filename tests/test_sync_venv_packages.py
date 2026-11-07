@@ -15,8 +15,13 @@ def test_fingerprint_changes_with_requirements_but_not_with_comments(tmp_path):
 
 
 def test_missing_requirements_ignores_markers_that_exclude_this_machine(tmp_path):
-    root = _root(tmp_path, "pytest>=8\nnot-a-real-package-xyz>=1\nwindows-only-pkg; sys_platform == \"win32\"\n")
-    assert sync.missing_requirements(root) == ["not-a-real-package-xyz"]
+    import sys
+
+    here = sys.platform
+    root = _root(tmp_path, "pytest>=8\nnot-a-real-package-xyz>=1\n"
+                 f"other-platform-pkg; sys_platform != \"{here}\"\n"      # excluded on this machine -> ignored
+                 f"this-platform-pkg-xyz; sys_platform == \"{here}\"\n")   # applies on this machine -> required
+    assert sync.missing_requirements(root) == ["not-a-real-package-xyz", "this-platform-pkg-xyz"]
 
 
 def test_nothing_runs_when_the_venv_is_current(tmp_path, monkeypatch):

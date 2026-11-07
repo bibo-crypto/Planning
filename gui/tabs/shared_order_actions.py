@@ -410,36 +410,32 @@ class SharedOrdersActionsMixin:
             had_error = True
             lines.append(f"Biglietti (.docx) FAILED:\n{exc}")
 
-        # Same file/logic as the old standalone "Filato X Tinturia" button:
-        # the raw yarn to prepare for whichever rows are being printed here,
-        # restricted to the ones that actually have a raw batch resolved
-        # (Partita GG) -- a row still waiting for one has nothing to list
-        # yet. Kept in its own try/except: a problem here (e.g. the Filato
-        # X Tinturia.xlsx file is currently open in Excel) must not read as
-        # "nothing happened" when the Biglietti above already printed fine,
-        # and must not block the move-to-Orders step below either.
+        # Replace the shared Filato file for every print run. Rows without an
+        # assigned raw batch contribute nothing, but must still clear stale
+        # yarn rows left by the previous run.
         filato_records = [
             record for record in records
             if is_assigned_raw(record.raw_batch, record.customer_code)
         ]
-        if filato_records:
-            try:
+        try:
+            rows = []
+            if filato_records:
                 _codes, _density, _vmm, _prices, summary = self._load_common_sources()
                 rows = _filato_rows(filato_records, [], summary)
-                filato_path = self.shared_excel_path.parent / "Filato X Tinturia.xlsx"
-                export_filato_full(filato_path, [
-                    RawYarnMatch(
-                        articolo=str(row.get("Articolo", "")), titolo=str(row.get("Titolo", "")),
-                        partita=str(row.get("Partita", "")), rocce=float(row.get("Rocche", 0) or 0),
-                        peso=float(row.get("Peso", 0) or 0), label=str(row.get("تحضير خام", "تحضير خام")),
-                    )
-                    for row in rows
-                ])
-                lines.append(f"\nRaw yarn to prepare ({len(rows)} row(s)):\n{filato_path}")
-            except Exception as exc:
-                self._logger.exception("Shared Excel Biglietti (Filato X Tinturia) failed")
-                had_error = True
-                lines.append(f"\nFilato X Tinturia FAILED:\n{exc}")
+            filato_path = self.shared_excel_path.parent / "Filato X Tinturia.xlsx"
+            export_filato_full(filato_path, [
+                RawYarnMatch(
+                    articolo=str(row.get("Articolo", "")), titolo=str(row.get("Titolo", "")),
+                    partita=str(row.get("Partita", "")), rocce=float(row.get("Rocche", 0) or 0),
+                    peso=float(row.get("Peso", 0) or 0), label=str(row.get("تحضير خام", "تحضير خام")),
+                )
+                for row in rows
+            ])
+            lines.append(f"\nRaw yarn to prepare ({len(rows)} row(s)):\n{filato_path}")
+        except Exception as exc:
+            self._logger.exception("Shared Excel Biglietti (Filato X Tinturia) failed")
+            had_error = True
+            lines.append(f"\nFilato X Tinturia FAILED:\n{exc}")
 
         moved = 0
         for partita_col in pg_x_partita_cols or []:

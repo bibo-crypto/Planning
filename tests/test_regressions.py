@@ -1110,7 +1110,7 @@ class PlanningRegressionTests(unittest.TestCase):
             export_ordini_full(target, [OrdiniElvyRow(articolo_delta="C200", coloredfm=7, quantity_cones=20)])
 
             wb = openpyxl.load_workbook(target)
-            ws = wb["ORDINE VENDITA EGITTO"]
+            ws = wb["Foglio1"]
             values = [ws.cell(row=r, column=c).value for r in range(2, ws.max_row + 1) for c in range(1, ws.max_column + 1)]
             wb.close()
             self.assertNotIn("C100", values)  # the older order's row is gone
@@ -1165,7 +1165,7 @@ class PlanningRegressionTests(unittest.TestCase):
             export_erp_order_workbook(target, [record("C200")])
 
             wb = openpyxl.load_workbook(target, data_only=True)
-            ws = wb["Dati sistema (B-N)"]
+            ws = wb["Foglio1"]
             values = [cell.value for row in ws.iter_rows(min_row=2) for cell in row]
             wb.close()
             self.assertNotIn("C100", values)

@@ -21,7 +21,6 @@ ordine_med = LazyModule("pipelines.ordine_med")
 
 from utility.densita_cache import load_densita_cache, save_densita_cache
 from utility.magazino_cache import load_magazino_cache, save_magazino_cache
-from utility.path_manager import save_source, source_path
 from utility.ui_thread import post_to_ui
 from utility.utils import logger
 
@@ -154,7 +153,7 @@ class OrdineMedTab(ttk.Frame):
             return
         self.ordine_path = Path(path)
         self._lbl_ordine.config(text=str(self.ordine_path), foreground="black")
-        save_source("data_ordine", self.ordine_path)
+        self._save_prefs(ordine_med_data_path=str(self.ordine_path))
 
     def _on_select_output(self):
         path = filedialog.askdirectory(title="Select Ordine MED output folder")
@@ -234,9 +233,9 @@ class OrdineMedTab(ttk.Frame):
         self.bagno_enabled.set(bool(self._prefs.get("ordine_med_bagno_enabled", False)))
         self.bagno_start_var.set(str(self._prefs.get("ordine_med_bagno_start", "")))
 
-        ordine = source_path("data_ordine")
-        if ordine and ordine.is_file():
-            self.ordine_path = ordine
+        ordine = self._prefs.get("ordine_med_data_path")
+        if ordine and Path(ordine).is_file():
+            self.ordine_path = Path(ordine)
             self._lbl_ordine.config(text=str(ordine), foreground="black")
 
         cache = load_magazino_cache()
@@ -361,8 +360,10 @@ class OrdineMedTab(ttk.Frame):
 
             densita_map, _errors = load_densita_query(self.densita_path if self.densita_path and self.densita_path.is_file() else None)
 
-            stock_map = ordine_med.load_filato_disponibile(self.magazino_path if self.magazino_path and self.magazino_path.is_file() else None)
-            availability = ordine_med.compute_filato_availability(records, densita_map, stock_map)
+            filato_inventory = ordine_med.load_filato_inventory(
+                self.magazino_path if self.magazino_path and self.magazino_path.is_file() else None
+            )
+            availability = ordine_med.compute_filato_availability(records, densita_map, filato_inventory)
             missing_articles = sorted({a.articolo for a in availability if a.mag_rocche is None})
             if missing_articles and self._on_notification:
                 self._on_notification(

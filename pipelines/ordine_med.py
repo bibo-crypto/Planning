@@ -1,7 +1,7 @@
 """ordine_med.py — "Ordine MED" extraction: turns a raw ORDINE sheet into
 the same "Ordine da creare" table Delta's Excel macro produces, plus two
 things it didn't have: a raw-yarn availability/shortage check (against
-Filato Disponibile stock) and automatic Consegna dates assigned by walking
+Filato Disponibile stock, including NOTA grg alternative-yarn completion) and automatic Consegna dates assigned by walking
 the order top-to-bottom and queuing each color onto its machine using the
 same "2 colors/day, Friday off" Copertura logic the rest of the app uses.
 
@@ -354,20 +354,31 @@ def compute_data_riconsegna(records: list[OrdineMedRow]) -> None:
 def assign_consegna(records: list[OrdineMedRow], machine_totals: dict[int, int]) -> None:
     """machine_totals: {machine_number (3-12): colors_already_queued}, from
     situazione_logic.compute_machine_totals(situation_df, copertura_df) --
-    the same baseline the Copertura window itself shows. Rows whose machine
-    isn't recognised or has no baseline just start counting from 0 (today)."""
+    the same baseline the Copertura window itself shows. Schedule delivery
+    fourteen days after machine coverage, unless the order already has a later
+    requested date. Rows without a machine/date default to fourteen days from today."""
     from calculate.situazione import machine_coverage_until, machine_number_from_label
 
     running: dict[int, int] = {}
     for r in records:
         m = machine_number_from_label(str(r.gruppo_macchina)) if r.gruppo_macchina else None
-        if m is None:
-            r.consegna = r.consegna_input
+        delivery_date = datetime.now().date() + timedelta(days=14)
+        if m is not None:
+            baseline = machine_totals.get(m, 0)
+            running[m] = running.get(m, 0) + 1
+            date_str = machine_coverage_until(baseline + running[m])
+            if date_str != "-":
+                delivery_date = datetime.strptime(date_str, "%Y-%m-%d").date() + timedelta(days=14)
+
+        requested = _to_date_value(r.consegna_input)
+        if isinstance(requested, datetime):
+            delivery_date = max(delivery_date, requested.date())
+        elif isinstance(requested, date):
+            delivery_date = max(delivery_date, requested)
+        elif requested not in (None, ""):
+            r.consegna = requested
             continue
-        baseline = machine_totals.get(m, 0)
-        running[m] = running.get(m, 0) + 1
-        date_str = machine_coverage_until(baseline + running[m])
-        r.consegna = datetime.strptime(date_str, "%Y-%m-%d") if date_str != "-" else r.consegna_input
+        r.consegna = datetime.combine(delivery_date, datetime.min.time())
 
 
 # ---------------------------------------------------------------------------
@@ -549,12 +560,105 @@ class FilatoAvailabilityRow:
     mag_rocche: Any
     manca: Any
     disponibilita: str
+    completamento_pt_1: int | None = None
+    completamento_rocche_1: int | None = None
+    completamento_pt_2: int | None = None
+    completamento_rocche_2: int | None = None
+
+
+@dataclass
+class FilatoInventory:
+    stock_by_partita: dict[int, int]
+    stock_by_article_partita: dict[tuple[str, int], int]
+    lotto_by_partita: dict[int, str]
+
+
+_NOTA_GRG_NUMBER_RE = re.compile(r"\d+(?:\.0+)?")
+
+
+def _alternative_pt_grg(nota_grg: str) -> list[int]:
+    """Return distinct numeric yarn references in NOTA grg."""
+    alternatives: list[int] = []
+    for value in _NOTA_GRG_NUMBER_RE.findall(nota_grg):
+        pt_grg = int(float(value))
+        if pt_grg not in alternatives:
+            alternatives.append(pt_grg)
+    return alternatives
+
+
+def load_filato_inventory(path: Path | None = None) -> FilatoInventory:
+    """Load available yarn by article/Partita and the Partita-to-Lotto relation."""
+    from utility.source_manager import load as load_source
+
+    frame = load_source("magazino_summary")
+    if frame is None or frame.empty or not {"articolo", "partita", "mag_rocche"}.issubset(frame.columns):
+        frame = None
+    if frame is None and path is not None and Path(path).is_file():
+        wb = openpyxl.load_workbook(path, data_only=True, read_only=True)
+        try:
+            sheet_name = next(
+                (s for s in wb.sheetnames if _key(s) in (_key("Filato Disponibile"), _key("Magazino"))),
+                wb.active.title,
+            )
+            rows = _read_sheet_rows(wb[sheet_name])
+        finally:
+            wb.close()
+        import pandas as pd
+
+        stock_rows = []
+        for row in rows:
+            warehouse = _number(_get(row, "MAGAZZINO"))
+            order = _number(_get(row, "ORDINE"))
+            partita = _number(_get(row, "PARTITA"))
+            quantity = _number(_get(row, "COLLI"))
+            if warehouse is not None:
+                if warehouse not in (900160, 900910) or (warehouse == 900160 and (order or 0) == 0):
+                    continue
+            else:
+                quantity = _number(_get(row, "MAG.ROCCHE", "MAG ROCCHE"))
+            if partita is None or quantity is None:
+                continue
+            stock_rows.append({
+                "articolo": _clean(_get(row, "ARTICOLO")),
+                "partita": int(partita),
+                "mag_rocche": quantity,
+            })
+        frame = pd.DataFrame(stock_rows)
+
+    stock_by_partita: dict[int, int] = {}
+    stock_by_article_partita: dict[tuple[str, int], int] = {}
+    if frame is not None:
+        for row in frame.itertuples(index=False):
+            try:
+                partita = int(float(row.partita))
+                quantity = int(float(row.mag_rocche or 0))
+            except (TypeError, ValueError):
+                continue
+            article = _clean(getattr(row, "articolo", "")).upper()
+            stock_by_partita[partita] = stock_by_partita.get(partita, 0) + quantity
+            key = (article, partita)
+            stock_by_article_partita[key] = stock_by_article_partita.get(key, 0) + quantity
+
+    lotto_by_partita: dict[int, str] = {}
+    lotti = load_source("lotti_summary")
+    if lotti is not None and not lotti.empty and {"partita", "lotto"}.issubset(lotti.columns):
+        for row in lotti.itertuples(index=False):
+            try:
+                partita = int(float(row.partita))
+            except (TypeError, ValueError):
+                continue
+            lotto = _clean(row.lotto)
+            if lotto:
+                lotto_by_partita[partita] = lotto
+
+    return FilatoInventory(stock_by_partita, stock_by_article_partita, lotto_by_partita)
 
 
 def compute_filato_availability(
     records: list[OrdineMedRow],
     densita_map: dict[int, dict[str, Any]] | None,
-    stock_map: dict[int, int],
+    stock_map: dict[int, int] | FilatoInventory,
+    lotto_by_partita: dict[int, str] | None = None,
 ) -> list[FilatoAvailabilityRow]:
     """Groups by (ARTICOLO with C->G swap, PT GRG) -- Titolo intentionally
     excluded from the key so that minor Titolo variations across rows for the
@@ -563,6 +667,15 @@ def compute_filato_availability(
     Sums Rocche, computes Kg via Densita' Query's peso_net when available
     (same source Biglietti's KG uses), joins Mag.Rocche from Filato Disponibile."""
     densita_map = densita_map or {}
+    if isinstance(stock_map, FilatoInventory):
+        inventory = stock_map
+        stock_by_partita = inventory.stock_by_partita
+        stock_by_article_partita = inventory.stock_by_article_partita
+        lotto_by_partita = inventory.lotto_by_partita
+    else:
+        stock_by_partita = stock_map
+        stock_by_article_partita = {}
+        lotto_by_partita = lotto_by_partita or {}
     groups: dict[tuple, dict[str, Any]] = {}
     for r in records:
         try:
@@ -575,8 +688,36 @@ def compute_filato_availability(
         # twice when different order rows carry slightly different Titolo text.
         key = (art_g, pt_grg)
         if key not in groups:
-            groups[key] = {"rocche": 0, "titolo": r.titolo}
+            groups[key] = {"rocche": 0, "titolo": r.titolo, "records": []}
         groups[key]["rocche"] += r.rocc  # Q.TA only — POLMONI is machine overhead, not raw-yarn demand
+        groups[key]["records"].append(r)
+
+    def available_for(article: str, partita: int) -> int:
+        key = (article.upper(), partita)
+        if stock_by_article_partita:
+            return stock_by_article_partita.get(key, 0)
+        return stock_by_partita.get(partita, 0)
+
+    def has_stock_entry(article: str, partita: int) -> bool:
+        if stock_by_article_partita:
+            return (article.upper(), partita) in stock_by_article_partita
+        return partita in stock_by_partita
+
+    # Non-1 PT GRG values are customer lots, not warehouse raw-yarn Partitas.
+    # Keep one only when Magazino Filato confirms that this raw yarn is in stock.
+    groups = {
+        key: group for key, group in groups.items()
+        if str(key[1]).startswith("1") or available_for(key[0], key[1]) > 0
+    }
+
+    primary_demand_by_pt: dict[tuple[str, int], int] = {}
+    for (article, pt_grg), group in groups.items():
+        key = (article.upper(), pt_grg)
+        primary_demand_by_pt[key] = primary_demand_by_pt.get(key, 0) + group["rocche"]
+    remaining_stock = {
+        key: max(available_for(*key) - demand, 0)
+        for key, demand in primary_demand_by_pt.items()
+    }
 
     out: list[FilatoAvailabilityRow] = []
     for (art_g, pt_grg), g in groups.items():
@@ -584,10 +725,46 @@ def compute_filato_availability(
         titolo = g["titolo"]
         peso_net = densita_map.get(pt_grg, {}).get("peso_net")
         kg = round(peso_net * rocche, 2) if peso_net is not None else None
-        mag_rocche = stock_map.get(pt_grg)
+        mag_rocche = available_for(art_g, pt_grg) if has_stock_entry(art_g, pt_grg) else None
         manca = (mag_rocche - rocche) if mag_rocche is not None else None
         disponibilita = "OK" if (mag_rocche is not None and mag_rocche >= rocche) else "NO"
-        out.append(FilatoAvailabilityRow(art_g, titolo, pt_grg, rocche, kg, mag_rocche, manca, disponibilita))
+        completions: list[tuple[int, int]] = []
+        shortage = max(rocche - int(mag_rocche or 0), 0)
+        candidates: list[int] = []
+        for record in g["records"]:
+            for candidate in _alternative_pt_grg(record.nota_grg):
+                if candidate != pt_grg and candidate not in candidates:
+                    candidates.append(candidate)
+        if not candidates and lotto_by_partita.get(pt_grg):
+            primary_lotto = lotto_by_partita[pt_grg]
+            candidates = [
+                candidate_partita
+                for candidate_article, candidate_partita in stock_by_article_partita
+                if candidate_article == art_g.upper()
+                and candidate_partita != pt_grg
+                and lotto_by_partita.get(candidate_partita) == primary_lotto
+            ]
+        for candidate in candidates:
+            if shortage <= 0 or len(completions) == 2:
+                break
+            candidate_key = (art_g.upper(), candidate)
+            available = remaining_stock.get(candidate_key)
+            if available is None:
+                available = max(
+                    available_for(art_g, candidate) - primary_demand_by_pt.get(candidate_key, 0),
+                    0,
+                )
+            assigned = min(shortage, available)
+            if assigned:
+                completions.append((candidate, assigned))
+                remaining_stock[candidate_key] = available - assigned
+                shortage -= assigned
+        completion_values = [value for pair in completions for value in pair]
+        completion_values.extend([None] * (4 - len(completion_values)))
+        out.append(FilatoAvailabilityRow(
+            art_g, titolo, pt_grg, rocche, kg, mag_rocche, manca, disponibilita,
+            *completion_values,
+        ))
     out.sort(key=lambda x: x.pt_grg)
     return out
 
@@ -625,6 +802,7 @@ ORDINE_DA_CREARE_HEADERS = [
 
 FILATO_AVAILABILITY_HEADERS = [
     "Articolo", "Titolo", "PT GRG", "Rocche", "Kg", "Mag. Rocche", "Manca", "Disponibilita'",
+    "Custom", "تكمله من خام", "عدد.", "تكمله من خام..", "عدد..",
 ]
 
 
@@ -695,7 +873,7 @@ def _system_value(header: str, value: Any) -> Any:
         return _as_code(value)
     if kind == "date":
         return _as_date_cell(value)
-    return "" if value is None else str(value)
+    return None if value in (None, "") else str(value)
 
 
 def system_row(r: "OrdineMedRow", headers: list[str] | None = None) -> list[Any]:
@@ -758,7 +936,7 @@ def export_prezzi_workbook(
 def export_erp_order_workbook(path: Path, records: list[OrdineMedRow]) -> None:
     """Write the ERP-ready CLIENTE..GRUPPO MACCHINA sheet separately."""
     from openpyxl import Workbook
-    from exporters.biglietti_exporter import style_sheet
+    from exporters.master_formats import apply_erp_master_format
 
     wb = Workbook()
     ws = wb.active
@@ -766,8 +944,9 @@ def export_erp_order_workbook(path: Path, records: list[OrdineMedRow]) -> None:
     ws.append(SYSTEM_IMPORT_HEADERS)
     for record in records:
         ws.append(system_row(record))
-    style_sheet(ws, date_columns=("CONSEGNA", "DATA RICONSEGNA"))
-    _apply_system_formats(ws)
+    # The ERP master formatter owns all styling; generic Biglietti styles leave
+    # unrelated style records in this workbook.
+    apply_erp_master_format(ws)   # the master file's look (exporters/master_formats.py); values untouched
     path.parent.mkdir(parents=True, exist_ok=True)
     safe_save_workbook(wb, path, keep_backup=False)
     wb.close()
@@ -781,10 +960,22 @@ def export_filato_availability_workbook(
     """Write the availability result as a standalone ERP-support workbook."""
     import copy
     from openpyxl import Workbook, load_workbook
-    from openpyxl.formatting.rule import FormulaRule
-    from openpyxl.styles import PatternFill
+    from openpyxl.styles import Font
     from exporters.biglietti_exporter import style_sheet
 
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Filato X Tinturia"
+    exported_headers = FILATO_AVAILABILITY_HEADERS[:5] + ["Custom"] + FILATO_AVAILABILITY_HEADERS[9:]
+    ws.append(exported_headers)
+    for row in availability:
+        ws.append([
+            row.articolo, row.titolo, row.pt_grg, row.rocche, row.kg,
+            "تحضير خام",
+            row.completamento_pt_1, row.completamento_rocche_1,
+            row.completamento_pt_2, row.completamento_rocche_2,
+        ])
+    style_sheet(ws)
     if source_path is not None and source_path.is_file():
         source_wb = load_workbook(source_path)
         try:
@@ -792,28 +983,15 @@ def export_filato_availability_workbook(
                 (sheet for sheet in source_wb.worksheets if _key(sheet.title) == _key("Filato X Tinturia")),
                 None,
             )
-            if source_ws is not None and [c.value for c in source_ws[1]][:5] != FILATO_AVAILABILITY_HEADERS[:5]:
-                # The planner switched some of these columns off in the column picker, so the
-                # sheet no longer has the layout this file copies.  This file feeds the ERP
-                # side: it always carries the five columns, written from the data itself.
-                wb = Workbook()
-                ws = wb.active
-                ws.title = "Filato X Tinturia"
-                ws.append(FILATO_AVAILABILITY_HEADERS[:5])
-                for row in availability:
-                    ws.append([row.articolo, row.titolo, row.pt_grg, row.rocche, row.kg])
-                style_sheet(ws)
-                path.parent.mkdir(parents=True, exist_ok=True)
-                safe_save_workbook(wb, path, keep_backup=False)
-                wb.close()
-                return
             if source_ws is not None:
-                wb = Workbook()
-                ws = wb.active
-                ws.title = source_ws.title
-                for row in source_ws.iter_rows(min_col=1, max_col=5):
-                    for source_cell in row:
-                        target_cell = ws.cell(source_cell.row, source_cell.column, source_cell.value)
+                source_columns = {cell.value: cell.column for cell in source_ws[1]}
+                for target_column, header in enumerate(exported_headers, start=1):
+                    source_column = source_columns.get(header)
+                    if source_column is None:
+                        continue
+                    for target_row in range(1, ws.max_row + 1):
+                        source_cell = source_ws.cell(target_row, source_column)
+                        target_cell = ws.cell(target_row, target_column)
                         if source_cell.has_style:
                             target_cell.font = copy.copy(source_cell.font)
                             target_cell.fill = copy.copy(source_cell.fill)
@@ -821,31 +999,16 @@ def export_filato_availability_workbook(
                             target_cell.alignment = copy.copy(source_cell.alignment)
                             target_cell.protection = copy.copy(source_cell.protection)
                             target_cell.number_format = source_cell.number_format
-                for key, dimension in source_ws.column_dimensions.items():
-                    if dimension.min is None or dimension.min <= 5:
-                        ws.column_dimensions[key] = copy.copy(dimension)
+                    source_letter = source_ws.cell(1, source_column).column_letter
+                    ws.column_dimensions[ws.cell(1, target_column).column_letter].width = (
+                        source_ws.column_dimensions[source_letter].width
+                    )
                 ws.freeze_panes = source_ws.freeze_panes
-                ws.auto_filter.ref = source_ws.auto_filter.ref
-                path.parent.mkdir(parents=True, exist_ok=True)
-                safe_save_workbook(wb, path, keep_backup=False)
-                wb.close()
-                return
         finally:
             source_wb.close()
-
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Filato X Tinturia"
-    ws.append(FILATO_AVAILABILITY_HEADERS)
-    for row in availability:
-        ws.append([row.articolo, row.titolo, row.pt_grg, row.rocche, row.kg,
-                   row.mag_rocche, row.manca, row.disponibilita])
-    style_sheet(ws)
-    if ws.max_row > 1:
-        red_fill = PatternFill(start_color="FFFFC7CE", end_color="FFFFC7CE", fill_type="solid")
-        ws.conditional_formatting.add(
-            f"A2:H{ws.max_row}", FormulaRule(formula=['$H2="NO"'], fill=red_fill)
-        )
+    for row_index in range(2, ws.max_row + 1):
+        custom_cell = ws.cell(row_index, 6)
+        custom_cell.font = copy.copy(custom_cell.font) + Font(bold=True)
     path.parent.mkdir(parents=True, exist_ok=True)
     safe_save_workbook(wb, path, keep_backup=False)
     wb.close()
@@ -899,7 +1062,11 @@ def export_ordine_med_workbook(
     ws3.append(filato_headers)
     for a in availability:
         ws3.append(pick_values(
-            [a.articolo, a.titolo, a.pt_grg, a.rocche, a.kg, a.mag_rocche, a.manca, a.disponibilita],
+            [
+                a.articolo, a.titolo, a.pt_grg, a.rocche, a.kg, a.mag_rocche, a.manca, a.disponibilita,
+                "تحضير خام", a.completamento_pt_1, a.completamento_rocche_1,
+                a.completamento_pt_2, a.completamento_rocche_2,
+            ],
             filato_shown,
         ))
     style_sheet(ws3)
