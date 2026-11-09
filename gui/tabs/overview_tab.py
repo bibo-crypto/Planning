@@ -48,7 +48,7 @@ import openpyxl
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
-from utility.utils import load_settings, parse_number, bind_escape_to_close
+from utility.utils import load_settings, parse_number, bind_escape_to_close, keep_window_on_top
 from utility import notifications
 import calculate.situazione as business_logic
 from utility.ui_thread import post_to_ui
@@ -174,6 +174,7 @@ def export_dataframe_typed(df: pd.DataFrame, default_filename: str, parent: tk.W
         messagebox.showinfo("No Data", "There is no data to export.", parent=parent)
         return
     path = filedialog.asksaveasfilename(
+        parent=parent,
         title="Export to Excel",
         defaultextension=".xlsx",
         filetypes=[("Excel files", "*.xlsx")],
@@ -248,6 +249,7 @@ def export_treeview_to_excel(tree: ttk.Treeview, default_filename: str, parent: 
         messagebox.showinfo("No Data", "There is no data to export.", parent=parent)
         return
     path = filedialog.asksaveasfilename(
+        parent=parent,
         title="Export to Excel",
         defaultextension=".xlsx",
         filetypes=[("Excel files", "*.xlsx")],
@@ -276,6 +278,7 @@ def export_dataframe_fast(df: pd.DataFrame, default_filename: str, parent: tk.Wi
         messagebox.showinfo("No Data", "There is no data to export.", parent=parent)
         return
     path = filedialog.asksaveasfilename(
+        parent=parent,
         title="Export to Excel", defaultextension=".xlsx",
         filetypes=[("Excel files", "*.xlsx")], initialfile=default_filename,
     )
@@ -981,6 +984,7 @@ class OverviewTab(ttk.Frame):
         """Show the Copertura-ordered dyeing sequence for one machine."""
         window = tk.Toplevel(self)
         bind_escape_to_close(window)
+        keep_window_on_top(window)
         machine_name = business_logic.machine_label(machine)
         window.title(f"Copertura macchine — {machine_name}")
         window.geometry("1100x520")
@@ -1143,6 +1147,7 @@ class OverviewTab(ttk.Frame):
         pattern used for the Copertura macchine per-machine ticket."""
         window = tk.Toplevel(self)
         bind_escape_to_close(window)
+        keep_window_on_top(window)
         window.title(title)
         window.geometry("1100x520")
         window.minsize(780, 380)

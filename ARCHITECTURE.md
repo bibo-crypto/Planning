@@ -24,6 +24,7 @@ calculate/               pure business logic, no Tkinter
   magazino.py, lotti.py, prezzi.py
   abbina_calculator.py, abbina_suggestions.py
   constants.py            shared machine capacity/code tables
+  consegna.py             CONSEGNA rule shared by ELVY, MED and EL KAMAL (machine coverage + 14 days)
 
 parsers/                 read a specific file shape into a dataframe/rows
   pdf_parser.py, bolla_parser.py, elvy_invoice_parser.py, kamal_parser.py
@@ -43,6 +44,7 @@ utility/                 shared infra: generic helpers, path/file caches, db
   utils.py, path_manager.py, file_cache.py
   articoli_cache.py, densita_cache.py, lotti_cache.py, magazino_cache.py,
   prezzi_cache.py
+  excel_io.py, excel_values.py   crash-safe saving; cells Excel accepts; dates of every shape
   situazione_db.py        SQLite-backed upload log + Articolo->TITOLO table
   notifications.py        persisted, deduplicated application notifications
   master_data.py          local JSON reference data (temporary, not central DB)

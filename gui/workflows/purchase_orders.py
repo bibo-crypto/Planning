@@ -9,6 +9,17 @@ from tkinter import filedialog, messagebox, ttk
 from utility.magazino_cache import save_magazino_cache
 from utility.utils import find_pdfs, logger, make_output_path
 from utility.ui_thread import post_to_ui
+from gui.numbered_frames import numbered_label_frame
+
+
+# Page section rows; update these numbers to reorder the sections.
+_PO_ROW_INPUT = 0
+_PO_ROW_ABBINA_INFO = 1
+_PO_ROW_RAW_YARN = 2
+_PO_ROW_BAGNO = 3
+_PO_ROW_ERP_FILES = 4
+_PO_ROW_ACTION = 5
+_PO_ROW_PROGRESS = 6
 
 
 class PurchaseOrderWorkflowMixin:
@@ -23,8 +34,8 @@ class PurchaseOrderWorkflowMixin:
         parent.columnconfigure(0, weight=1)
 
         # ── Input ────────────────────────────────────────────────────
-        sel_frame = ttk.LabelFrame(parent, text="Input", padding=6)
-        sel_frame.grid(row=0, column=0, sticky="ew", padx=4, pady=(4, 2))
+        sel_frame = numbered_label_frame(parent, 1, "Input")
+        sel_frame.grid(row=_PO_ROW_INPUT, column=0, sticky="ew", padx=4, pady=(4, 2))
         sel_frame.columnconfigure((0, 1, 2), weight=1)
 
         self._po_btn_pdf = ttk.Button(
@@ -62,11 +73,11 @@ class PurchaseOrderWorkflowMixin:
             text="Abbina uses the PDF Machine annotation when available. Rows without it are filled automatically.",
             foreground="grey", anchor="w", wraplength=620, justify="left",
         )
-        abbina_info.grid(row=1, column=0, sticky="ew", padx=4, pady=(2, 0))
+        abbina_info.grid(row=_PO_ROW_ABBINA_INFO, column=0, sticky="ew", padx=4, pady=(2, 0))
 
         # ── Raw yarn (Magazino) matching ────────────────────────────
-        raw_yarn_frame = ttk.LabelFrame(parent, text="Raw Yarn Matching", padding=6)
-        raw_yarn_frame.grid(row=2, column=0, sticky="ew", padx=4, pady=(4, 2))
+        raw_yarn_frame = numbered_label_frame(parent, 2, "Raw Yarn Matching")
+        raw_yarn_frame.grid(row=_PO_ROW_RAW_YARN, column=0, sticky="ew", padx=4, pady=(4, 2))
         raw_yarn_frame.columnconfigure(1, weight=1)
 
         ttk.Button(
@@ -80,8 +91,8 @@ class PurchaseOrderWorkflowMixin:
         raw_yarn_frame.grid_remove()           # replaced by the source bar (DFM, Listini, Magazino, Lotto)
 
         # ── Bagno Preposato (First bagno) ────────────────────────────
-        bagno_frame = ttk.LabelFrame(parent, text="Bagno Preposato (ELVY)", padding=6)
-        bagno_frame.grid(row=3, column=0, sticky="ew", padx=4, pady=(3, 2))
+        bagno_frame = numbered_label_frame(parent, 3, "Bagno Preposato (ELVY)")
+        bagno_frame.grid(row=_PO_ROW_BAGNO, column=0, sticky="ew", padx=4, pady=(3, 2))
         bagno_frame.columnconfigure(2, weight=1)
         ttk.Label(bagno_frame, text="First bagno:").grid(row=0, column=0, padx=(0, 5), pady=2, sticky="w")
         ttk.Entry(bagno_frame, textvariable=self._po_bagno_start, width=14).grid(
@@ -98,8 +109,8 @@ class PurchaseOrderWorkflowMixin:
         ).grid(row=1, column=0, columnspan=3, sticky="w", pady=(2, 0))
 
         # ── Extract "EXCEL PER ORDINE VENDITA EGITTO" + "Filato x Tinturia" ──
-        erp_frame = ttk.LabelFrame(parent, text="Also Extract ERP Files", padding=6)
-        erp_frame.grid(row=4, column=0, sticky="ew", padx=4, pady=(3, 2))
+        erp_frame = numbered_label_frame(parent, 4, "Also Extract ERP Files")
+        erp_frame.grid(row=_PO_ROW_ERP_FILES, column=0, sticky="ew", padx=4, pady=(3, 2))
         erp_frame.columnconfigure(1, weight=1)
 
         ttk.Button(
@@ -129,7 +140,7 @@ class PurchaseOrderWorkflowMixin:
 
         # ── Options + Convert ────────────────────────────────────────
         opt_frame = ttk.Frame(parent, padding=(6, 3))
-        opt_frame.grid(row=5, column=0, sticky="ew", padx=4, pady=1)
+        opt_frame.grid(row=_PO_ROW_ACTION, column=0, sticky="ew", padx=4, pady=1)
         opt_frame.columnconfigure(2, weight=1)
 
         self._po_btn_convert = ttk.Button(
@@ -145,15 +156,15 @@ class PurchaseOrderWorkflowMixin:
 
         # ── Progress + status ────────────────────────────────────────
         prog_frame = ttk.Frame(parent, padding=(4, 2))
-        prog_frame.grid(row=6, column=0, sticky="ew", padx=4, pady=1)
+        prog_frame.grid(row=_PO_ROW_PROGRESS, column=0, sticky="ew", padx=4, pady=1)
         prog_frame.columnconfigure(0, weight=1)
 
         self._po_progress = ttk.Progressbar(prog_frame, mode="determinate", length=200)
         self._po_progress.grid(row=0, column=0, sticky="ew", padx=(0, 8))
 
         self._po_lbl_status = ttk.Label(prog_frame, text="Ready", anchor="w")
-        from gui.source_bar import attach_to_top
-        attach_to_top(parent, self._source_bar(parent, "ordine_elvy"))
+        from gui.source_bar import attach_after
+        attach_after(parent, self._source_bar(parent, "ordine_elvy"), sel_frame)
         self._po_lbl_status.grid(row=1, column=0, sticky="ew")
     def _on_po_select_pdf(self) -> None:
         path = filedialog.askopenfilename(
@@ -259,6 +270,16 @@ class PurchaseOrderWorkflowMixin:
         from utility.column_selection import load_hidden
         hidden_columns = load_hidden("ordine_elvy")
 
+        # CONSEGNA follows the machines' coverage like Ordine MED: the Overview's machine totals
+        # are read here (UI thread).  A failure never blocks the conversion.
+        machine_totals: dict[int, int] = {}
+        overview = getattr(self, "_overview_tab", None)
+        if overview is not None:
+            try:
+                machine_totals = overview.machine_totals_for_med()
+            except Exception:  # noqa: BLE001
+                logger.exception("Could not read the Overview machine schedule; CONSEGNA uses this order only")
+
         self._set_po_ui_enabled(False)
         self._po_progress["value"] = 0
         self._po_progress["maximum"] = len(pdf_list)
@@ -276,6 +297,7 @@ class PurchaseOrderWorkflowMixin:
                 self._po_raw_yarn_path,
                 first_bagno,
                 hidden_columns,
+                machine_totals,
             ),
             daemon=True,
         )
@@ -292,6 +314,7 @@ class PurchaseOrderWorkflowMixin:
         raw_yarn_path: Path | None = None,
         first_bagno: str | None = None,
         hidden_columns: dict | None = None,
+        machine_totals: dict | None = None,
     ) -> None:
         """Run the Purchase Order conversion and optional ERP extracts.
 
@@ -421,7 +444,8 @@ class PurchaseOrderWorkflowMixin:
                 if one_per_file:
                     out_path = make_output_path(pdf_path, output_dir)
                     exporter = ExcelExporter(rows, out_path, magazino_summary, codes_map, lotti_summary=lotti_summary,
-                                             first_bagno=first_bagno, hidden_columns=hidden_columns)
+                                             first_bagno=first_bagno, hidden_columns=hidden_columns,
+                                             machine_totals=machine_totals)
                     exporter.export()
                     last_matches = exporter.raw_yarn_matches or []
                     last_export_path = out_path
@@ -442,7 +466,8 @@ class PurchaseOrderWorkflowMixin:
             try:
                 out_path = output_dir / "Ordine_Elvy.xlsx"
                 exporter = ExcelExporter(merged_rows, out_path, magazino_summary, codes_map, lotti_summary=lotti_summary,
-                                         first_bagno=first_bagno, hidden_columns=hidden_columns)
+                                         first_bagno=first_bagno, hidden_columns=hidden_columns,
+                                             machine_totals=machine_totals)
                 exporter.export()
                 last_matches = exporter.raw_yarn_matches or []
                 last_export_path = out_path
@@ -466,7 +491,7 @@ class PurchaseOrderWorkflowMixin:
             else:
                 ordini_path = erp_export_dir / "EXCEL PER ORDINE VENDITA EGITTO.xlsx"
                 try:
-                    ordini_rows = build_ordini_elvy_rows(all_rows, first_bagno=first_bagno)
+                    ordini_rows = build_ordini_elvy_rows(all_rows, first_bagno=first_bagno, machine_totals=machine_totals)
                     if magazino_summary is not None and not magazino_summary.empty:
                         match_raw_yarn(ordini_rows, magazino_summary, codes_map, lotti_summary=lotti_summary)
                     n = export_ordini_full(ordini_path, ordini_rows)

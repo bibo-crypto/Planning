@@ -126,32 +126,14 @@ def _normalize_abbin(value: Any) -> Any:
         return value
 
 
-_DATE_FORMATS = ("%d/%m/%Y", "%d-%m-%Y", "%Y-%m-%d", "%d/%m/%y", "%d.%m.%Y", "%Y/%m/%d")
-
-
 def _to_date_value(value: Any) -> Any:
-    """CONSEGNA as a real date (midnight datetime) whenever it can be read as
-    one -- a text date such as "20/10/2026" or an Excel serial number used to
-    stay text, which broke DATA RICONSEGNA (text - 1 day) and wrote CONSEGNA
-    into the ERP sheet as text.  Blank -> None; anything unreadable is returned
-    unchanged so no information is lost."""
-    if value in (None, ""):
-        return None
-    if isinstance(value, datetime):
-        return value.replace(hour=0, minute=0, second=0, microsecond=0)
-    if isinstance(value, date):
-        return datetime(value.year, value.month, value.day)
-    if isinstance(value, (int, float)) and not isinstance(value, bool):
-        if 20000 < float(value) < 80000:  # Excel serial date
-            return datetime(1899, 12, 30) + timedelta(days=float(value))
-        return value
-    text = _clean(value)
-    for fmt in _DATE_FORMATS:
-        try:
-            return datetime.strptime(text, fmt)
-        except ValueError:
-            continue
-    return value
+    """CONSEGNA as a real date (midnight datetime) whenever it can be read as one -- text with or
+    without a time ("20/10/2026", "2026-10-20 00:00:00"), a date, an Excel serial number.  Blank
+    and NaN/NaT (an empty cell read by pandas) -> None; anything unreadable is returned unchanged
+    so no information is lost.  (utility/excel_values.py: the one converter every writer shares.)"""
+    from utility.excel_values import to_excel_date
+
+    return to_excel_date(value)
 
 
 def load_ordine(path: Path) -> list[OrdineMedRow]:
@@ -357,18 +339,11 @@ def assign_consegna(records: list[OrdineMedRow], machine_totals: dict[int, int])
     the same baseline the Copertura window itself shows. Schedule delivery
     fourteen days after machine coverage, unless the order already has a later
     requested date. Rows without a machine/date default to fourteen days from today."""
-    from calculate.situazione import machine_coverage_until, machine_number_from_label
+    from calculate.consegna import ConsegnaPlanner
 
-    running: dict[int, int] = {}
+    planner = ConsegnaPlanner(machine_totals)   # the one rule shared with ELVY and Kamal
     for r in records:
-        m = machine_number_from_label(str(r.gruppo_macchina)) if r.gruppo_macchina else None
-        delivery_date = datetime.now().date() + timedelta(days=14)
-        if m is not None:
-            baseline = machine_totals.get(m, 0)
-            running[m] = running.get(m, 0) + 1
-            date_str = machine_coverage_until(baseline + running[m])
-            if date_str != "-":
-                delivery_date = datetime.strptime(date_str, "%Y-%m-%d").date() + timedelta(days=14)
+        delivery_date = planner.base_date(r.gruppo_macchina)
 
         requested = _to_date_value(r.consegna_input)
         if isinstance(requested, datetime):

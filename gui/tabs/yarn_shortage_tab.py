@@ -172,7 +172,7 @@ class YarnShortageTab(ttk.Frame):
         if self.current_df.empty:
             messagebox.showinfo("No data", "Refresh the data after loading Situazione.")
             return
-        path = filedialog.asksaveasfilename(defaultextension=".xlsx",
+        path = filedialog.asksaveasfilename(parent=self, defaultextension=".xlsx",
                                             filetypes=[("Excel", "*.xlsx")],
                                             initialfile="Mancanza_Filato.xlsx")
         if not path:

@@ -70,7 +70,7 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
     """
     def __init__(self, parent: tk.Misc, prefs: dict, save_prefs, logger, on_shared_cache_changed=None, on_notification=None, source_bar_factory=None):
         """Create the Biglietti page: keep the preferences, the notification callbacks and the file/folder state, then build the widgets and restore the saved paths."""
-        super().__init__(parent, padding=12)
+        super().__init__(parent)
         self._prefs = prefs
         self._save_prefs = save_prefs
         self._logger = logger

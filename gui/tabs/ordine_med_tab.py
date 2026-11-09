@@ -23,6 +23,16 @@ from utility.densita_cache import load_densita_cache, save_densita_cache
 from utility.magazino_cache import load_magazino_cache, save_magazino_cache
 from utility.ui_thread import post_to_ui
 from utility.utils import logger
+from gui.numbered_frames import numbered_label_frame
+
+
+# Page section rows; update these numbers to reorder the sections.
+_MED_ROW_INPUT = 0
+_MED_ROW_SHARED_INFO = 1
+_MED_ROW_RAW_YARN = 2
+_MED_ROW_BAGNO = 3
+_MED_ROW_ERP_FILES = 4
+_MED_ROW_ACTION = 5
 
 
 class OrdineMedTab(ttk.Frame):
@@ -62,8 +72,8 @@ class OrdineMedTab(ttk.Frame):
         """
         self.columnconfigure(0, weight=1)
 
-        sel_frame = ttk.LabelFrame(self, text="Input", padding=6)
-        sel_frame.grid(row=0, column=0, sticky="ew", padx=4, pady=(4, 2))
+        sel_frame = numbered_label_frame(self, 1, "Input")
+        sel_frame.grid(row=_MED_ROW_INPUT, column=0, sticky="ew", padx=4, pady=(4, 2))
         sel_frame.columnconfigure((0, 1), weight=1)
         ttk.Button(sel_frame, text="📄 Select Ordine File", command=self._on_select_ordine, width=18).grid(row=0, column=0, padx=4, pady=4, sticky="ew")
         ttk.Button(sel_frame, text="💾 Output Folder", command=self._on_select_output, width=16).grid(row=0, column=1, padx=4, pady=4, sticky="ew")
@@ -77,11 +87,11 @@ class OrdineMedTab(ttk.Frame):
             text="Articoli (Titolo) and Listini (Prezzo): shared automatically with whatever was last uploaded elsewhere.",
             foreground="grey", anchor="w", wraplength=720, justify="left",
         )
-        self._lbl_shared.grid(row=1, column=0, sticky="ew", padx=4, pady=(2, 0))
+        self._lbl_shared.grid(row=_MED_ROW_SHARED_INFO, column=0, sticky="ew", padx=4, pady=(2, 0))
         self._lbl_shared.grid_remove()
 
-        yarn_frame = ttk.LabelFrame(self, text="Raw Yarn Matching", padding=6)
-        yarn_frame.grid(row=2, column=0, sticky="ew", padx=4, pady=(4, 2))
+        yarn_frame = numbered_label_frame(self, 2, "Raw Yarn Matching")
+        yarn_frame.grid(row=_MED_ROW_RAW_YARN, column=0, sticky="ew", padx=4, pady=(4, 2))
         yarn_frame.columnconfigure(1, weight=1)
         ttk.Button(yarn_frame, text="📦 Select Magazino File…", command=self._on_select_magazino, width=20).grid(row=0, column=0, padx=4, pady=3, sticky="w")
         self._lbl_magazino = ttk.Label(yarn_frame, text="No Magazino file selected", foreground="grey", anchor="w")
@@ -94,8 +104,8 @@ class OrdineMedTab(ttk.Frame):
         if self._source_bar_factory is not None:
             yarn_frame.grid_remove()
 
-        bagno_frame = ttk.LabelFrame(self, text="Bagno Preposato (MED)", padding=6)
-        bagno_frame.grid(row=3, column=0, sticky="ew", padx=4, pady=(3, 2))
+        bagno_frame = numbered_label_frame(self, 3, "Bagno Preposato (MED)")
+        bagno_frame.grid(row=_MED_ROW_BAGNO, column=0, sticky="ew", padx=4, pady=(3, 2))
         bagno_frame.columnconfigure(2, weight=1)
         ttk.Label(bagno_frame, text="First bagno:").grid(row=0, column=0, padx=(0, 5), pady=2, sticky="w")
         ttk.Entry(bagno_frame, textvariable=self.bagno_start_var, width=14).grid(row=0, column=1, padx=4, pady=2, sticky="w")
@@ -108,8 +118,8 @@ class OrdineMedTab(ttk.Frame):
             foreground="grey",
         ).grid(row=1, column=0, columnspan=3, sticky="w", pady=(2, 0))
 
-        erp_frame = ttk.LabelFrame(self, text="Also Extract ERP Files", padding=6)
-        erp_frame.grid(row=4, column=0, sticky="ew", padx=4, pady=(3, 2))
+        erp_frame = numbered_label_frame(self, 4, "Also Extract ERP Files")
+        erp_frame.grid(row=_MED_ROW_ERP_FILES, column=0, sticky="ew", padx=4, pady=(3, 2))
         erp_frame.columnconfigure(1, weight=1)
         ttk.Button(
             erp_frame, text="📁 Select ERP Files Folder…", command=self._on_select_erp_folder, width=22
@@ -133,10 +143,10 @@ class OrdineMedTab(ttk.Frame):
         self.bagno_start_var.trace_add("write", lambda *_: self._save_prefs(ordine_med_bagno_start=self.bagno_start_var.get()))
 
         action_frame = ttk.Frame(self, padding=(6, 4))
-        action_frame.grid(row=5, column=0, sticky="ew", padx=4, pady=2)
+        action_frame.grid(row=_MED_ROW_ACTION, column=0, sticky="ew", padx=4, pady=2)
         if self._source_bar_factory is not None:
-            from gui.source_bar import attach_to_top
-            attach_to_top(self, self._source_bar_factory(self, "ordine_med"))
+            from gui.source_bar import attach_after
+            attach_after(self, self._source_bar_factory(self, "ordine_med"), sel_frame)
         self._btn_convert = ttk.Button(
             action_frame, text="▶  Convert", command=self._on_convert, style="Accent.TButton"
         )

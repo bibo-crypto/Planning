@@ -5,7 +5,7 @@ from tkinter import messagebox, ttk
 
 from calculate import prezzi as prezzi_logic
 from utility import master_data
-from utility.utils import bind_escape_to_close, logger
+from utility.utils import bind_escape_to_close, keep_window_on_top, logger
 
 
 class MasterDataTab(ttk.Frame):
@@ -80,7 +80,7 @@ class MasterDataTab(ttk.Frame):
         label, columns = next((label, schema[1]) for label, schema in self.SCHEMAS.items() if schema[0] == key)
         tree = self._trees[key]; selected = tree.selection()
         old = self._data[key][tree.index(selected[0])] if selected else {}
-        win = tk.Toplevel(self); win.title(f"{label} - Edit"); win.transient(self); win.grab_set()
+        win = tk.Toplevel(self); keep_window_on_top(win); win.title(f"{label} - Edit"); win.transient(self); win.grab_set()
         bind_escape_to_close(win)
         entries = {}
         for row, col in enumerate(columns):

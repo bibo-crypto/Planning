@@ -113,7 +113,7 @@ class SourceRow(ttk.Frame):
         self.columnconfigure(1, weight=1)
 
     def _browse(self):
-        path = filedialog.askopenfilename(filetypes=[("Excel files", "*.xlsx *.xls")])
+        path = filedialog.askopenfilename(parent=self, filetypes=[("Excel files", "*.xlsx *.xls")])
         if not path:
             return
         self.on_upload(self.key, path)
@@ -832,7 +832,10 @@ class SituazioneTab(SituationSourcesMixin, SituationRefreshMixin, ttk.Frame):
         search_entry = ttk.Entry(top, textvariable=search_var, width=24)
         search_entry.pack(side="left")
         ttk.Button(top, text="Clear", width=6, command=lambda: search_var.set("")).pack(side="left", padx=(4, 0))
-        ttk.Button(top, text="Export Abbina", command=lambda: self._export_abbina(filtered_suggestions())).pack(side="right")
+        ttk.Button(
+            top, text="Export Abbina",
+            command=lambda: self._export_abbina(filtered_suggestions(), parent=window),
+        ).pack(side="right")
 
         cols = ["titolo", "codice", "colore", "rocche", "partita", "bagno", "abbina",
                 "tot_rocche", "mc_target", "polmoni", "extra_percent", "motivo", "new_comment"]
@@ -889,12 +892,15 @@ class SituazioneTab(SituationSourcesMixin, SituationRefreshMixin, ttk.Frame):
         search_var.trace_add("write", lambda *_: render())
         render()
 
-    def _export_abbina(self, suggestions):
+    def _export_abbina(self, suggestions, parent=None):
         """Export the "Da abbinare" suggestions to a styled Excel file chosen by the user."""
         if suggestions.empty:
-            messagebox.showinfo("Da abbinare", "Non ci sono combinazioni entro il limite del 20%.")
+            messagebox.showinfo(
+                "Da abbinare", "Non ci sono combinazioni entro il limite del 20%.",
+                parent=parent or self,
+            )
             return
-        path = filedialog.asksaveasfilename(defaultextension=".xlsx", filetypes=[("Excel", "*.xlsx")],
+        path = filedialog.asksaveasfilename(parent=parent or self, defaultextension=".xlsx", filetypes=[("Excel", "*.xlsx")],
                                              initialfile="Da_abbinare.xlsx")
         if not path:
             return
@@ -962,7 +968,7 @@ class SituazioneTab(SituationSourcesMixin, SituationRefreshMixin, ttk.Frame):
             ws.column_dimensions[letter].width = width
         ws.row_dimensions[1].height = 28
         safe_save_workbook(wb, path)
-        messagebox.showinfo("Completed", f"Export completed successfully:\n{path}")
+        messagebox.showinfo("Completed", f"Export completed successfully:\n{path}", parent=parent or self)
 
     def _open_yarn_shortage(self):
         """Opens Mancanza Filato as a popup window (same pattern as Da abbinare)."""
@@ -1031,9 +1037,9 @@ class SituazioneTab(SituationSourcesMixin, SituationRefreshMixin, ttk.Frame):
         styling and conditional formatting.
         """
         if self.current_df.empty:
-            messagebox.showinfo("No data", "Refresh the data before exporting.")
+            messagebox.showinfo("No data", "Refresh the data before exporting.", parent=self)
             return
-        path = filedialog.asksaveasfilename(defaultextension=".xlsx",
+        path = filedialog.asksaveasfilename(parent=self, defaultextension=".xlsx",
                                              filetypes=[("Excel", "*.xlsx")],
                                              initialfile="Situazione_Generale.xlsx")
         if not path:
@@ -1144,7 +1150,7 @@ class SituazioneTab(SituationSourcesMixin, SituationRefreshMixin, ttk.Frame):
 
         safe_save_workbook(wb, path)
         logger.info("Situazione: exported %d visible rows to %s", len(export_df), path)
-        messagebox.showinfo("Completed", f"Export completed successfully:\n{path}")
+        messagebox.showinfo("Completed", f"Export completed successfully:\n{path}", parent=self)
 
 
 if __name__ == "__main__":

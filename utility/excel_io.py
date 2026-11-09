@@ -1,11 +1,14 @@
 """Excel I/O helpers: crash-safe saving and user-facing file-lock errors."""
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 import tempfile
 import zipfile
 from pathlib import Path
+
+from utility.excel_values import describe_invalid_cells, sanitize_workbook
 
 
 def _looks_like_valid_xlsx(path: Path) -> bool:
@@ -55,10 +58,19 @@ def safe_save_workbook(workbook, path: Path, keep_backup: bool = False) -> None:
     os.close(fd)
     temp_path = Path(temp_name)
     try:
+        cleaned = sanitize_workbook(workbook)   # blank text / NaN / over-long text: what makes Excel ask to "recover"
+        if cleaned:
+            logging.getLogger("converter").debug("%s: %d cell(s) made Excel-safe before saving", path.name, cleaned)
         workbook.save(temp_path)
         if not _looks_like_valid_xlsx(temp_path):
             raise RuntimeError(
                 f"Saving '{path.name}' produced an invalid workbook; the original file was left unchanged."
+            )
+        problem = describe_invalid_cells(temp_path)
+        if problem:
+            raise RuntimeError(
+                f"Saving '{path.name}' produced a workbook Excel would not open cleanly ({problem}); "
+                "the original file was left unchanged."
             )
         if keep_backup and path.is_file():
             try:

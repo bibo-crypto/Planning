@@ -295,8 +295,12 @@ class ExcelExporter(_LegacyMethodShims):
     def __init__(self, rows: Sequence[OrderRow], output_path: Path,
                  magazino_summary=None, codes_map: dict | None = None, lotti_summary=None,
                  first_bagno: str | None = None,
-                 hidden_columns: Mapping[str, Collection[str]] | None = None) -> None:
+                 hidden_columns: Mapping[str, Collection[str]] | None = None,
+                 machine_totals: Mapping[int, int] | None = None) -> None:
         self.rows = rows
+        # {machine: colours already queued} from the Overview, for CONSEGNA (calculate.consegna);
+        # None = every row today + 14 days.
+        self.machine_totals = machine_totals
         # {sheet title: labels} switched off in the column picker; nothing hidden by default.
         self.hidden_columns = hidden_columns or {}
         # The raw-yarn batches assigned by the last export(), so a caller can write the
@@ -329,7 +333,8 @@ class ExcelExporter(_LegacyMethodShims):
         self._apply_column_widths(ws, order_columns)
         self._freeze_and_filter(ws, order_columns)
 
-        ordini_rows = build_ordini_elvy_rows(list(self.rows), first_bagno=self.first_bagno)
+        ordini_rows = build_ordini_elvy_rows(list(self.rows), first_bagno=self.first_bagno,
+                                            machine_totals=self.machine_totals)
 
         raw_yarn_matches = None
         if self.magazino_summary is not None and not self.magazino_summary.empty:

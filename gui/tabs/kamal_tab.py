@@ -28,6 +28,7 @@ for _name, _module_path in (
     ("load_dfm_entries_by_prefix", "parsers.dfm_lookup"),
     ("KamalExcelExporter", "exporters.kamal_excel_exporter"),
     ("KamalParser", "parsers.kamal_parser"),
+    ("apply_order_consegna", "calculate.consegna"),
     ("assign_ordine_kamal_machines", "pipelines.ordine_kamal"),
     ("assign_bagno_prepostato", "pipelines.ordine_kamal"),
     ("build_ordine_kamal_rows", "pipelines.ordine_kamal"),
@@ -51,12 +52,24 @@ from utility.lotti_cache import load_lotti_cache, save_lotti_cache
 from utility.utils import find_pdfs, logger, load_settings, save_settings
 from typing import Callable
 from utility.ui_thread import post_to_ui
+from gui.numbered_frames import numbered_label_frame
+
+
+# Page section rows; update these numbers to reorder the sections.
+_KAMAL_ROW_INPUT = 0
+_KAMAL_ROW_DFM_INFO = 1
+_KAMAL_ROW_RAW_YARN = 2
+_KAMAL_ROW_BAGNO = 3
+_KAMAL_ROW_ORDER_NUMBER = 4
+_KAMAL_ROW_ERP_FILES = 5
+_KAMAL_ROW_ACTION = 6
 
 
 class KamalTab(ttk.Frame):
     """Embeddable 'Ordine Kamal' tab."""
 
-    def __init__(self, master, on_shared_cache_changed: Callable[[], None] | None = None, source_bar_factory=None):
+    def __init__(self, master, on_shared_cache_changed: Callable[[], None] | None = None, source_bar_factory=None,
+                 machine_totals_provider: Callable[[], dict[int, int]] | None = None):
         """Create the Ordine Kamal page: the state (selected PDFs, folders, output, options as Tk variables) and the widgets, then restore the saved paths."""
         super().__init__(master)
         self._pdf_paths: list[Path] = []
@@ -79,6 +92,10 @@ class KamalTab(ttk.Frame):
         self._shared_dfm_path = ""
         self._on_shared_cache_changed = on_shared_cache_changed
         self._source_bar_factory = source_bar_factory
+        # CONSEGNA follows the machines' coverage (calculate.consegna), like Ordine MED; the
+        # Overview's machine totals are read on the UI thread when Convert is pressed.
+        self._machine_totals_provider = machine_totals_provider
+        self._machine_totals_snapshot: dict[int, int] | None = None
         self._prefs = load_settings()
 
         self._build_ui()
@@ -99,8 +116,8 @@ class KamalTab(ttk.Frame):
         order number) and the Convert button with its status label.
         """
         self.columnconfigure(0, weight=1)
-        sel_frame = ttk.LabelFrame(self, text="Input", padding=6)
-        sel_frame.grid(row=0, column=0, sticky="ew", padx=4, pady=(4, 2))
+        sel_frame = numbered_label_frame(self, 1, "Input")
+        sel_frame.grid(row=_KAMAL_ROW_INPUT, column=0, sticky="ew", padx=4, pady=(4, 2))
         sel_frame.columnconfigure((0, 1, 2), weight=1)
         ttk.Button(sel_frame, text="📄 Select PDF(s)", command=self._on_select_pdfs, width=16).grid(row=0, column=0, padx=4, pady=4, sticky="ew")
         ttk.Button(sel_frame, text="📁 Select PDF Folder", command=self._on_select_pdf_folder, width=18).grid(row=0, column=1, padx=4, pady=4, sticky="ew")
@@ -117,12 +134,12 @@ class KamalTab(ttk.Frame):
             text="DFM: upload a reference on the Data Elvy tab — it is shared automatically.",
             foreground="grey", anchor="w", wraplength=720, justify="left",
         )
-        self._lbl_dfm.grid(row=1, column=0, sticky="ew", padx=4, pady=(2, 0))
+        self._lbl_dfm.grid(row=_KAMAL_ROW_DFM_INFO, column=0, sticky="ew", padx=4, pady=(2, 0))
         if self._source_bar_factory is not None:
             self._lbl_dfm.grid_remove()
 
-        lotti_frame = ttk.LabelFrame(self, text="Raw Yarn Matching", padding=6)
-        lotti_frame.grid(row=2, column=0, sticky="ew", padx=4, pady=(4, 2))
+        lotti_frame = numbered_label_frame(self, 2, "Raw Yarn Matching")
+        lotti_frame.grid(row=_KAMAL_ROW_RAW_YARN, column=0, sticky="ew", padx=4, pady=(4, 2))
         lotti_frame.columnconfigure(1, weight=1)
         ttk.Button(lotti_frame, text="📦 Select LOTTI File…", command=self._on_select_lotti, width=20).grid(row=0, column=0, padx=4, pady=3, sticky="w")
         self._lbl_lotti = ttk.Label(lotti_frame, text="No LOTTI file selected", foreground="grey", anchor="w")
@@ -133,8 +150,8 @@ class KamalTab(ttk.Frame):
         if self._source_bar_factory is not None:
             lotti_frame.grid_remove()          # DFM, Magazino and Lotto are uploaded with the source bar
 
-        bagno_frame = ttk.LabelFrame(self, text="Bagno Preposato (KAMAL)", padding=6)
-        bagno_frame.grid(row=3, column=0, sticky="ew", padx=4, pady=(3, 2))
+        bagno_frame = numbered_label_frame(self, 3, "Bagno Preposato (KAMAL)")
+        bagno_frame.grid(row=_KAMAL_ROW_BAGNO, column=0, sticky="ew", padx=4, pady=(3, 2))
         bagno_frame.columnconfigure(2, weight=1)
         ttk.Label(bagno_frame, text="First bagno:").grid(row=0, column=0, padx=(0, 5), pady=2, sticky="w")
         ttk.Entry(bagno_frame, textvariable=self._kamal_bagno_start, width=14).grid(
@@ -150,8 +167,8 @@ class KamalTab(ttk.Frame):
             foreground="grey", wraplength=620, justify="left",
         ).grid(row=1, column=0, columnspan=3, sticky="w", pady=(2, 0))
 
-        order_frame = ttk.LabelFrame(self, text="Optional Order Number in Commento", padding=6)
-        order_frame.grid(row=4, column=0, sticky="ew", padx=4, pady=(3, 2))
+        order_frame = numbered_label_frame(self, 4, "Optional Order Number in Commento")
+        order_frame.grid(row=_KAMAL_ROW_ORDER_NUMBER, column=0, sticky="ew", padx=4, pady=(3, 2))
         order_frame.columnconfigure(2, weight=1)
         ttk.Label(order_frame, text="Order No.:").grid(row=0, column=0, padx=(0, 5), pady=2, sticky="w")
         ttk.Entry(order_frame, textvariable=self._kamal_order_no, width=14).grid(row=0, column=1, padx=4, pady=2, sticky="w")
@@ -164,8 +181,8 @@ class KamalTab(ttk.Frame):
             foreground="grey", wraplength=620, justify="left",
         ).grid(row=1, column=0, columnspan=3, sticky="w", pady=(2, 0))
 
-        erp_frame = ttk.LabelFrame(self, text="Also Extract ERP Files", padding=6)
-        erp_frame.grid(row=5, column=0, sticky="ew", padx=4, pady=(3, 2))
+        erp_frame = numbered_label_frame(self, 5, "Also Extract ERP Files")
+        erp_frame.grid(row=_KAMAL_ROW_ERP_FILES, column=0, sticky="ew", padx=4, pady=(3, 2))
         erp_frame.columnconfigure(1, weight=1)
 
         ttk.Button(
@@ -208,7 +225,7 @@ class KamalTab(ttk.Frame):
         )
 
         action_frame = ttk.Frame(self, padding=(6, 4))
-        action_frame.grid(row=6, column=0, sticky="ew", padx=4, pady=2)
+        action_frame.grid(row=_KAMAL_ROW_ACTION, column=0, sticky="ew", padx=4, pady=2)
         self._btn_convert = ttk.Button(
             action_frame, text="▶  Convert", command=self._on_convert, style="Accent.TButton"
         )
@@ -218,8 +235,8 @@ class KamalTab(ttk.Frame):
         self._lbl_status = ttk.Label(action_frame, text="", foreground="grey")
         self._lbl_status.pack(side="left", padx=12)
         if self._source_bar_factory is not None:
-            from gui.source_bar import attach_to_top
-            attach_to_top(self, self._source_bar_factory(self, "ordine_kamal"))
+            from gui.source_bar import attach_after
+            attach_after(self, self._source_bar_factory(self, "ordine_kamal"), sel_frame)
 
     # --------------------------------------------------------------- events
     def _on_select_pdfs(self):
@@ -453,6 +470,14 @@ class KamalTab(ttk.Frame):
         from utility.column_selection import load_hidden
         self._hidden_columns_snapshot = load_hidden("ordine_kamal")
 
+        self._machine_totals_snapshot = None
+        if self._machine_totals_provider is not None:
+            try:
+                self._machine_totals_snapshot = self._machine_totals_provider()
+            except Exception:  # noqa: BLE001 -- never block a conversion on the Overview
+                logger.exception("Could not read the Overview machine schedule; CONSEGNA uses this order only")
+                self._machine_totals_snapshot = {}
+
         self._btn_convert.config(state="disabled")
         self._lbl_status.config(text="Converting…", foreground="grey")
         thread = threading.Thread(target=self._run_conversion, args=(pdf_paths,), daemon=True)
@@ -554,6 +579,7 @@ class KamalTab(ttk.Frame):
                     first_bagno=self._first_bagno_snapshot,
                     order_no=self._order_no_snapshot,
                     hidden_columns=getattr(self, "_hidden_columns_snapshot", None),
+                    machine_totals=self._machine_totals_snapshot,
                 )
                 exporter.export()
                 raw_yarn_matches = exporter.raw_yarn_matches
@@ -570,6 +596,8 @@ class KamalTab(ttk.Frame):
                             all_rows, dfm_c170_entries, order_no=self._order_no_snapshot
                         )
                         assign_ordine_kamal_machines(ordini_rows)
+                        if self._machine_totals_snapshot is not None:
+                            apply_order_consegna(ordini_rows, self._machine_totals_snapshot)
                         assign_bagno_prepostato(ordini_rows, self._first_bagno_snapshot)
                         if lotti_summary is not None and not lotti_summary.empty:
                             match_by_lotto(ordini_rows, lotti_summary)

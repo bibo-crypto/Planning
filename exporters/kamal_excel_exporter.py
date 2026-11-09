@@ -15,6 +15,7 @@ import openpyxl
 from utility.column_selection import pick_columns
 from utility.utils import clean_text
 from utility.master_data import raw_articolo_for
+from calculate.consegna import apply_order_consegna
 from parsers.dfm_lookup import is_first_time_dyeing
 
 from exporters.excel_exporter import (
@@ -82,8 +83,12 @@ class KamalExcelExporter:
                  magazino_summary=None, codes_map: dict | None = None,
                  lotti_summary=None, first_bagno: str | None = None,
                  order_no: str | None = None,
-                 hidden_columns: Mapping[str, Collection[str]] | None = None) -> None:
+                 hidden_columns: Mapping[str, Collection[str]] | None = None,
+                 machine_totals: Mapping[int, int] | None = None) -> None:
         self.rows = rows
+        # {machine: colours already queued} from the Overview, for CONSEGNA (calculate.consegna);
+        # None = every row today + 14 days.
+        self.machine_totals = machine_totals
         # {sheet title: labels} switched off in the column picker; nothing hidden by default.
         self.hidden_columns = hidden_columns or {}
         # The raw-yarn batches of the last export(), so the Filato file can be written from
@@ -147,6 +152,8 @@ class KamalExcelExporter:
         ws2.sheet_view.rightToLeft = False
         # Use the same machine calculation for the workbook and ERP update.
         assign_ordine_kamal_machines(kamal_rows)
+        if self.machine_totals is not None:
+            apply_order_consegna(kamal_rows, self.machine_totals)
         assign_bagno_prepostato(kamal_rows, self.first_bagno)
 
         # Also set Abbina on the original parsed rows (first sheet).  kamal_rows

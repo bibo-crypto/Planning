@@ -11,7 +11,7 @@ from utility.email_compose import EmailTemplate, open_outlook_email, send_outloo
 from calculate.raw_batch import is_assigned_raw
 from utility.excel_io import safe_save_workbook
 from utility.master_data import finished_articolo_for, raw_articolo_for
-from utility.utils import bind_escape_to_close
+from utility.utils import bind_escape_to_close, keep_window_on_top
 from .biglietti_exports import (
     deduplicate_create_excel,
     load_articoli_marca_lookup,
@@ -35,6 +35,7 @@ class SharedOrdersWindowMixin:
             return
         self._orders_loading = True
         loading = tk.Toplevel(self)
+        keep_window_on_top(loading)
         loading.title("Show Orders")
         loading.geometry("360x120")
         loading.resizable(False, False)
@@ -79,6 +80,7 @@ class SharedOrdersWindowMixin:
 
         window = tk.Toplevel(self)
         bind_escape_to_close(window)
+        keep_window_on_top(window)
         window.title("Extract Shipped/Invoiced History")
         window.geometry("1180x620")
         window.minsize(850, 420)
@@ -133,6 +135,7 @@ class SharedOrdersWindowMixin:
         def export():
             """Export the shipped/invoiced history to an Excel file chosen by the user."""
             path = filedialog.asksaveasfilename(
+                parent=window,
                 title="Export to Excel", defaultextension=".xlsx",
                 filetypes=[("Excel files", "*.xlsx")], initialfile="Shipped_Invoiced_History.xlsx",
             )
@@ -168,6 +171,7 @@ class SharedOrdersWindowMixin:
 
         window = tk.Toplevel(self)
         bind_escape_to_close(window)
+        keep_window_on_top(window)
         window.title("PG-X Orders Report")
         window.geometry("980x600")
         window.minsize(760, 420)
@@ -287,6 +291,7 @@ class SharedOrdersWindowMixin:
 
         window = tk.Toplevel(self)
         bind_escape_to_close(window)
+        keep_window_on_top(window)
         window.title("Select Orders for Biglietti")
         window.geometry("1100x560")
         window.minsize(850, 420)
@@ -503,6 +508,7 @@ class SharedOrdersWindowMixin:
             record = record_by_iid[iid]
             editor = tk.Toplevel(window)
             bind_escape_to_close(editor)
+            keep_window_on_top(editor)
             editor.title(f"Edit {current_sheet['name']} Color")
             editor.geometry("470x350")
             editor.resizable(False, False)

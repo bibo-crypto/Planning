@@ -27,7 +27,7 @@ def main() -> None:
         erp_output = root / "ERP" / "Ordine_MED_ERP.xlsx"
         export_erp_order_workbook(erp_output, [record])
         erp_workbook = openpyxl.load_workbook(erp_output, read_only=True)
-        assert erp_workbook.active.title == "Dati sistema (B-N)"
+        assert erp_workbook.active.title == "Foglio1"
         assert erp_workbook.active.max_row == 2
         erp_workbook.close()
 

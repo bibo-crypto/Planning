@@ -550,7 +550,8 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
         def make_kamal(parent):
             from gui.tabs.kamal_tab import KamalTab
             return KamalTab(parent, on_shared_cache_changed=self._on_shared_cache_changed,
-                            source_bar_factory=self._source_bar)
+                            source_bar_factory=self._source_bar,
+                            machine_totals_provider=lambda: self._overview_tab.machine_totals_for_med())
 
         def make_ordine_med(parent):
             from gui.tabs.ordine_med_tab import OrdineMedTab
@@ -882,6 +883,7 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
         """The row of upload buttons for the files *page_key* needs (see utility.source_hub.PAGE_SOURCES)."""
         return SourceBar(
             parent, source_hub.PAGE_SOURCES[page_key], self.upload_source,
+            title_number=2 if page_key in {"ordine_elvy", "ordine_med", "ordine_kamal"} else None,
             button_width=button_width,
         )
 
@@ -1082,6 +1084,7 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
         """
         win = tk.Toplevel(self)
         bind_escape_to_close(win)
+        keep_window_on_top(win)
         win.title("Notifications")
         win.geometry("1010x380")
         win.minsize(680, 280)
@@ -1093,7 +1096,6 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
             win.wm_attributes("-toolwindow", False)
         except tk.TclError:
             pass
-        win.lift()
         win.columnconfigure(0, weight=1); win.rowconfigure(1, weight=1)
         filter_bar = ttk.Frame(win); filter_bar.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 0))
         ttk.Label(filter_bar, text="Category:").pack(side="left")

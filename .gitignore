@@ -19,6 +19,8 @@ installer_output/
 logs/
 settings/
 /cache/
+# The program's own backups (the Backup button and the daily backup write them here)
+backups/
 *.log
 *.pkl
 *.prof

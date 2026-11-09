@@ -20,6 +20,7 @@ from tkinter import filedialog, ttk
 from typing import Callable, Iterable
 
 from utility import source_hub
+from gui.numbered_frames import numbered_title
 
 _GREEN, _RED, _ORANGE = "#16a34a", "#dc2626", "#f59e0b"
 
@@ -40,6 +41,7 @@ class _Tip:
         self._hide()
         self._win = tk.Toplevel(self._widget)
         self._win.wm_overrideredirect(True)
+        self._win.attributes("-topmost", True)
         tk.Label(self._win, text=text, bg="#fffbe6", fg="#1f2937", relief="solid", borderwidth=1,
                  padx=6, pady=2, font=("Segoe UI", 9)).pack()
         x = self._widget.winfo_rootx()
@@ -61,13 +63,17 @@ class SourceBar(ttk.Frame):
     _instances: "weakref.WeakSet[SourceBar]" = weakref.WeakSet()
 
     def __init__(self, parent, keys: Iterable[str], upload: Callable[[str, str], None], *,
-                 title: str = "Files", button_width: int = 11):
+                 title: str = "Files", title_number: int | None = None, button_width: int = 11):
         super().__init__(parent, relief="solid", borderwidth=1, padding=(4, 2))
         self._keys = [k for k in keys if k in source_hub.SOURCES]
         self._upload = upload
         self._busy: set[str] = set()
         self._dots: dict[str, tk.Label] = {}
-        ttk.Label(self, text=f"{title}:", foreground="#475467").grid(row=0, column=0, padx=(2, 8))
+        if title_number is None:
+            title_label = ttk.Label(self, text=f"{title}:", foreground="#475467")
+        else:
+            title_label = numbered_title(self, title_number, f"{title}:", foreground="#475467")
+        title_label.grid(row=0, column=0, padx=(2, 8))
         for column, key in enumerate(self._keys, start=1):
             cell = ttk.Frame(self)
             cell.grid(row=0, column=column, padx=3, pady=2)
@@ -151,3 +157,17 @@ def attach_to_top(page: tk.Widget, bar: SourceBar) -> None:
         info = child.grid_info()
         child.grid_configure(row=int(info.get("row", 0)) + 1)
     bar.grid(row=0, column=0, columnspan=8, sticky="w", padx=4, pady=(4, 2))
+
+
+def attach_after(page: tk.Widget, bar: SourceBar, reference: tk.Widget) -> None:
+    """Place *bar* immediately after a gridded widget, shifting later rows down."""
+    reference_row = int(reference.grid_info().get("row", 0))
+    target_row = reference_row + 1
+    for child in page.grid_slaves():
+        if child is bar or child is reference:
+            continue
+        info = child.grid_info()
+        row = int(info.get("row", 0))
+        if row >= target_row:
+            child.grid_configure(row=row + 1)
+    bar.grid(row=target_row, column=0, columnspan=8, sticky="w", padx=4, pady=(4, 2))

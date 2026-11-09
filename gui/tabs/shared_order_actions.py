@@ -714,6 +714,7 @@ class SharedOrdersActionsMixin:
 
         preview = tk.Toplevel(parent_window)
         bind_escape_to_close(preview)
+        keep_window_on_top(preview)
         preview.title("⚡ Smart Auto-Assign Matches")
         preview.geometry("1010x460")
         preview.minsize(820, 350)

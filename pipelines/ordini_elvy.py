@@ -11,7 +11,8 @@ ARTICOLO             — the row's raw code (already G-prefixed via the Elvy
                         mapping) converted to "C" — it's entering dyeing.
 COLORE                — copied from the row's DFM colour lookup (number).
 Q.TA                 — copied as-is (number).
-CONSEGNA             — today + 14 days (real date).
+CONSEGNA             — 14 days after the machine's coverage (calculate.consegna), or today
+                        + 14 days without machine totals (real date).
 COMMENTO             — "PG-X-PO-<POD No>-<year>", year from the row's Po Date.
 LAVORANTE            — always 900901 (number).
 LAV. SUCC            — always 900161 (number).
@@ -39,6 +40,7 @@ from typing import TYPE_CHECKING
 
 from calculate.abbina_calculator import MACHINE_CODES
 from calculate.bagno import sequence_bagno
+from calculate.consegna import CONSEGNA_LEAD_DAYS, apply_order_consegna
 from parsers.pdf_parser import OrderRow
 from utility.master_data import finished_articolo_for, raw_articolo_for
 from utility.utils import clean_text
@@ -51,7 +53,6 @@ LAVORANTE_CODE = 900901
 LAVORANTE_SUCCESSIVO_CODE = 900161
 STOCK_MAG_CODE = 900923
 SIGLA_DISPO_CODE = "D"
-CONSEGNA_LEAD_DAYS = 14
 
 RE_ABBINA_CONES = re.compile(r"Machine\s+(\d+)\s*Cones?", re.IGNORECASE)
 RE_YEAR = re.compile(r"(\d{4})")
@@ -129,9 +130,14 @@ def _elvy_bagno_group_keys(rows: list[OrderRow]) -> list[tuple]:
     return keys
 
 
-def build_ordini_elvy_rows(rows: list[OrderRow], first_bagno: str | None = None) -> list[OrdiniElvyRow]:
+def build_ordini_elvy_rows(rows: list[OrderRow], first_bagno: str | None = None,
+                           machine_totals: dict[int, int] | None = None) -> list[OrdiniElvyRow]:
     """Build one OrdiniElvyRow per OrderRow, using today's date as the basis
     for CONSEGNA / DATA RICONSEGNA.
+
+    machine_totals: {machine number: colours already queued} from the Overview.  When given,
+    CONSEGNA follows the machine's coverage (calculate.consegna) like Ordine MED; without it
+    every row is today + 14 days.
 
     first_bagno: optional "First bagno" (e.g. "T1200").  When given, BAGNO
     PREPOSTO is filled per calculate.bagno; raises ValueError if malformed.
@@ -170,6 +176,8 @@ def build_ordini_elvy_rows(rows: list[OrderRow], first_bagno: str | None = None)
     # Keep the group key on the row too, for callers that want to inspect it.
     for row, key in zip(out, _elvy_bagno_group_keys(rows)):
         row.bagno_group = key
+    if machine_totals is not None:
+        apply_order_consegna(out, machine_totals)
     return out
 
 

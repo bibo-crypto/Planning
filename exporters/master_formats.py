@@ -16,6 +16,7 @@ Dates are real Excel dates displayed as day/month/year for the ERP workflow.
 """
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Iterable
 
 from openpyxl.formatting.rule import Rule
@@ -24,6 +25,8 @@ from openpyxl.styles.colors import Color
 from openpyxl.styles.differential import DifferentialStyle
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.table import Table, TableStyleInfo
+
+from utility.excel_values import to_excel_date
 
 DATE_FORMAT = "dd/mm/yyyy"
 GENERAL = "General"
@@ -64,6 +67,13 @@ def _header_row(ws, headers: tuple[str, ...]) -> list[str]:
     return [str(ws.cell(1, c).value or "").strip() for c in range(1, len(headers) + 1)]
 
 
+def _text_stays_text(cell) -> None:
+    """A text that merely starts with "=" (a comment such as "=PG-X") is stored as text; openpyxl would
+    turn it into a formula Excel cannot read.  These files hold no formulas at all."""
+    if cell.data_type == "f":
+        cell.data_type = "s"
+
+
 def _add_table(ws, name: str, style: str, columns: int, last_row: int) -> None:
     table = Table(displayName=name, name=name, ref=f"A1:{get_column_letter(columns)}{last_row}")
     table.tableStyleInfo = TableStyleInfo(name=style, showFirstColumn=False, showLastColumn=False,
@@ -100,6 +110,11 @@ def apply_erp_master_format(ws) -> bool:
         cell.number_format = number_format
         for row in range(2, last_row + 1):
             body = ws.cell(row, index)
+            _text_stays_text(body)
+            if header in ERP_DATE_HEADERS and not (isinstance(body.value, datetime) and body.value == body.value):
+                converted = to_excel_date(body.value)       # text / date / blank NaN -> a real date or an empty cell
+                if converted is not body.value:
+                    body.value = converted
             body.font, body.alignment, body.number_format = ERP_BODY_FONT, _CENTER, number_format
             body.fill = PatternFill()          # the master's data cells have no fill
             body.border = Border(left=_THIN, right=_THIN, top=_THIN, bottom=_THIN)
@@ -131,9 +146,9 @@ _BLACK_FONT_COLOR = Color(theme=1)
 
 
 def partita_value(partita):
-    """Partita.GG is a number in the master; a lot that is not purely digits stays text."""
+    """Partita.GG is a number in the master; a lot that is not purely digits stays text; none is an empty cell."""
     text = str(partita if partita is not None else "").strip()
-    return int(text) if text.isdigit() else text
+    return int(text) if text.isdigit() else (text or None)
 
 
 def write_filato_master_sheet(ws, matches: Iterable) -> int:
@@ -157,6 +172,7 @@ def write_filato_master_sheet(ws, matches: Iterable) -> int:
         head.number_format = _FILATO_HEADER_FORMATS.get(header, GENERAL)
         for row in range(2, last_row + 1):
             body = ws.cell(row, index)
+            _text_stays_text(body)
             body.font = Font(name="Calibri", size=11, bold=header == _FILATO_BOLD_BODY, color=_BLACK_FONT_COLOR)
             body.alignment = _CENTER
             body.border = Border(left=_THIN, right=_THIN, top=_THIN, bottom=_THIN)
