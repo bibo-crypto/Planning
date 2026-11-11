@@ -117,19 +117,28 @@ class MachineTimelineTab(ttk.Frame):
 
         bar = ttk.Frame(self, padding=(8, 4))
         bar.grid(row=0, column=0, columnspan=2, sticky="ew")
-        bar.columnconfigure(0, weight=1)
+        # Search / Zoom / Refresh on the left, the files frame beside them on the right, all on one row.
+        # _fit_top_row() measures both and squeezes the buttons until they fit the window; only when even
+        # the tightest sizes do not fit does the files frame drop under the buttons (nothing is ever cut).
+        bar.columnconfigure(1, weight=1)
+        self._bar = bar
+        self._fit_job = None
+        self._fit_width = None
         controls = ttk.Frame(bar)
-        controls.grid(row=0, column=0, sticky="ew")
+        controls.grid(row=0, column=0, sticky="w")
         self._controls = controls
-        ttk.Label(controls, text="Search:").grid(row=0, column=0, padx=(0, 3))
+        self._search_label = ttk.Label(controls, text="Search:")
+        self._search_label.grid(row=0, column=0, padx=(0, 3))
         self._search_var = tk.StringVar()
         entry = ttk.Entry(controls, textvariable=self._search_var, width=18)
+        self._search_entry = entry
         entry.grid(row=0, column=1, padx=(0, 4))
         entry.bind("<Return>", lambda _e: self._search())
         ttk.Button(controls, text="🔍 Find", command=self._search).grid(row=0, column=2, padx=2)
         ttk.Button(controls, text="Clear", command=self._clear_search).grid(row=0, column=3, padx=2)
         ttk.Button(controls, text="⟲ Now", command=self._go_now).grid(row=0, column=4, padx=2)
-        ttk.Label(controls, text="Zoom:").grid(row=0, column=5, padx=(6, 2))
+        self._zoom_label = ttk.Label(controls, text="Zoom:")
+        self._zoom_label.grid(row=0, column=5, padx=(6, 2))
         self._zoom_var = tk.StringVar(value="50%")
         zoom = ttk.Combobox(controls, textvariable=self._zoom_var, values=list(self.ZOOMS), width=5, state="readonly")
         zoom.grid(row=0, column=6, padx=(0, 5))
@@ -138,7 +147,7 @@ class MachineTimelineTab(ttk.Frame):
         self._refresh_button.grid(row=0, column=8, padx=(4, 0))
 
         self._file_area = ttk.Frame(bar)
-        self._file_area.grid(row=1, column=0, sticky="ew", pady=(3, 0))
+        self._place_files_beside()
         self._file_frame = ttk.LabelFrame(self._file_area, text="Timeline files", padding=(4, 1))
         self._file_frame.grid(row=0, column=0, sticky="w")
         self._file_buttons = ttk.Frame(self._file_frame)
@@ -149,10 +158,7 @@ class MachineTimelineTab(ttk.Frame):
         ttk.Button(self._file_buttons, text="COPERTURA", command=self._choose_copertura).pack(side="left", padx=(8, 2))
         self._cop_state = ttk.Label(self._file_buttons, text="✖", foreground="#dc2626", font=("Segoe UI", 10, "bold"))
         self._cop_state.pack(side="left")
-        self._legend = ttk.Label(self._file_area, text="✔ done   ▶ running   red = no colours   grey = colour not in Produzione",
-                                 foreground="#475467")
-        self._legend.grid(row=0, column=1, sticky="e", padx=2)
-        self._file_area.columnconfigure(0, weight=1)
+        bar.bind("<Configure>", self._schedule_fit, add="+")
 
         corner = tk.Canvas(self, width=self.LABEL_W, height=self.HEADER_H, bg="#e9eef5", highlightthickness=0)
         corner.grid(row=1, column=0, sticky="nsew")
@@ -165,8 +171,17 @@ class MachineTimelineTab(ttk.Frame):
         self._main = tk.Canvas(self, bg="#ffffff", highlightthickness=0, cursor="arrow")
         self._main.grid(row=2, column=1, sticky="nsew")
 
-        self._status = ttk.Label(self, text="", anchor="w", padding=(8, 3))
-        self._status.grid(row=3, column=0, columnspan=2, sticky="ew")
+        status_row = ttk.Frame(self)
+        status_row.grid(row=3, column=0, columnspan=2, sticky="ew")
+        status_row.columnconfigure(0, weight=1)
+        self._status = ttk.Label(status_row, text="", anchor="w", justify="left", padding=(8, 3))
+        self._status.grid(row=0, column=0, sticky="ew")
+        self._legend = ttk.Label(status_row, text="✔ done   ▶ running   red = no colours   grey = colour not in Produzione",
+                                 foreground="#475467", padding=(8, 3))
+        self._legend.grid(row=0, column=1, sticky="e")
+        # a long message wraps onto a second line instead of running under the legend
+        status_row.bind("<Configure>", lambda e: self._status.configure(
+            wraplength=max(220, e.width - self._legend.winfo_reqwidth() - 24)), add="+")
 
         self._main.bind("<Configure>", lambda _e: self._draw())
         self._main.bind("<Motion>", self._on_motion)
@@ -452,9 +467,62 @@ class MachineTimelineTab(ttk.Frame):
     def set_source_bar(self, bar) -> None:
         """Use the program's shared source bar (Copertura, Produzione, Wincoint, DFM) instead of the two own buttons."""
         self._file_frame.grid_remove()
-        # second row, left: Search / Zoom / Refresh keep the first row to themselves, so nothing is
-        # pushed out of the window on a 1366 px screen; the legend stays at the right of this row
-        bar.grid(row=0, column=0, sticky="w", padx=(0, 6))
+        bar.grid(row=0, column=0, sticky="e")
+        self._fit_width = None
+        self.after_idle(self._fit_top_row)
+
+    # --------------------------------------------------------- top row fitting
+    # (padding added to the text of every button | width of the Search box | show the "Search:" / "Zoom:" captions)
+    _DENSITIES = ((None, 18, True), (24, 12, True), (14, 8, False))
+
+    def _place_files_beside(self) -> None:
+        self._file_area.grid(row=0, column=1, sticky="e", padx=(12, 0), pady=0)
+
+    def _place_files_below(self) -> None:
+        self._file_area.grid(row=1, column=0, columnspan=2, sticky="w", padx=0, pady=(3, 0))
+
+    @staticmethod
+    def _squeezable(widget) -> list:
+        found = []
+        for child in widget.winfo_children():
+            if hasattr(child, "set_density"):
+                found.append(child)
+            found.extend(MachineTimelineTab._squeezable(child))
+        return found
+
+    def _apply_density(self, level: int) -> None:
+        padding, search_width, captions = self._DENSITIES[level]
+        for button in self._squeezable(self._controls) + self._squeezable(self._file_area):
+            button.set_density(padding)
+        self._search_entry.configure(width=search_width)
+        for label in (self._search_label, self._zoom_label):
+            if captions:
+                label.grid()
+            else:
+                label.grid_remove()
+
+    def _schedule_fit(self, event=None) -> None:
+        if event is not None and (event.widget is not self._bar or event.width == self._fit_width):
+            return
+        if self._fit_job is not None:
+            self.after_cancel(self._fit_job)
+        self._fit_job = self.after(30, self._fit_top_row)
+
+    def _fit_top_row(self) -> None:
+        """Put the buttons and the files frame on one row, as roomy as the window allows."""
+        self._fit_job = None
+        available = self._bar.winfo_width()
+        if available <= 1 or not self.winfo_exists():
+            return
+        self._fit_width = available
+        self._place_files_beside()
+        for level in range(len(self._DENSITIES)):
+            self._apply_density(level)
+            self._bar.update_idletasks()
+            needed = self._controls.winfo_reqwidth() + self._file_area.winfo_reqwidth() + 40
+            if needed <= available:
+                return
+        self._place_files_below()        # even the tightest sizes do not fit: stack them, never cut them
 
     # ----------------------------------------------------------------- hover
     def _hit(self, x: float, y: float) -> int | None:

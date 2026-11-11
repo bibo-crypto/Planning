@@ -40,3 +40,12 @@ jobs:
             grep -E '^(FAILED|ERROR) |[0-9]+ (passed|failed|error)' pytest.log | tail -80
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+      # The failed tests as annotations: they are shown on the run page for anyone, without opening the log.
+      - name: Annotate the failed tests
+        if: always()
+        shell: bash
+        run: |
+          result=$(grep -E '[0-9]+ (passed|failed|error)' pytest.log | tail -1)
+          echo "::notice title=pytest result::${result}"
+          failed=$(grep -E '^(FAILED|ERROR) ' pytest.log | head -25 | cut -c1-230 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+          if [ -n "$failed" ]; then echo "::error title=pytest failed tests (first 25)::${failed}"; fi

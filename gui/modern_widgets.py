@@ -26,6 +26,8 @@ class RoundedButton(tk.Canvas):
         requested = int(width) if width is not None else 0
         if requested and requested <= 40:
             requested = requested * 9 + 40
+        self._requested_width = requested
+        self._min_width = int(min_width)
         self._width = max(int(min_width), requested, text_width + 40)
 
         super().__init__(
@@ -96,6 +98,17 @@ class RoundedButton(tk.Canvas):
     def _on_click(self, _event=None):
         if self._state != "disabled" and self._command:
             self._command()
+
+    def set_density(self, padding: int | None) -> None:
+        """Compact the button: its width becomes the text plus *padding* pixels (no 130 px minimum).
+        ``None`` restores the normal width.  Used by pages whose top row must fit a small screen."""
+        text_width = self._font.measure(self._text)
+        if padding is None:
+            self._width = max(self._min_width, self._requested_width, text_width + 40)
+        else:
+            self._width = text_width + int(padding)
+        super().configure(width=self._width)
+        self._draw()
 
     def configure(self, cnf=None, **kwargs):
         options = dict(cnf or {})
