@@ -13,6 +13,7 @@ Tables:
 """
 import sqlite3
 import json
+import time
 import hashlib
 import os
 from io import StringIO
@@ -152,7 +153,28 @@ def get_conn():
     return conn
 
 
+# SQLite errors that can clear up by themselves a moment later (antivirus / cloud-sync / another process
+# touching the -wal/-shm files).  The user's own log shows "disk I/O error" at a start that worked on the
+# next try.  Anything else (read-only, corrupt, a real failure) is never retried.
+_TRANSIENT_ERRORS = ("database is locked", "disk i/o error")
+_INIT_ATTEMPTS = 3
+
+
 def init_db():
+    """Create / upgrade the schema; a transient lock or I/O error is retried a few times, then raised."""
+    for attempt in range(1, _INIT_ATTEMPTS + 1):
+        try:
+            _init_db_once()
+            return
+        except sqlite3.OperationalError as exc:
+            transient = any(marker in str(exc).lower() for marker in _TRANSIENT_ERRORS)
+            if not transient or attempt == _INIT_ATTEMPTS:
+                raise
+            logger.warning("Database init attempt %d/%d failed (%s); retrying", attempt, _INIT_ATTEMPTS, exc)
+            time.sleep(0.5 * attempt)
+
+
+def _init_db_once():
     """Create the SQLite schema and apply the small in-place migrations.
 
     Switches the database to WAL mode, runs the schema script, then adds the columns

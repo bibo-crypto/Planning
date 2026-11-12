@@ -109,3 +109,41 @@ def test_a_missing_column_is_added_once_and_a_concurrent_duplicate_is_tolerated(
         real(conn, "partita_state", "prezzo")                     # already there: nothing happens, no error
     finally:
         conn.close()
+
+
+def _fail_then_work(monkeypatch, message, failures):
+    real = situazione_db._init_db_once
+    calls = {"n": 0}
+
+    def flaky():
+        calls["n"] += 1
+        if calls["n"] <= failures:
+            raise sqlite3.OperationalError(message)
+        real()
+
+    monkeypatch.setattr(situazione_db, "_init_db_once", flaky)
+    monkeypatch.setattr(situazione_db.time, "sleep", lambda _s: None)
+    return calls
+
+
+def test_a_transient_disk_io_error_at_start_is_retried(db, monkeypatch, caplog):
+    calls = _fail_then_work(monkeypatch, "disk I/O error", failures=2)
+    with caplog.at_level("WARNING", logger="converter"):
+        situazione_db.init_db()
+    assert calls["n"] == 3 and "ALTER" not in caplog.text
+    assert sum("Database init attempt" in r.getMessage() for r in caplog.records) == 2
+    assert set(ADDED_COLUMNS["partita_state"]) <= _columns(db, "partita_state")
+
+
+def test_a_lasting_lock_is_raised_after_three_attempts(db, monkeypatch):
+    calls = _fail_then_work(monkeypatch, "database is locked", failures=99)
+    with pytest.raises(sqlite3.OperationalError, match="locked"):
+        situazione_db.init_db()
+    assert calls["n"] == 3
+
+
+def test_a_non_transient_error_is_raised_at_once_without_retry(db, monkeypatch):
+    calls = _fail_then_work(monkeypatch, "attempt to write a readonly database", failures=99)
+    with pytest.raises(sqlite3.OperationalError, match="readonly"):
+        situazione_db.init_db()
+    assert calls["n"] == 1

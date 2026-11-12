@@ -291,6 +291,8 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
             return
         self._startup_label.config(text="Loading application pages...")
         self.update_idletasks()
+        # Written first so a start that never finishes is visible in converter.log (it used to leave no trace).
+        logger.info("Planning v%s starting (data folder: %s)", APP_VERSION, APP_DATA_DIR)
         self._arm_startup_watchdog()
         try:
             self._build_ui()
