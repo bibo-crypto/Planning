@@ -27,6 +27,7 @@ Elvy Invoice workflow: gui/workflows/elvy_invoice.py
 from __future__ import annotations
 from utility.excel_io import safe_save_workbook
 
+import faulthandler
 import logging
 import os
 import queue
@@ -290,13 +291,81 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
             return
         self._startup_label.config(text="Loading application pages...")
         self.update_idletasks()
-        self._build_ui()
+        self._arm_startup_watchdog()
+        try:
+            self._build_ui()
+        except Exception as exc:
+            self._disarm_startup_watchdog()
+            # A failure here used to leave the window on "Loading application pages..." for ever (the
+            # traceback only went to Tk's callback handler, which an EXE has no console for).  Record it,
+            # tell the user where to look, then re-raise so nothing is swallowed.
+            self._report_startup_failure(exc)
+            raise
         # One automatic backup per day, in the background (the Backup button stays for manual ones).
         threading.Thread(target=daily_backup, daemon=True).start()
         self._attach_log_handler()
         self._poll_log_queue()
         self._startup_label.destroy()
+        self._disarm_startup_watchdog()
+        # The line the packaged-EXE smoke test (ci/smoke_exe.py) waits for: proof that the loading screen was left.
+        logger.info("Planning started: all pages built (v%s)", APP_VERSION)
         self._check_for_updates()
+
+    # How long the pages may take to build before the program writes down where it is stuck.
+    STARTUP_WATCHDOG_SECONDS = 25
+
+    def _arm_startup_watchdog(self) -> None:
+        """If building the pages takes longer than STARTUP_WATCHDOG_SECONDS, write the stack of every thread to
+        logs/startup_hang.log (again every period, so two dumps show whether it is moving or stuck).
+
+        A hung start has no window to read a log from, so the evidence goes to a file on disk that can be
+        sent as it is.  The file only exists while a start is running and is deleted once the pages are
+        built -- if it is still there, that start never finished.  Never raises: it is a diagnostic only.
+        """
+        self._hang_dump_file = None
+        try:
+            log_dir = APP_DATA_DIR / "logs"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            self._hang_dump_path = log_dir / "startup_hang.log"
+            self._hang_dump_file = open(self._hang_dump_path, "w", encoding="utf-8")
+            self._hang_dump_file.write(
+                f"Planning v{APP_VERSION}: the pages were not built {self.STARTUP_WATCHDOG_SECONDS}s after the start.\n"
+                "The stacks of all threads follow (the first 'most recent call first' block is the main thread).\n"
+            )
+            self._hang_dump_file.flush()
+            faulthandler.dump_traceback_later(self.STARTUP_WATCHDOG_SECONDS, repeat=True, file=self._hang_dump_file)
+        except (OSError, ValueError, RuntimeError) as exc:
+            logger.warning("Startup watchdog could not be armed: %s", exc)
+            self._hang_dump_file = None
+
+    def _disarm_startup_watchdog(self) -> None:
+        """Stop the watchdog and delete its file (a start that failed is already in converter.log)."""
+        handle = getattr(self, "_hang_dump_file", None)
+        if handle is None:
+            return
+        try:
+            faulthandler.cancel_dump_traceback_later()
+            handle.close()
+            self._hang_dump_path.unlink(missing_ok=True)
+        except (OSError, ValueError) as exc:
+            logger.warning("Startup watchdog could not be cleaned up: %s", exc)
+        finally:
+            self._hang_dump_file = None
+
+    def _report_startup_failure(self, exc: BaseException) -> None:
+        """Log a failed page build with its traceback and replace the loading text with the reason."""
+        logger.error("Planning could not build its pages", exc_info=(type(exc), exc, exc.__traceback__))
+        log_file = APP_DATA_DIR / "logs" / "converter.log"
+        text = (
+            "Planning could not load its pages.\n\n"
+            f"{type(exc).__name__}: {exc}\n\nDetails were written to:\n{log_file}"
+        )
+        try:
+            self._startup_label.config(text=text, justify="center", wraplength=700)
+            self.update_idletasks()
+            messagebox.showerror("Planning", text, parent=self)
+        except tk.TclError:
+            pass  # the window is already being closed
 
     def _check_for_updates(self) -> None:
         """Check GitHub without delaying startup, then ask before updating."""

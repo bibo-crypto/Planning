@@ -12,17 +12,32 @@ jobs:
   pytest:
     runs-on: windows-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.12 is what CI has always used; 3.14 is the Python the application is developed and built with.
+        python-version: ["3.12", "3.14"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
           cache: pip
           cache-dependency-path: |
             requirements.txt
             requirements-dev.txt
       - name: Install dependencies
         run: python -m pip install -r requirements-dev.txt
+      # The runner's desktop is small (~1024 px wide) and Windows keeps a window inside the screen, so the
+      # layout tests that compare a 1920 px with a 1100 px window cannot run.  Try to enlarge the desktop;
+      # if the runner refuses, those tests skip with the reason (the job's log shows the size that was used).
+      - name: Enlarge the runner desktop (best effort)
+        shell: pwsh
+        continue-on-error: true
+        run: Set-DisplayResolution -Width 1920 -Height 1080 -Force
+      - name: Show the desktop size the GUI tests will see
+        if: always()
+        run: python -c "import tkinter as tk; r = tk.Tk(); print('desktop', r.winfo_screenwidth(), 'x', r.winfo_screenheight())"
       - name: Run the test suite
         shell: bash
         run: |
@@ -49,3 +64,11 @@ jobs:
           echo "::notice title=pytest result::${result}"
           failed=$(grep -E '^(FAILED|ERROR) ' pytest.log | head -25 | cut -c1-230 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
           if [ -n "$failed" ]; then echo "::error title=pytest failed tests (first 25)::${failed}"; fi
+      # The whole log is kept so a failure can be read after the run page's own log has expired or been truncated.
+      - name: Keep the pytest log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-log-py${{ matrix.python-version }}
+          path: pytest.log
+          if-no-files-found: ignore

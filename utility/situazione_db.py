@@ -18,7 +18,7 @@ import os
 from io import StringIO
 from datetime import datetime
 
-from utility.utils import APP_DATA_DIR
+from utility.utils import APP_DATA_DIR, logger
 
 DB_DIR = APP_DATA_DIR / "situazione"
 DB_DIR.mkdir(parents=True, exist_ok=True)
@@ -111,6 +111,38 @@ CREATE INDEX IF NOT EXISTS idx_source_snapshot_row_source ON source_snapshot_row
 """
 
 
+# Columns introduced after the first schema, each added in place by init_db() (type is TEXT for all of them).
+_LATER_COLUMNS = (
+    ("source_snapshot", "data_fingerprint"),
+    ("source_snapshot", "column_meta"),
+    ("source_snapshot", "payload_json"),
+    ("partita_state", "custom"),
+    ("partita_state", "ritardo_consegna"),
+    ("upload_log", "file_path"),
+    ("partita_state", "prezzo"),
+)
+
+
+def _add_column_if_missing(conn, table, column):
+    """ALTER TABLE ... ADD COLUMN, but only when the column is really missing.
+
+    The old code ignored every sqlite3.OperationalError here, so a read-only database, an I/O failure or a
+    lock skipped the upgrade silently and the program failed later with "no such column".  Now the column
+    list is read first; the only error still ignored is "duplicate column name" (another process added it
+    between our check and our ALTER).  Anything else propagates with the original traceback.
+    """
+    existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+    if column in existing:
+        return
+    try:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} TEXT")
+        conn.commit()
+        logger.info("Database upgrade: added %s.%s", table, column)
+    except sqlite3.OperationalError as exc:
+        if "duplicate column name" not in str(exc).lower():
+            raise
+
+
 def get_conn():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -124,8 +156,8 @@ def init_db():
     """Create the SQLite schema and apply the small in-place migrations.
 
     Switches the database to WAL mode, runs the schema script, then adds the columns
-    introduced later (fingerprint, column metadata, payload, custom) -- each ALTER
-    is ignored when the column already exists, so this is safe on every start.
+    introduced later (fingerprint, column metadata, payload, custom, ...).  A column is only added when
+    it is missing, so this is safe on every start; a real failure (read-only, I/O, locked) is raised.
     """
     conn = get_conn()
     try:
@@ -134,45 +166,11 @@ def init_db():
         conn.execute("PRAGMA journal_mode=WAL")
         conn.executescript(SCHEMA)
         conn.commit()
-        try:
-            conn.execute("ALTER TABLE source_snapshot ADD COLUMN data_fingerprint TEXT")
-            conn.commit()
-        except sqlite3.OperationalError:
-            pass
-        try:
-            conn.execute("ALTER TABLE source_snapshot ADD COLUMN column_meta TEXT")
-            conn.commit()
-        except sqlite3.OperationalError:
-            pass  # column already exists
-        try:
-            conn.execute("ALTER TABLE source_snapshot ADD COLUMN payload_json TEXT")
-            conn.commit()
-        except sqlite3.OperationalError:
-            pass  # column already exists
-        try:
-            conn.execute("ALTER TABLE partita_state ADD COLUMN custom TEXT")
-            conn.commit()
-        except sqlite3.OperationalError:
-            pass  # column already exists
-        try:
-            conn.execute("ALTER TABLE partita_state ADD COLUMN ritardo_consegna TEXT")
-            conn.commit()
-        except sqlite3.OperationalError:
-            pass  # column already exists
-        try:
-            conn.execute("ALTER TABLE upload_log ADD COLUMN file_path TEXT")
-            conn.commit()
-        except sqlite3.OperationalError:
-            pass  # column already exists
-        try:
-            # Prezzo Ord. -- the price actually entered in Wincoint, read from
-            # the source file (see situazione_loaders.load_wincoint_orders).
-            # Existing installs get this column added on next launch; older
-            # rows simply read back with an empty prezzo until their next Refresh.
-            conn.execute("ALTER TABLE partita_state ADD COLUMN prezzo TEXT")
-            conn.commit()
-        except sqlite3.OperationalError:
-            pass  # column already exists
+        # Columns added after the first release.  Prezzo Ord. (partita_state.prezzo) is the price actually
+        # entered in Wincoint (see situazione_loaders.load_wincoint_orders); rows saved before it existed
+        # read back with an empty prezzo until their next Refresh.
+        for table, column in _LATER_COLUMNS:
+            _add_column_if_missing(conn, table, column)
     finally:
         conn.close()
 

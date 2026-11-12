@@ -9,7 +9,7 @@ import sqlite3
 import tempfile
 import zipfile
 
-from utility.utils import APP_DATA_DIR
+from utility.utils import APP_DATA_DIR, logger
 
 BACKUP_PREFIX = "planning_backup"
 KEEP_DAYS = 10
@@ -56,7 +56,8 @@ def daily_backup(directory: Path | None = None, today: date | None = None) -> Pa
         if any(_backup_day(path) == today for path in directory.glob(f"{BACKUP_PREFIX}_*.zip")):
             return None
         return create_backup(directory / f"{BACKUP_PREFIX}_{datetime.combine(today, datetime.now().time()):%Y%m%d_%H%M%S}.zip")
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 -- the program must start; the failure is recorded, not hidden
+        logger.warning("Automatic daily backup failed", exc_info=True)
         return None
 
 
@@ -89,7 +90,10 @@ def _snapshot_sqlite(source: Path, target: Path) -> bool:
         finally:
             reader.close()
         return True
-    except sqlite3.Error:
+    except sqlite3.Error as exc:
+        # The caller falls back to zipping the plain file (not a consistent snapshot) -- say so in the log.
+        logger.warning("Could not take a consistent SQLite snapshot of %s (%s); the plain file is backed up instead",
+                       source.name, exc)
         return False
 
 

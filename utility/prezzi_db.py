@@ -9,6 +9,7 @@ from pathlib import Path
 import pandas as pd
 
 from utility.orders_db import DB_PATH
+from utility.utils import logger
 
 
 _NUMERIC_COLUMNS = ("LIVELLOLPZ", "PREZZOLPZ")
@@ -51,7 +52,10 @@ def load_prezzi_frame(
             if column in frame.columns:
                 frame[column] = pd.to_numeric(frame[column], errors="coerce")
         return frame
-    except (OSError, sqlite3.Error, TypeError, ValueError):
+    except (OSError, sqlite3.Error, TypeError, ValueError) as exc:
+        # A cache: failing to read it just means "rebuild from the Excel file" -- but a locked or damaged
+        # database must show up in the log instead of looking like an empty cache.
+        logger.warning("Listini cache could not be read (%s: %s); it will be rebuilt", type(exc).__name__, exc)
         return None
     finally:
         if connection is not None:

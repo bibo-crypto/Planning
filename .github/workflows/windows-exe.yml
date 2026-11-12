@@ -1,0 +1,54 @@
+name: windows-exe
+
+# Builds the Windows application exactly like build.bat does (main.spec, onedir), checks what was packaged,
+# then STARTS the packaged Planning.exe on a throw-away profile (ci/smoke_exe.py): it must leave the
+# "Loading application pages" screen, restart on the data its first run left behind, and close.
+# It only reads the repository: nothing is published and no release is created.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-and-smoke-test:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - name: Install the production dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Build the executable (same command as build.bat)
+        run: python -m PyInstaller main.spec --noconfirm
+      - name: Check what was packaged
+        shell: pwsh
+        run: |
+          $root = "dist\Planning"
+          $problems = @()
+          if (-not (Test-Path "$root\Planning.exe")) { $problems += "Planning.exe is missing" }
+          foreach ($name in @("icon.ico", "version.txt", "prezzi_category_map.json")) {
+            if (-not (Get-ChildItem $root -Recurse -File -Filter $name -ErrorAction SilentlyContinue)) { $problems += "$name is not in the package" }
+          }
+          # nothing from the development tree may ship (top level of the package and of _internal only:
+          # third-party packages legitimately contain folders of their own with such names)
+          foreach ($folder in @($root, "$root\_internal")) {
+            foreach ($name in @("tests", "venv", ".git", ".github", "ci", "gui", "calculate")) {
+              if (Test-Path "$folder\$name" -PathType Container) { $problems += "'$name' source folder is in $folder" }
+            }
+          }
+          if (Get-ChildItem $root -Recurse -File -Include *.db, *.sqlite, *.sqlite3 -ErrorAction SilentlyContinue) { $problems += "a database file is in the package" }
+          Get-ChildItem $root -File | Format-Table Name, Length
+          if ($problems) { $problems | ForEach-Object { Write-Host "::error::$_" }; exit 1 }
+      - name: Start the packaged program (smoke test)
+        run: python ci/smoke_exe.py --exe dist\Planning\Planning.exe --data-root "$env:RUNNER_TEMP\planning-smoke" --timeout 150
+      - name: Keep the program's own logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: exe-smoke-logs
+          path: ${{ runner.temp }}/planning-smoke/**/*.log
+          if-no-files-found: ignore

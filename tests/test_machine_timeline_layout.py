@@ -38,6 +38,17 @@ def make_page(monkeypatch):
         root.destroy()
 
 
+def require_screen(root, width):
+    """These tests compare how the page lays out at two window widths, so the screen must be that wide.
+
+    Windows keeps a top-level inside the screen: on a CI runner with a 1024 px desktop a 1920 px and a
+    1100 px window both end up ~1026 px wide and the comparison is meaningless.  Skipped (and reported
+    as skipped) instead of failing on a property of the machine, not of the application.
+    """
+    if root.winfo_screenwidth() < width:
+        pytest.skip(f"screen is {root.winfo_screenwidth()} px wide, this test needs {width} px")
+
+
 def settle(root, rounds=25):
     for _ in range(rounds):
         root.update()
@@ -80,12 +91,14 @@ def test_buttons_and_files_share_one_row_and_nothing_is_cut(make_page, width):
 def test_the_buttons_squeeze_as_the_window_narrows(make_page):
     wide_root, wide = make_page(1920)
     narrow_root, narrow = make_page(1100)
+    require_screen(wide_root, 1920)
     assert wide._refresh_button.winfo_width() > narrow._refresh_button.winfo_width()
     assert wide._search_entry.cget("width") > narrow._search_entry.cget("width")
 
 
 def test_the_page_follows_a_resize_in_both_directions(make_page):
     root, page = make_page(1920)
+    require_screen(root, 1920)
     wide = page._refresh_button.winfo_width()
     root.geometry("1100x600+0+0")
     settle(root, 40)

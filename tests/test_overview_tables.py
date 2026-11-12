@@ -76,6 +76,8 @@ def test_few_columns_fill_the_window_instead_of_hugging_the_left(root):
     rows = [("G010003S", "0020 038.00 3", "140849", "25.0", "23.0")] * 5
     natural = fit_columns(tree, columns, rows)
     tree.pack(fill="both", expand=True)
+    if root.winfo_screenwidth() < 1200:      # Windows keeps a window inside the screen (small CI desktop)
+        pytest.skip(f"screen is {root.winfo_screenwidth()} px wide, this test needs 1200 px")
     root.geometry("1200x300")
     _pump(root, 0.4)
     shown = {c: int(tree.column(c, "width")) for c in columns}
