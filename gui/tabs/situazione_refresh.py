@@ -432,6 +432,70 @@ class SituationRefreshMixin:
                 self._on_notification(*entry[1:])
             elif entry[0] == "resolve":
                 notifications.resolve(entry[1])
+
+    @staticmethod
+    def _sync_price_notifications(pending: list[tuple], persist_additions: bool = False) -> None:
+        """Close price alerts absent from a completed check; optionally persist its current alerts."""
+        additions = [
+            entry for entry in pending
+            if entry[0] == "add" and str(entry[1]).startswith("situazione-price-")
+        ]
+        notifications.resolve_missing("situazione-price-", (entry[1] for entry in additions))
+        if persist_additions:
+            notifications.add_many([
+                {
+                    "key": entry[1], "title": entry[2], "message": entry[3],
+                    "page": entry[4], "severity": entry[5],
+                    "partita_colore": entry[6], "ordine": entry[7], "riga": entry[8],
+                }
+                for entry in additions
+            ])
+
+    def refresh_price_notifications_from_db(self, on_complete) -> None:
+        """Rebuild price alerts from the current WINCOINT, DFM and Listini SQLite snapshots."""
+        if getattr(self, "_price_notification_refreshing", False):
+            on_complete(RuntimeError("A price-notification refresh is already running."))
+            return
+        self._price_notification_refreshing = True
+
+        def worker():
+            error = None
+            try:
+                from utility.source_manager import load as load_source
+
+                orders = load_source("wincoint")
+                dfm = load_source("dfm")
+                listini = load_source("listini")
+                if orders is None:
+                    raise ValueError("WINCOINT data is not available in SQLite.")
+                if dfm is None:
+                    raise ValueError("DFM data is not available in SQLite.")
+                if listini is None or listini.empty:
+                    raise ValueError("Listini/Prezzi data is not available in SQLite.")
+                from exporters.biglietti_exporter import load_prezzo_lookup
+                price_lookup, _source = load_prezzo_lookup()
+                if not price_lookup:
+                    raise ValueError("No usable Listini/Prezzi entries are available in SQLite.")
+
+                frame = business_logic.compute_situation(orders_df=orders, dfm_df=dfm)
+                _result, pending = self._recompute_prezzo_densita_for_frame(frame)
+            except Exception as exc:  # noqa: BLE001
+                error = exc
+
+            def apply_result():
+                self._price_notification_refreshing = False
+                result_error = error
+                if result_error is None:
+                    try:
+                        self._sync_price_notifications(pending, persist_additions=True)
+                    except Exception as exc:  # noqa: BLE001
+                        result_error = exc
+                on_complete(result_error)
+
+            post_to_ui(self, apply_result)
+
+        threading.Thread(target=worker, daemon=True, name="planning-price-notification-refresh").start()
+
     def _recompute_prezzo_densita(self) -> None:
         self.current_df, pending = self._recompute_prezzo_densita_for_frame(self.current_df)
         self._fire_prezzo_notifications(pending)

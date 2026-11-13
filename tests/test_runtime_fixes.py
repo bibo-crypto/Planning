@@ -86,6 +86,28 @@ def test_situazione_computes_the_same_result_from_frames_restored_out_of_sqlite(
     assert fresh.reset_index(drop=True).astype(str).equals(again.reset_index(drop=True).astype(str))
 
 
+def test_ritinta_first_machine_color_is_in_macc_but_future_schedule_stays_ritinta():
+    from calculate.situazione import _compute_new_comm
+
+    today = pd.Timestamp("2026-11-13")
+    for old_status in ("C.Q", "Ritinta IN MACC.", "Ritinta PROD.12/11/2026"):
+        in_machine, _ = _compute_new_comm("", "OO", old_status, False, "IN MACC.", None, None, today)
+        planned, _ = _compute_new_comm("", "OO", old_status, False, "PROD.14/11/2026", None, None, today)
+
+        assert in_machine == "IN MACC."
+        assert planned == "Ritinta PROD.14/11/2026"
+
+
+def test_old_in_macc_moves_to_quality_unless_still_first_and_undeyed():
+    from calculate.situazione import _compute_new_comm
+
+    today = pd.Timestamp("2026-11-13")
+    assert _compute_new_comm("", "OO", "", False, "IN MACC.", None, None, today)[0] == "IN MACC."
+    assert _compute_new_comm("", "OO", "IN MACC.", False, "IN MACC.", None, None, today)[0] == "IN MACC."
+    assert _compute_new_comm("", "OO", "IN MACC.", True, "IN MACC.", None, None, today)[0] == "C.Q"
+    assert _compute_new_comm("", "OO", "IN MACC.", False, "PROD.14/11/2026", None, None, today)[0] == "C.Q"
+
+
 def test_saving_an_identical_frame_again_reports_no_change_and_keeps_the_rows(sqlite_db):
     frame = _situazione_frames()["wincoint"]
     assert db.save_frame_cache("wincoint", frame) is True

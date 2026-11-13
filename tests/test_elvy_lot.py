@@ -126,8 +126,8 @@ def test_create_files_an_elvy_lot_row_under_pg_x_and_keeps_it_out_of_filato(tmp_
     assert all(row["Partita"] != "52_LOT 1251B.3" for row in _filato_rows(records, raw, None))
 
 
-# ------------------------------------------------------------------ Situazione: red when the lot is not in stock
-def test_situazione_colours_a_named_lot_that_is_not_in_stock_red():
+# ------------------------------------------------------------------ Situazione: highlight when a named lot is not in stock
+def test_situazione_highlights_a_named_lot_that_is_not_in_stock_without_red():
     from gui.tabs.situazione_tab import SituazioneTab
     try:
         root = tk.Tk()
@@ -150,8 +150,11 @@ def test_situazione_colours_a_named_lot_that_is_not_in_stock_red():
             time.sleep(0.01)
         tags = {tab.tree.set(i, "codice"): tab.tree.item(i, "tags") for i in tab.tree.get_children()}
         detail = (tags, len(tab.current_df), list(tab.current_df.get("comment", [])))
-        assert "yarn_missing" in tags["1"], detail                   # named lot, nothing in stock: red
+        assert "yarn_missing" in tags["1"], detail
         assert "yarn_missing" not in tags["2"] and "yarn_missing" not in tags["3"], detail
+        assert tab.tree.tag_configure("price_error")["background"] == "#fee2e2"
+        assert tab.tree.tag_configure("yarn_missing")["background"] == "#fff2cc"
+        assert tab.tree.tag_configure("Check")["background"] == "#fff2cc"
     finally:
         root.destroy()
 

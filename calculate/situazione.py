@@ -158,6 +158,15 @@ def _blank(x):
 
 def _compute_new_comm(comment, cq, old_comm, end_prod_present, planedate, dq, du, today):
     """Faithful step-by-step port of the New Situazione query's New Comm. cascade."""
+    old_was_in_macc = isinstance(old_comm, str) and old_comm.strip().casefold() == "in macc."
+    if isinstance(old_comm, str):
+        previous_status = old_comm.strip()
+        if previous_status.casefold() == "ritinta in macc.":
+            old_comm = "C.Q"
+        elif previous_status.casefold().startswith("ritinta ") and not _blank(planedate):
+            previous_plan = previous_status[len("Ritinta "):].strip()
+            if previous_plan.casefold() != str(planedate).strip().casefold():
+                old_comm = "C.Q"
     is_pgx = isinstance(comment, str) and comment.startswith("PG-X")
 
     # start: New Comm. = Old Comm., then a PG-X (yarn) override
@@ -215,9 +224,16 @@ def _compute_new_comm(comment, cq, old_comm, end_prod_present, planedate, dq, du
     # waiting on quality with a re-dye already scheduled -> show it; any other
     # non-"OO" code that slipped through -> ready to ship
     if nc == "C.Q" and not _blank(planedate):
-        nc = f"Ritinta {planedate}"
+        nc = "IN MACC." if str(planedate).strip().upper() == "IN MACC." else f"Ritinta {planedate}"
     elif cq != "OO":
         nc = "pronto da spedire"
+
+    if old_was_in_macc and not is_pgx and cq == "OO":
+        remains_first_undeyed = (
+            str(planedate).strip().casefold() == "in macc."
+            and not end_prod_present
+        )
+        nc = "IN MACC." if remains_first_undeyed else "C.Q"
 
     # quality-derived status: shipped always wins over everything computed above
     if du is not None:

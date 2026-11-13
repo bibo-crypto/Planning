@@ -1189,6 +1189,23 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
                     tags=("oddrow" if index % 2 else "evenrow",),
                 )
             self._refresh_notification_badge()
+
+        def finish_source_refresh(error=None):
+            if not win.winfo_exists():
+                return
+            refresh_button.configure(state="normal", text="Refresh")
+            if error is not None:
+                messagebox.showerror("Notifications", f"Could not refresh price notifications:\n{error}", parent=win)
+            refresh()
+
+        def refresh_from_sources():
+            situation_tab = getattr(self, "_situazione_tab", None)
+            if situation_tab is None:
+                messagebox.showerror("Notifications", "The current SQLite data is not available.", parent=win)
+                return
+            refresh_button.configure(state="disabled", text="Refreshing…")
+            situation_tab.refresh_price_notifications_from_db(finish_source_refresh)
+
         def resolve_selected():
             for iid in tree.selection(): notifications.resolve(iid)
             refresh()
@@ -1223,7 +1240,8 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
         ttk.Button(win, text="Mark Resolved", command=resolve_selected).grid(row=2, column=0, sticky="w", padx=8, pady=(0, 8))
         ttk.Button(win, text="Snooze 24h", command=snooze_selected).grid(row=2, column=1, padx=8, pady=(0, 8))
         ttk.Button(win, text="Extract to Excel", command=export_excel).grid(row=2, column=2, padx=8, pady=(0, 8))
-        ttk.Button(win, text="Refresh", command=refresh).grid(row=2, column=3, padx=8, pady=(0, 8))
+        refresh_button = ttk.Button(win, text="Refresh", command=refresh_from_sources)
+        refresh_button.grid(row=2, column=3, padx=8, pady=(0, 8))
         ttk.Button(win, text="Close", command=win.destroy).grid(row=2, column=4, sticky="e", padx=8, pady=(0, 8))
         refresh()
 

@@ -32,7 +32,7 @@ STATUS_COLORS = {
     "pronto da spedire": "#c6efce",
     "Spedita": "#bdd7ee",
     "spedita": "#bdd7ee",
-    "Check": "#ffc7ce",
+    "Check": "#fff2cc",
     "C.Q": "#fff2cc",
 }
 
@@ -640,7 +640,7 @@ class SituazioneTab(SituationSourcesMixin, SituationRefreshMixin, ttk.Frame):
         self.tree.tag_configure("Ritinta", background="#d9c6f0")
         self.tree.tag_configure("price_error", background="#fee2e2", foreground="#991b1b")
         # A row waiting for a named lot ("PG-X(<lot>)") that Magazino Filato does not have.
-        self.tree.tag_configure("yarn_missing", background="#fecaca", foreground="#7f1d1d")
+        self.tree.tag_configure("yarn_missing", background="#fff2cc", foreground="#7f6000")
         self.tree.tag_configure("stripe", background="#f3f6fa")
         self.tree.tag_configure("normal", background="#ffffff")
 

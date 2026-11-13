@@ -67,3 +67,73 @@ def test_open_notification_without_ordine_riga_is_filled_in_by_the_next_report(s
     assert len(items) == 1 and (items[0]["ordine"], items[0]["riga"]) == ("O-77", "3")
     store.add("situazione-price:A:440:9001", "t", "m", "p", ordine="O-99", riga=9)                      # never overwritten
     assert store.list_open()[0]["ordine"] == "O-77"
+
+
+def test_price_notification_sync_resolves_old_issues_and_keeps_current_and_other_alerts(store):
+    from gui.tabs.situazione_refresh import SituationRefreshMixin
+
+    store.add("situazione-price-mismatch:old", "Old price", "stale", "Situazione Generale", "high")
+    store.add("situazione-price-mismatch:current", "Current price", "current", "Situazione Generale", "high")
+    store.add("situazione-raw-yarn-available:batch", "Yarn", "unrelated", "Situazione Generale")
+
+    SituationRefreshMixin._sync_price_notifications([
+        ("add", "situazione-price-mismatch:current", "Current price", "current",
+         "Situazione Generale", "high", "batch", "O-1", 1),
+    ], persist_additions=True)
+
+    open_keys = {item["key"] for item in store.list_open()}
+    assert open_keys == {
+        "situazione-price-mismatch:current",
+        "situazione-raw-yarn-available:batch",
+    }
+
+
+def test_refresh_price_notifications_rebuilds_from_sqlite_sources(store, monkeypatch):
+    import threading
+    import exporters.biglietti_exporter as biglietti_exporter
+    import utility.source_manager as source_manager
+    import gui.tabs.situazione_refresh as refresh_module
+    from gui.tabs.situazione_refresh import SituationRefreshMixin
+
+    sources = {
+        "wincoint": pd.DataFrame([{"partita": "new"}]),
+        "dfm": pd.DataFrame([{"partita": "new", "mc": 24}]),
+        "listini": pd.DataFrame([{"CLARTICOLO": "A", "PREZZOLPZ": 5.0}]),
+    }
+    loaded = []
+    monkeypatch.setattr(source_manager, "load", lambda name: loaded.append(name) or sources[name])
+    monkeypatch.setattr(biglietti_exporter, "load_prezzo_lookup", lambda: ({("A", "1"): (1, 5.0)}, "SQLite"))
+    monkeypatch.setattr(
+        refresh_module.business_logic,
+        "compute_situation",
+        lambda orders_df, dfm_df: pd.DataFrame([{"partita": "new"}]),
+    )
+    pending = [
+        ("add", "situazione-price-mismatch:new", "Current price", "current",
+         "Situazione Generale", "high", "new", "O-1", 1),
+    ]
+    monkeypatch.setattr(
+        SituationRefreshMixin,
+        "_recompute_prezzo_densita_for_frame",
+        lambda self, frame: (frame, pending),
+    )
+    monkeypatch.setattr(refresh_module, "post_to_ui", lambda widget, callback, *args: callback(*args))
+
+    store.add("situazione-price-mismatch:old", "Old price", "stale", "Situazione Generale", "high")
+    store.add("situazione-raw-yarn-available:batch", "Yarn", "unrelated", "Situazione Generale")
+    done = threading.Event()
+    errors = []
+    widget = type("Widget", (SituationRefreshMixin,), {})()
+
+    SituationRefreshMixin.refresh_price_notifications_from_db(
+        widget,
+        lambda error: (errors.append(error), done.set()),
+    )
+
+    assert done.wait(5)
+    assert errors == [None]
+    assert set(loaded) == {"wincoint", "dfm", "listini"}
+    assert {item["key"] for item in store.list_open()} == {
+        "situazione-price-mismatch:new",
+        "situazione-raw-yarn-available:batch",
+    }
