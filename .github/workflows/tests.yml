@@ -48,7 +48,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          python -m pytest -q -rfE --tb=short 2>&1 | tee pytest.log
+          python -m pytest -q -rfEs --tb=short 2>&1 | tee pytest.log
       # The failed tests are also written to the run's summary page, so they can be read without
       # opening the raw log.
       - name: Show the result on the run summary
@@ -58,18 +58,24 @@ jobs:
           {
             echo '### pytest'
             echo '```'
-            grep -E '^(FAILED|ERROR) |[0-9]+ (passed|failed|error)' pytest.log | tail -80
+            grep -E '^(SKIPPED|FAILED|ERROR) |[0-9]+ (passed|failed|error)' pytest.log | tr -d '\r' | tail -80 || true
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
       # The failed tests as annotations: they are shown on the run page for anyone, without opening the log.
       - name: Annotate the failed tests
         if: always()
         shell: bash
+        # GitHub runs `bash -eo pipefail`.  grep exits 1 when it finds nothing, so on a GREEN run (no FAILED/ERROR
+        # line) the `failed=$(grep ... | ...)` assignment returned 1 and killed this step -- and with it the job --
+        # after pytest had passed.  `|| true` is on the whole pipeline: "nothing found" is a normal result for
+        # a report step.  It does not hide test failures: the "Run the test suite" step above fails the job itself.
         run: |
-          result=$(grep -E '[0-9]+ (passed|failed|error)' pytest.log | tail -1)
-          echo "::notice title=pytest result::${result}"
-          failed=$(grep -E '^(FAILED|ERROR) ' pytest.log | head -25 | cut -c1-230 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+          result=$(grep -E '[0-9]+ (passed|failed|error)' pytest.log | tail -1 | tr -d '\r' || true)
+          echo "::notice title=pytest result::${result:-no pytest summary line found in pytest.log}"
+          failed=$(grep -E '^(FAILED|ERROR) ' pytest.log | head -25 | tr -d '\r' | cut -c1-230 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}' || true)
           if [ -n "$failed" ]; then echo "::error title=pytest failed tests (first 25)::${failed}"; fi
+          skipped=$(grep -E '^SKIPPED ' pytest.log | head -25 | tr -d '\r' | cut -c1-230 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}' || true)
+          if [ -n "$skipped" ]; then echo "::notice title=pytest skipped tests::${skipped}"; fi
       # The whole log is kept so a failure can be read after the run page's own log has expired or been truncated.
       - name: Keep the pytest log
         if: always()
