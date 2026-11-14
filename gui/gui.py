@@ -25,7 +25,6 @@ Elvy Invoice workflow: gui/workflows/elvy_invoice.py
 """
 
 from __future__ import annotations
-from utility.excel_io import safe_save_workbook
 
 import faulthandler
 import logging
@@ -44,7 +43,7 @@ from utility.updater import APP_VERSION, ReleaseInfo, check_for_updates_async, d
 from utility import notifications
 from utility.backup import BACKUP_DIR, create_backup, daily_backup, restore_backup
 from gui.modern_widgets import RoundedButton
-from utility.utils import keep_window_on_top, bind_escape_to_close
+from utility.utils import keep_window_on_top
 
 # Keep the existing button call sites and their commands, but render them as
 # rounded pill controls throughout the application.
@@ -58,6 +57,7 @@ from gui.workflows import (
 from utility.ui_thread import post_to_ui
 from utility import source_hub
 from gui.source_bar import SourceBar
+from gui.notifications_window import NOTIFICATION_COLUMNS, NotificationsWindow  # noqa: F401 -- NOTIFICATION_COLUMNS stays importable from here
 
 
 def _resource_path(filename: str) -> Path:
@@ -92,16 +92,6 @@ def _first_text_input(widget):
         if target is not None:
             return target
     return None
-
-
-# (stored field, header, width, centred) -- the Notifications table and its Excel export.
-NOTIFICATION_COLUMNS = (
-    ("severity", "Severity", 80, True), ("category", "Category", 100, False),
-    ("title", "Title", 160, False), ("page", "Page", 110, True),
-    ("partita_colore", "Partita Colore", 110, True), ("ordine", "Ordine", 90, True),
-    ("riga", "Riga", 55, True), ("message", "Message", 270, False),
-    ("created_at", "Created", 130, True),
-)
 
 
 def _search_text_input(widget):
@@ -976,6 +966,7 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
             if key == "densita":
                 return key in getattr(self, "_densita_running", set())
         except Exception:  # noqa: BLE001
+            logger.debug("Status check failed", exc_info=True)
             return False
         return False
 
@@ -993,6 +984,7 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
             if key == "lotti":
                 return self._magazino_tab.lotti_status_var.get()
         except Exception:  # noqa: BLE001
+            logger.debug("Status text could not be read", exc_info=True)
             return ""
         return ""
 
@@ -1129,14 +1121,20 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
     def _add_notification(self, key: str, title: str, message: str, page: str, severity: str = "medium",
                           partita_colore: str = "", ordine="", riga="") -> None:
         def add_now():
-            notifications.add(key, title, message, page, severity, partita_colore=partita_colore,
-                              ordine=ordine, riga=riga)
+            try:
+                notifications.add(key, title, message, page, severity, partita_colore=partita_colore,
+                                  ordine=ordine, riga=riga)
+            except notifications.NotificationStoreError as exc:
+                logger.warning("Notification %r was not saved: %s", key, exc)
             self._refresh_notification_badge()
         post_to_ui(self, add_now)
 
     def _add_notifications(self, entries: list[dict]) -> None:
         def add_now():
-            notifications.add_many(entries)
+            try:
+                notifications.add_many(entries)
+            except notifications.NotificationStoreError as exc:
+                logger.warning("%d notification(s) were not saved: %s", len(entries), exc)
             self._refresh_notification_badge()
         post_to_ui(self, add_now)
 
@@ -1150,100 +1148,12 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
         )
 
     def _open_notifications(self) -> None:
-        """Open the Notifications window: a category filter and a table of the open
-        notifications, with Mark Resolved, Snooze 24h, Extract to Excel and Refresh.
-        """
-        win = tk.Toplevel(self)
-        bind_escape_to_close(win)
-        keep_window_on_top(win)
-        win.title("Notifications")
-        win.geometry("1010x380")
-        win.minsize(680, 280)
-        win.resizable(True, True)
-        # Keep this as a normal overlapped Windows window so the native
-        # Minimize, Restore/Maximize, and Close buttons are available.
-        win.overrideredirect(False)
-        try:
-            win.wm_attributes("-toolwindow", False)
-        except tk.TclError:
-            pass
-        win.columnconfigure(0, weight=1); win.rowconfigure(1, weight=1)
-        filter_bar = ttk.Frame(win); filter_bar.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 0))
-        ttk.Label(filter_bar, text="Category:").pack(side="left")
-        category_var = tk.StringVar(value="All")
-        category_combo = ttk.Combobox(filter_bar, textvariable=category_var, values=("All",) + notifications.CATEGORIES, state="readonly", width=14)
-        category_combo.pack(side="left", padx=6)
-        tree = ttk.Treeview(win, columns=[c[0] for c in NOTIFICATION_COLUMNS], show="headings")
-        for col, title, width, centred in NOTIFICATION_COLUMNS:
-            tree.heading(col, text=title)
-            tree.column(col, width=width, anchor="center" if centred else "w")
-        tree.grid(row=1, column=0, columnspan=5, sticky="nsew", padx=8, pady=8)
-        tree.tag_configure("evenrow", background="#ffffff")
-        tree.tag_configure("oddrow", background="#eef4fb")
-        def refresh():
-            tree.delete(*tree.get_children())
-            for index, item in enumerate(notifications.list_open(category_var.get())):
-                tree.insert(
-                    "", "end", iid=item["key"],
-                    values=tuple(item.get(col, "Other" if col == "category" else "") for col, *_ in NOTIFICATION_COLUMNS),
-                    tags=("oddrow" if index % 2 else "evenrow",),
-                )
-            self._refresh_notification_badge()
-
-        def finish_source_refresh(error=None):
-            if not win.winfo_exists():
-                return
-            refresh_button.configure(state="normal", text="Refresh")
-            if error is not None:
-                messagebox.showerror("Notifications", f"Could not refresh price notifications:\n{error}", parent=win)
-            refresh()
-
-        def refresh_from_sources():
-            situation_tab = getattr(self, "_situazione_tab", None)
-            if situation_tab is None:
-                messagebox.showerror("Notifications", "The current SQLite data is not available.", parent=win)
-                return
-            refresh_button.configure(state="disabled", text="Refreshing…")
-            situation_tab.refresh_price_notifications_from_db(finish_source_refresh)
-
-        def resolve_selected():
-            for iid in tree.selection(): notifications.resolve(iid)
-            refresh()
-        def snooze_selected():
-            for iid in tree.selection(): notifications.snooze(iid, 24)
-            refresh()
-        def export_excel():
-            """Export the open notifications to an Excel file chosen by the user."""
-            items = notifications.list_open()
-            if not items:
-                messagebox.showinfo("Notifications", "There are no open notifications to export.", parent=win)
-                return
-            path = filedialog.asksaveasfilename(
-                parent=win, title="Export Notifications", defaultextension=".xlsx",
-                filetypes=[("Excel files", "*.xlsx")], initialfile="notifications.xlsx",
-            )
-            if not path:
-                return
-            try:
-                from openpyxl import Workbook
-                workbook = Workbook(); sheet = workbook.active; sheet.title = "Notifications"
-                sheet.append(tuple(title for _col, title, *_ in NOTIFICATION_COLUMNS))
-                for item in items:
-                    sheet.append(tuple(item.get(col, "Other" if col == "category" else "") for col, *_ in NOTIFICATION_COLUMNS))
-                sheet.freeze_panes = "A2"; sheet.auto_filter.ref = sheet.dimensions
-                for cell in sheet[1]: cell.font = cell.font.copy(bold=True)
-                safe_save_workbook(workbook, path); workbook.close()
-                messagebox.showinfo("Notifications", f"Export completed:\n{path}", parent=win)
-            except Exception as exc:
-                messagebox.showerror("Export error", str(exc), parent=win)
-        category_combo.bind("<<ComboboxSelected>>", lambda _event: refresh())
-        ttk.Button(win, text="Mark Resolved", command=resolve_selected).grid(row=2, column=0, sticky="w", padx=8, pady=(0, 8))
-        ttk.Button(win, text="Snooze 24h", command=snooze_selected).grid(row=2, column=1, padx=8, pady=(0, 8))
-        ttk.Button(win, text="Extract to Excel", command=export_excel).grid(row=2, column=2, padx=8, pady=(0, 8))
-        refresh_button = ttk.Button(win, text="Refresh", command=refresh_from_sources)
-        refresh_button.grid(row=2, column=3, padx=8, pady=(0, 8))
-        ttk.Button(win, text="Close", command=win.destroy).grid(row=2, column=4, sticky="e", padx=8, pady=(0, 8))
-        refresh()
+        """Open the Notifications window (see gui/notifications_window.py)."""
+        NotificationsWindow(
+            self,
+            get_situation_tab=lambda: getattr(self, "_situazione_tab", None),
+            on_changed=self._refresh_notification_badge,
+        )
 
     def _create_backup(self) -> None:
         """Ask where to save and create a backup ZIP of the settings and cached data."""

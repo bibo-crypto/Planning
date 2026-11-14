@@ -22,6 +22,7 @@ def load_articoli_titolo_map() -> dict[str, str]:
         import utility.situazione_db as situazione_db
         return situazione_db.load_codes()  # {articolo_filato: titolo}
     except Exception:
+        logger.warning("Yarn codes could not be loaded from SQLite; titles will be empty", exc_info=True)
         return {}
 
 
@@ -120,8 +121,9 @@ def load_prezzo_lookup() -> tuple[dict[tuple, tuple], str]:
                     name = source_name("listini") or "SQLite"
                     _PREZZO_LOOKUP_CACHE = (*key, lookup, name)
                     return lookup, name
-    except Exception as _ignored:
-        logger.debug("exporters.biglietti.lookups.load_prezzo_lookup: ignored %r", _ignored)
+    except Exception:
+        # A failing SQLite read used to be a one-line debug note; it decides whether prices exist at all.
+        logger.warning("Prezzi lookup could not be read from SQLite; trying the configured workbook", exc_info=True)
     # Legacy/test compatibility: if an installation has no SQLite Listini
     # snapshot yet, allow the explicitly configured workbook to be imported.
     try:
@@ -144,6 +146,7 @@ def load_prezzo_lookup() -> tuple[dict[tuple, tuple], str]:
         _PREZZO_LOOKUP_CACHE = (*key, lookup, source_file)
         return lookup, source_file
     except Exception:
+        logger.warning("Prezzi lookup could not be loaded; continuing without prices", exc_info=True)
         return {}, ""
 
 
@@ -235,6 +238,7 @@ def _prezzo_match_for(articolo: str, codice: str, lookup: dict[tuple, tuple]) ->
         try:
             category = load_articoli_marca_lookup().get(article, "")
         except Exception:
+            logger.debug("Articoli/marca lookup failed for %r; category left empty", article, exc_info=True)
             category = ""
     if category:
         category_key = str(category).casefold()

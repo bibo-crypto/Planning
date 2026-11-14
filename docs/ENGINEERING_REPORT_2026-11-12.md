@@ -88,7 +88,7 @@ failed=$(grep -E '^(FAILED|ERROR) ' pytest.log | head -25 | ... | awk ...)
 - **ثغرة:** الـ smoke مش بيجرّب **ترقية** profile قديم (schema قديم، بيانات حقيقية). ده السيناريو اللي فيه التعليق عندك.
 - **الاعتماديات مش pinned:** `pandas>=2.0,<3` و`numpy>=1.24,<2.5` و`pyinstaller>=6,<7`. الـ build مش بالضرورة قابل للتكرار.
 - **أدوات تشخيص مضافة:** `startup_hang.log` (يتكتب أوتوماتيك لو الشاشة علقت أكتر من 25 ثانية)، وسطر `Planning vX starting` أول التشغيل، وعرض رسالة خطأ بدل التعليق الصامت.
-- **ملاحظة من log جهازك:** في أكتوبر الـ exe المثبّت في `C:\Program Files\Planing\_internal\data\` كان ناقصه `prezzi_category_map.json` (اتسجل ERROR). الـ spec الحالي بيضمّنه والـ CI بيتحقق منه.
+- **ملاحظة من log جهازك:** في أكتوبر الـ exe المثبّت (تحت فولدر التثبيت القديم بالاسم القديم للمنتج، مجلد `_internal\data`) كان ناقصه `prezzi_category_map.json` (اتسجل ERROR). الـ spec الحالي بيضمّنه والـ CI بيتحقق منه.
 
 ## 8. اختبارات ناقصة أو ضعيفة
 **Coverage الحالي (Linux):** سطور 71.0% / branches 51.5%.

@@ -385,6 +385,7 @@ class PurchaseOrderWorkflowMixin:
                     magazino_summary = snapshot.reset_index(drop=True)
                     logger.info("Raw yarn stock loaded from SQLite: %d batches", len(magazino_summary))
         except Exception:  # noqa: BLE001
+            logger.warning("Raw yarn stock could not be loaded from SQLite", exc_info=True)
             magazino_summary = None
         if magazino_summary is None and raw_yarn_path is not None:
             try:
@@ -411,6 +412,7 @@ class PurchaseOrderWorkflowMixin:
             if loaded_lotti is not None and not loaded_lotti.empty and {"partita", "lotto"}.issubset(loaded_lotti.columns):
                 lotti_summary = loaded_lotti.reset_index(drop=True)
         except Exception:  # noqa: BLE001
+            logger.warning("Lotti summary could not be loaded", exc_info=True)
             lotti_summary = None
         if magazino_summary is not None:
             # Titolo lookup for the Filato x Tinturia sheet comes from the DFM

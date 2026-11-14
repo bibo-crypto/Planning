@@ -783,6 +783,7 @@ class MachineTimelineTab(ttk.Frame):
             from utility import source_hub
             path = source_hub.stored_path("produzione")
         except Exception:  # noqa: BLE001
+            logger.warning("Stored Produzione path could not be read", exc_info=True)
             path = ""
         self._load_colors_from(path, force)
 

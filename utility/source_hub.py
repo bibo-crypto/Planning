@@ -156,6 +156,7 @@ def _dfm_pairs_available() -> bool:
         from parsers.dfm_lookup import load_dfm_pairs
         return bool(load_dfm_pairs())
     except Exception:  # noqa: BLE001
+        logger.debug("DFM readiness check failed", exc_info=True)
         return False
 
 
@@ -180,6 +181,7 @@ def stamp(key: str) -> str:
         snapshot = db.snapshot_fingerprint(_SNAPSHOT_NAME.get(key, _UPLOAD_NAME.get(key, key))) or ""
         return f"{upload.get('uploaded_at', '')}|{snapshot}"
     except Exception:  # noqa: BLE001
+        logger.debug("Source stamp could not be read", exc_info=True)
         return ""
 
 
@@ -246,12 +248,14 @@ def _mirror_store_values(key: str) -> list[str]:
         from utility.path_manager import load_source
         values.append(str(load_source(_PATH_KEY.get(key, key)).get("source_path") or ""))
     except Exception:  # noqa: BLE001
+        logger.debug("Stored source path could not be read", exc_info=True)
         values.append("")
     for module, loader in _LEGACY_CACHES.get(key, ()):
         try:
             import importlib
             values.append(str(getattr(importlib.import_module(module), loader)().get("source_path") or ""))
         except Exception:  # noqa: BLE001
+            logger.debug("Legacy source path could not be read", exc_info=True)
             values.append("")
     return values
 

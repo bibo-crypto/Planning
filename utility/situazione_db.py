@@ -251,6 +251,7 @@ def frame_fingerprint(frame):
         ).encode("utf-8")
         return hashlib.sha256(meta + value_hash).hexdigest()
     except Exception:
+        logger.debug("Fast frame fingerprint failed; using the JSON fingerprint", exc_info=True)
         payload = frame.to_json(orient="records", date_format="iso", force_ascii=False, default_handler=str)
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 

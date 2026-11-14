@@ -18,6 +18,10 @@ from .situazione_sources import SOURCE_BUTTON_NAMES, SOURCE_ORDER
 from utility.ui_thread import post_to_ui
 
 
+class PriceSourcesUnavailable(ValueError):
+    """A source the price notifications are built from is not in SQLite yet (expected, not a bug)."""
+
+
 class SituationRefreshMixin:
     """The refresh logic of the Situazione page: recomputing the situation after a
     source upload, saving it to SQLite, matching raw yarn, computing Prezzo
@@ -291,6 +295,7 @@ class SituationRefreshMixin:
                 # matching pass is not necessarily cheap.
                 abbina_suggestions = build_suggestions(snapshot, max_extra_percent=0.20)
             except Exception:  # noqa: BLE001
+                logger.warning("Abbina suggestions could not be built; the page is shown without them", exc_info=True)
                 abbina_suggestions = None
 
             def apply_result():
@@ -310,7 +315,7 @@ class SituationRefreshMixin:
             post_to_ui(self, apply_result)
 
         threading.Thread(target=worker, daemon=True).start()
-    def _recompute_prezzo_densita_for_frame(self, frame: pd.DataFrame) -> tuple[pd.DataFrame, list[tuple]]:
+    def _recompute_prezzo_densita_for_frame(self, frame: pd.DataFrame, price_lookup: dict | None = None) -> tuple[pd.DataFrame, list[tuple]]:
         """Fill Prezzo Listini (by Articolo+Codice, from the same Listini
         used by the Biglietti tab's Prezzi source, plus the $2 machine
         surcharge on 24/32/56) and Densita`(360-390) (by Partita, from the
@@ -332,7 +337,12 @@ class SituationRefreshMixin:
         .after() -- calling that from a non-main thread is not something
         Tkinter guarantees, so notifications are only collected here and
         must be fired by the caller on the main thread (see
-        _fire_prezzo_notifications)."""
+        _fire_prezzo_notifications).
+
+        *price_lookup*: pass an already loaded Listini lookup to use exactly that one.  Without it the
+        lookup is loaded here and a failure is only logged (the table is still filled, just without
+        prices) -- fine for the table, but NOT for a caller that persists/closes notifications from the
+        result, which is why refresh_price_notifications_from_db loads it once itself and passes it in."""
         import exporters.biglietti_exporter as biglietti_exporter
         result = frame.copy()
         pending: list[tuple] = []
@@ -340,11 +350,12 @@ class SituationRefreshMixin:
             result["prezzo_lisini"] = ""
             result["densita"] = ""
             return result, pending
-        try:
-            price_lookup, _source = biglietti_exporter.load_prezzo_lookup()
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Situazione: Prezzo lookup failed: %s", exc)
-            price_lookup = {}
+        if price_lookup is None:
+            try:
+                price_lookup, _source = biglietti_exporter.load_prezzo_lookup()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Situazione: Prezzo lookup failed: %s", exc)
+                price_lookup = {}
         densita_map: dict[int, dict] = {}
         try:
             cache = load_densita_cache()
@@ -467,19 +478,25 @@ class SituationRefreshMixin:
                 dfm = load_source("dfm")
                 listini = load_source("listini")
                 if orders is None:
-                    raise ValueError("WINCOINT data is not available in SQLite.")
+                    raise PriceSourcesUnavailable("WINCOINT data is not available in SQLite.")
                 if dfm is None:
-                    raise ValueError("DFM data is not available in SQLite.")
+                    raise PriceSourcesUnavailable("DFM data is not available in SQLite.")
                 if listini is None or listini.empty:
-                    raise ValueError("Listini/Prezzi data is not available in SQLite.")
+                    raise PriceSourcesUnavailable("Listini/Prezzi data is not available in SQLite.")
                 from exporters.biglietti_exporter import load_prezzo_lookup
                 price_lookup, _source = load_prezzo_lookup()
                 if not price_lookup:
-                    raise ValueError("No usable Listini/Prezzi entries are available in SQLite.")
+                    raise PriceSourcesUnavailable("No usable Listini/Prezzi entries are available in SQLite.")
 
                 frame = business_logic.compute_situation(orders_df=orders, dfm_df=dfm)
-                _result, pending = self._recompute_prezzo_densita_for_frame(frame)
-            except Exception as exc:  # noqa: BLE001
+                # The lookup checked above is the one used: a second, separate load could fail on its own
+                # and silently produce "no prices" alerts that would then be saved.
+                _result, pending = self._recompute_prezzo_densita_for_frame(frame, price_lookup=price_lookup)
+            except PriceSourcesUnavailable as exc:
+                logger.warning("Price notifications were not refreshed: %s", exc)
+                error = exc
+            except Exception as exc:  # noqa: BLE001 -- reported to the user AND logged with its traceback
+                logger.exception("Price notifications could not be rebuilt from the SQLite sources")
                 error = exc
 
             def apply_result():
@@ -489,6 +506,7 @@ class SituationRefreshMixin:
                     try:
                         self._sync_price_notifications(pending, persist_additions=True)
                     except Exception as exc:  # noqa: BLE001
+                        logger.exception("Price notifications could not be saved")
                         result_error = exc
                 on_complete(result_error)
 

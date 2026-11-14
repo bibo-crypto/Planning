@@ -350,6 +350,7 @@ class OrdineMedTab(ttk.Frame):
                 from parsers.dfm_lookup import load_dfm_pairs
                 dfm_pairs = load_dfm_pairs()
             except Exception:
+                logger.warning("DFM pairs could not be loaded; Check Articolo runs without them", exc_info=True)
                 dfm_pairs = set()
             ordine_med.compute_check_articolo(records, dfm_pairs)
 
@@ -364,6 +365,7 @@ class OrdineMedTab(ttk.Frame):
                         import calculate.situazione as situazione_logic
                         machine_totals = situazione_logic.compute_machine_totals(situation_df, copertura_df)
                 except Exception:
+                    logger.warning("Machine totals could not be computed; delivery dates are left unassigned", exc_info=True)
                     machine_totals = {}
             ordine_med.assign_consegna(records, machine_totals)
             ordine_med.compute_data_riconsegna(records)

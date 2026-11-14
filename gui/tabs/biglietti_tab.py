@@ -808,6 +808,7 @@ class BigliettiTab(SharedOrdersWindowMixin, SharedOrdersActionsMixin, ttk.Frame)
             from utility.source_manager import load as load_source
             magazino_summary = load_source("magazino_summary")
         except Exception:
+            logger.warning("Raw yarn stock could not be loaded from SQLite", exc_info=True)
             magazino_summary = None
         if magazino_summary is None or magazino_summary.empty:
             magazino_path = load_magazino_cache().get("source_path")

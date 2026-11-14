@@ -673,6 +673,7 @@ def load_prezzi(path: str | Path) -> tuple[pd.DataFrame | None, list[str]]:
             from utility.prezzi_db import load_prezzi_frame
             cached_df = load_prezzi_frame(fingerprint)
         except Exception:  # noqa: BLE001 -- cache failures must not block Excel loading
+            logger.warning("Listini cache could not be read; reading the Excel file instead", exc_info=True)
             cached_df = None
         if cached_df is not None:
             _PREZZI_CACHE[fingerprint] = cached_df
@@ -685,7 +686,6 @@ def load_prezzi(path: str | Path) -> tuple[pd.DataFrame | None, list[str]]:
             from utility.prezzi_db import save_prezzi_frame
             save_prezzi_frame(fingerprint, result[0])
         except Exception as exc:  # noqa: BLE001 -- cache failures must not block the loaded data
-            from utility.utils import logger
             logger.warning("Prezzi: could not save SQLite cache: %s", exc)
     return result
 

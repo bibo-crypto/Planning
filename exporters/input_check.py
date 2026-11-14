@@ -15,6 +15,7 @@ from typing import Any, Iterable, Sequence
 import openpyxl
 
 from exporters.biglietti_exporter import HEADER_ALIASES, _key, _read_sheet_rows
+from utility.utils import logger
 
 HEAD_ROWS = 12            # the readers look for the header row in the first 12 rows
 
@@ -84,6 +85,7 @@ def check_order_file(kind: str, data_path: Path, dispo_path: Path | None = None)
     try:
         wb = openpyxl.load_workbook(data_path, data_only=True, read_only=True)
     except Exception:  # noqa: BLE001 -- the conversion reports an unreadable file itself
+        logger.debug("Input check could not open %s; the conversion will report it", data_path, exc_info=True)
         return []
     try:
         if kind == "el_kamal":
@@ -133,6 +135,7 @@ def check_med_input(path: Path) -> list[str]:
     try:
         wb = openpyxl.load_workbook(path, data_only=True, read_only=True)
     except Exception:  # noqa: BLE001
+        logger.debug("Input check could not open %s; the conversion will report it", path, exc_info=True)
         return []
     try:
         sheet = wb["ORDINE"] if "ORDINE" in wb.sheetnames else wb[wb.sheetnames[0]]

@@ -1,0 +1,57 @@
+name: ci-report
+
+# After every finished `tests` or `windows-exe` run, write a short report (counts, failing tests, skip reasons,
+# the packaged-EXE smoke log) to the `ci-reports` branch, so the result can be read straight from the repository
+# without downloading the run's artifacts.  The branch contains only report files, never code.
+#
+# Safety: runs from the default branch's copy of this file; never for runs of forks; the scripts come from the
+# default branch (not from the commit under test); it only reads text from the artifacts; the write permission is
+# used for one thing -- ci/publish_report.sh pushing to `ci-reports`.  A push made with GITHUB_TOKEN does not start
+# other workflows, so this cannot loop.
+on:
+  workflow_run:
+    workflows: ["tests", "windows-exe"]
+    types: [completed]
+
+permissions:
+  contents: write   # push to the ci-reports branch
+  actions: read     # read the finished run's jobs and artifacts
+
+concurrency:
+  group: ci-report
+  cancel-in-progress: false
+
+jobs:
+  report:
+    if: github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Get the report scripts (default branch)
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          sparse-checkout: ci
+          path: code
+      - name: Download the run's artifacts
+        uses: actions/download-artifact@v7
+        continue-on-error: true   # a run can finish without any artifact
+        with:
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+          path: artifacts
+      - name: Describe the run (jobs, failed steps, commit)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh run view "${{ github.event.workflow_run.id }}" --repo "${{ github.repository }}"
+          --json workflowName,displayTitle,conclusion,headSha,headBranch,url,event,jobs > meta.json
+      - name: Build the report
+        run: python3 code/ci/make_report.py --artifacts artifacts --meta meta.json --out-dir report
+      - name: Publish it to the ci-reports branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          bash code/ci/publish_report.sh
+          "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
+          report "${{ github.event.workflow_run.name }} ${{ github.event.workflow_run.head_sha }}"

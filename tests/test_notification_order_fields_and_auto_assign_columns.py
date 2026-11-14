@@ -112,11 +112,13 @@ def test_refresh_price_notifications_rebuilds_from_sqlite_sources(store, monkeyp
         ("add", "situazione-price-mismatch:new", "Current price", "current",
          "Situazione Generale", "high", "new", "O-1", 1),
     ]
-    monkeypatch.setattr(
-        SituationRefreshMixin,
-        "_recompute_prezzo_densita_for_frame",
-        lambda self, frame: (frame, pending),
-    )
+    received_lookups = []
+
+    def recompute(self, frame, price_lookup=None):
+        received_lookups.append(price_lookup)
+        return frame, pending
+
+    monkeypatch.setattr(SituationRefreshMixin, "_recompute_prezzo_densita_for_frame", recompute)
     monkeypatch.setattr(refresh_module, "post_to_ui", lambda widget, callback, *args: callback(*args))
 
     store.add("situazione-price-mismatch:old", "Old price", "stale", "Situazione Generale", "high")
@@ -133,6 +135,7 @@ def test_refresh_price_notifications_rebuilds_from_sqlite_sources(store, monkeyp
     assert done.wait(5)
     assert errors == [None]
     assert set(loaded) == {"wincoint", "dfm", "listini"}
+    assert received_lookups == [{("A", "1"): (1, 5.0)}]       # the lookup that was checked is the one used
     assert {item["key"] for item in store.list_open()} == {
         "situazione-price-mismatch:new",
         "situazione-raw-yarn-available:batch",

@@ -521,6 +521,7 @@ class KamalTab(ttk.Frame):
         try:
             magazino_df, magazino_errors = magazino_logic.load_magazino_snapshot("G170")
         except Exception:
+            logger.warning("Magazino snapshot G170 could not be loaded", exc_info=True)
             magazino_df, magazino_errors = None, []
         if (
             magazino_df is not None and not magazino_df.empty
@@ -548,6 +549,7 @@ class KamalTab(ttk.Frame):
         try:
             lotti_df, lotti_errors = lotti_logic.load_lotti_snapshot(lotti_logic.RAW_ARTICOLO_PREFIXES)
         except Exception:
+            logger.warning("Lotti snapshot could not be loaded", exc_info=True)
             lotti_df, lotti_errors = None, []
         if lotti_df is not None and not lotti_df.empty and {"partita", "lotto"}.issubset(lotti_df.columns):
             # Lotto matching is Kamal's primary rule: the SQLite snapshot must

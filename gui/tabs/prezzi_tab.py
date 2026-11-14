@@ -190,6 +190,7 @@ class PrezziTab(ttk.Frame):
             from utility.source_manager import load as load_source, source_name
             cached = load_source("listini")
         except Exception:
+            logger.warning("Listini snapshot could not be loaded from SQLite", exc_info=True)
             cached = None
         if cached is not None and not cached.empty:
             try:
@@ -206,6 +207,7 @@ class PrezziTab(ttk.Frame):
             try:
                 self._validation_issues = list(logic.validate_price_data(self._base_df))
             except Exception:
+                logger.warning("Price validation failed; the result is shown as not validated", exc_info=True)
                 self._validation_issues = []
                 validated = False
             if validated:
@@ -338,6 +340,7 @@ class PrezziTab(ttk.Frame):
             from utility import situazione_db as db
             stamp = f"{db.snapshot_fingerprint('listini')}|{db.snapshot_fingerprint('codes')}"
         except Exception:  # noqa: BLE001
+            logger.debug("Listini stamp could not be read", exc_info=True)
             return
         if stamp == self._listini_stamp:
             return

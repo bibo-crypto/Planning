@@ -91,6 +91,7 @@ def _private_copy(result: Any) -> Any:
     try:
         return copy.deepcopy(result)
     except Exception:  # noqa: BLE001 -- an un-copyable result is returned as is
+        logger.debug("Cached result could not be deep-copied; returning it as is", exc_info=True)
         return result
 
 

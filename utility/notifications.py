@@ -3,25 +3,95 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Iterable
 
-from utility.utils import APP_DATA_DIR
+from utility.utils import APP_DATA_DIR, logger
 
 _PATH = APP_DATA_DIR / "settings" / "notifications.json"
 CATEGORIES = ("Urgent", "Raw Yarn", "Prices", "Quality", "Delay", "Files", "System", "Other")
 
 
-def _read() -> list[dict]:
+class NotificationStoreError(OSError):
+    """notifications.json exists but cannot be read (or kept safe) right now.
+
+    Raised to WRITERS only: every write is read-modify-write of the whole file, so writing after a failed
+    read used to replace the whole history with just the new entries.
+    """
+
+
+def _quarantine() -> Path:
+    """Move an unreadable notifications.json aside (same folder) so a fresh list can start without losing it.
+
+    Moving, not copying: the corrupt file is gone from its place after the first writer, so the next writer
+    sees "no file yet" instead of making another identical copy.
+    """
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    target = _PATH.with_name(f"notifications.corrupt-{stamp}.json")
+    counter = 1
+    while target.exists():
+        target = _PATH.with_name(f"notifications.corrupt-{stamp}-{counter}.json")
+        counter += 1
+    import os
+    os.replace(_PATH, target)
+    return target
+
+
+def _read(strict: bool = False) -> list[dict]:
+    """The stored notifications.
+
+    A missing file is simply "none yet".  An unreadable one is logged and shown as empty to readers
+    (``strict=False``: a list on screen).  Writers pass ``strict=True``: a read error raises
+    NotificationStoreError instead of letting them overwrite the file, and a corrupt file is first moved to
+    ``notifications.corrupt-<time>.json`` so its content survives the fresh start.
+    """
     try:
-        data = json.loads(_PATH.read_text(encoding="utf-8"))
-        return data if isinstance(data, list) else []
-    except (OSError, ValueError):
+        text = _PATH.read_text(encoding="utf-8")
+    except FileNotFoundError:
         return []
+    except OSError as exc:
+        logger.error("notifications.json could not be read: %s", exc)
+        if strict:
+            raise NotificationStoreError(f"notifications.json could not be read: {exc}") from exc
+        return []
+    try:
+        data = json.loads(text)
+    except ValueError as exc:
+        data = None
+        logger.error("notifications.json is not valid JSON: %s", exc)
+    if isinstance(data, list):
+        return data
+    if data is not None:
+        logger.error("notifications.json does not hold a list; ignoring it")
+    if strict:
+        try:
+            kept = _quarantine()
+        except OSError as exc:
+            raise NotificationStoreError(f"could not set aside the unreadable notifications.json: {exc}") from exc
+        logger.error("The unreadable notifications.json was kept as %s; starting a new list", kept.name)
+    return []
 
 
 def _write(items: list[dict]) -> None:
     from utility.atomic import atomic_write_text
     atomic_write_text(_PATH, json.dumps(items[-1000:], ensure_ascii=False, indent=2))
+
+
+# Notification families that a completed check keeps up to date: the check re-reports the problem for as long
+# as it exists and closes the notification itself (resolve_missing / resolve) once it is gone.  Resolving one of
+# these by hand while the check still reports it needs the user's confirmation (see dismiss()).
+# tests/test_notification_dismissal.py checks that every prefix passed to resolve_missing() is listed here.
+LIVE_PREFIXES = ("situazione-price-", "situazione-raw-yarn-available:", "prezzi-")
+LIVE_KEYS = ("situazione-abbina-pending",)
+INFORMATION_PREFIXES = ("prezzi-price-changes",)      # notices, not problems: no check re-reports them
+
+
+def is_live(key: str) -> bool:
+    """True when *key* belongs to a family that a check re-reports while its problem exists."""
+    key = str(key)
+    if key.startswith(INFORMATION_PREFIXES):
+        return False
+    return key in LIVE_KEYS or key.startswith(LIVE_PREFIXES)
 
 
 def category_for(key: str, title: str = "", page: str = "") -> str:
@@ -93,17 +163,21 @@ def add_many(entries: Iterable[dict]) -> int:
 
     Entries are de-duplicated on their "key" against the OPEN notifications: an
     already-open one is not added again (only its missing Ordine/Riga are filled in
-    from the new report).  Everything is read and written in one pass.
+    from the new report).  A key the user dismissed (see dismiss()) is not re-opened either.
+    Everything is read and written in one pass.
     """
-    items = _read()
+    items = _read(strict=True)
     known_keys = {item.get("key") for item in items if not item.get("resolved")}
     open_by_key = {item.get("key"): item for item in items if not item.get("resolved")}
+    dismissed_keys = {item.get("key") for item in items if item.get("dismissed") and item.get("resolved")}
     now = datetime.now().isoformat(timespec="seconds")
     import re
     added = 0
     backfilled = False
     for entry in entries:
         key = str(entry["key"])
+        if key in dismissed_keys:
+            continue            # resolved by hand while the problem existed: stays hidden until the problem is gone
         if key in known_keys:
             # Already open (not duplicated), but it may predate the Ordine/Riga
             # columns: fill them in from this report instead of leaving them blank.
@@ -159,7 +233,43 @@ def add(key: str, title: str, message: str, page: str, severity: str = "medium",
 
 
 def resolve(key: str) -> None:
-    update_status(key, "resolved")
+    """Close the open notification *key*; a dismissed one is not open, but its dismissal is cleared because
+    whoever calls this (a check that no longer finds the problem) says the problem is gone."""
+    items = _read(strict=True)
+    changed = False
+    for item in items:
+        if item.get("key") != key:
+            continue
+        if item.get("dismissed"):
+            item["dismissed"] = False
+            changed = True
+        elif not item.get("resolved"):
+            item["status"] = "resolved"
+            item["resolved"] = True
+            item["snoozed_until"] = ""
+            changed = True
+    if changed:
+        _write(items)
+
+
+def dismiss(key: str) -> None:
+    """Resolve *key* by hand although the check still reports its problem, and keep it hidden.
+
+    It stays hidden for as long as the check reports the same key; once a completed check no longer reports it
+    (resolve_missing / resolve) the dismissal is cleared, so the alert comes back if the problem returns.  If the
+    values in the key change, it is a different problem and is reported as new.
+    """
+    items = _read(strict=True)
+    changed = False
+    for item in items:
+        if item.get("key") == key and not item.get("resolved"):
+            item["status"] = "resolved"
+            item["resolved"] = True
+            item["snoozed_until"] = ""
+            item["dismissed"] = True
+            changed = True
+    if changed:
+        _write(items)
 
 
 def resolve_missing(prefix: str, current_keys: Iterable[str]) -> int:
@@ -169,29 +279,37 @@ def resolve_missing(prefix: str, current_keys: Iterable[str]) -> int:
     passes that list as *current_keys*; any open notification with this key
     prefix that is NOT in it was fixed, so it closes by itself instead of
     staying open until someone resolves it by hand. Snoozed notifications are
-    closed too. Returns how many were resolved.
+    closed too.  A notification the user dismissed by hand and that is no longer reported just forgets its
+    dismissal.  Returns how many open ones were resolved.
 
     Call this only after the pass actually completed -- never after a
     failure, or every notification would look "fixed".
     """
     keep = set(current_keys)
-    items = _read()
+    items = _read(strict=True)
     resolved = 0
+    cleared = 0
     for item in items:
         key = str(item.get("key", ""))
-        if item.get("resolved") or not key.startswith(prefix) or key in keep:
+        if not key.startswith(prefix) or key in keep:
+            continue
+        if item.get("dismissed"):
+            item["dismissed"] = False        # the problem is gone: report it again if it ever returns
+            cleared += 1
+            continue
+        if item.get("resolved"):
             continue
         item["status"] = "resolved"
         item["resolved"] = True
         item["snoozed_until"] = ""
         resolved += 1
-    if resolved:
+    if resolved or cleared:
         _write(items)
     return resolved
 
 
 def update_status(key: str, status: str) -> None:
-    items = _read()
+    items = _read(strict=True)
     changed = False
     for item in items:
         if item.get("key") == key and not item.get("resolved"):
@@ -205,7 +323,7 @@ def update_status(key: str, status: str) -> None:
 
 
 def snooze(key: str, hours: int = 24) -> None:
-    items = _read()
+    items = _read(strict=True)
     until = (datetime.now() + timedelta(hours=hours)).isoformat(timespec="seconds")
     changed = False
     for item in items:

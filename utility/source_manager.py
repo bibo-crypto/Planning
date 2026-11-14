@@ -14,6 +14,7 @@ from typing import Any
 import pandas as pd
 
 from utility import situazione_db as db
+from utility.utils import logger
 
 # Snapshot name -> metadata cache updated by the corresponding upload controls.
 # These small files remember the selected source path; they are not the data store.
@@ -39,6 +40,7 @@ def _registered_path(name: str) -> str:
         module = importlib.import_module(entry[0])
         return str(getattr(module, entry[1])().get("source_path", "") or "")
     except Exception:
+        logger.warning("Registered source path could not be read", exc_info=True)
         return ""
 
 
@@ -55,6 +57,7 @@ def is_current(name: str) -> bool:
     try:
         meta = db.snapshot_meta(name)
     except Exception:
+        logger.warning("Snapshot metadata could not be read; treating the snapshot as current", exc_info=True)
         return True
     if not meta or not meta.get("source_path"):
         # For an old snapshot without origin metadata, prefer it over making an
@@ -105,12 +108,14 @@ def load(name: str) -> pd.DataFrame | None:
                 db.save_frame_cache(key, frame, source_path=registered or None)
                 current_fingerprint = db.snapshot_fingerprint(key)
             except Exception:
+                logger.warning("Source snapshot could not be saved to SQLite; fingerprint recomputed from the frame", exc_info=True)
                 current_fingerprint = ""
         if not current_fingerprint:
             current_fingerprint = db.frame_fingerprint(frame)
         _MEMORY[key] = (current_fingerprint, frame.copy(deep=True))
         return frame.copy(deep=True)
     except Exception:
+        logger.warning("Source could not be loaded; cache invalidated and nothing returned", exc_info=True)
         invalidate(key)
         return None
 
@@ -128,6 +133,7 @@ def save(name: str, frame: pd.DataFrame, source_path: str | Path | None = None) 
         else:
             invalidate(key)
     except Exception:
+        logger.warning("Source refresh failed; cache invalidated", exc_info=True)
         invalidate(key)
     return changed
 
@@ -137,6 +143,7 @@ def metadata(name: str) -> dict[str, Any]:
     try:
         return db.get_upload(name) or {}
     except Exception:
+        logger.warning("Upload metadata could not be read; treating it as empty", exc_info=True)
         return {}
 
 

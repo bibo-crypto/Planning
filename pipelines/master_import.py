@@ -187,6 +187,7 @@ def _content_match_ordine_files(files: list[Path], claimed: set[Path], found: di
             finally:
                 wb.close()
         except Exception:
+            logger.debug("Master import: a sheet could not be probed; trying the next one", exc_info=True)
             continue
 
 
@@ -249,6 +250,7 @@ def _content_match_ordine_sheets(wb, sheetnames: list[str], already_matched: set
                 for values in sheet.iter_rows(values_only=True, max_row=12)
             ]
         except Exception:
+            logger.debug("Master import: a sheet could not be read for header detection; skipping it", exc_info=True)
             continue
         if "data_ordine" not in found and any(
             data_signature.issubset(headers) or kamal_signature.issubset(headers)
@@ -295,6 +297,7 @@ def import_master_file(master_path: str, situazione_tab, magazino_tab, biglietti
             _route(key, tmp_path, tmp_path, situazione_tab, magazino_tab, biglietti_tab, prezzi_tab)
             loaded.append(LABELS[key])
         except Exception:
+            logger.warning("Master import: %s was skipped because it failed", LABELS[key], exc_info=True)
             skipped.append(LABELS[key])
 
     normalized = {_norm(s) for s in sheetnames}
