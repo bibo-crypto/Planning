@@ -1,40 +1,31 @@
 {
   "workflow": "tests",
-  "conclusion": "failure",
-  "sha": "ca02676",
+  "conclusion": "success",
+  "sha": "8cb47a1",
   "branch": "main",
-  "url": "https://github.com/bibo-crypto/Planning/actions/runs/43749337471",
-  "written": "2026-11-15 18:58 UTC",
+  "url": "https://github.com/bibo-crypto/Planning/actions/runs/43760874276",
+  "written": "2026-11-15 21:00 UTC",
   "jobs": [
     {
       "name": "pytest (3.14)",
-      "conclusion": "failure",
-      "failed_steps": [
-        "Run the test suite"
-      ]
+      "conclusion": "success",
+      "failed_steps": []
     },
     {
       "name": "pytest (3.12)",
-      "conclusion": "failure",
-      "failed_steps": [
-        "Run the test suite"
-      ]
+      "conclusion": "success",
+      "failed_steps": []
     }
   ],
   "pytest": {
     "pytest-log-py3.12": {
-      "summary": "2 failed, 865 passed, 7 skipped in 139.76s (0:02:19)",
+      "summary": "869 passed, 6 skipped in 111.03s (0:01:51)",
       "counts": {
-        "failed": 2,
-        "passed": 865,
-        "skipped": 7
+        "passed": 869,
+        "skipped": 6
       },
-      "failed": [
-        "FAILED tests/test_shared_orders_window.py::test_the_editor_shows_stock_of_the_right_raw_article_in_green - AssertionError: assert 'Partita GG i...emain in PG-X' == 'Available: 4...article: G101'",
-        "FAILED tests/test_shared_orders_window.py::test_the_editor_flags_a_wrong_raw_article_and_an_unknown_partita_in_red - AssertionError: assert ('Partita GG i...emain in PG-X' == 'Wrong articl...99 (5 rocche)'"
-      ],
+      "failed": [],
       "skipped": [
-        "SKIPPED [1] tests\\test_category_integration.py:210: no display available",
         "SKIPPED [1] tests\\test_ci_report.py:131: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)",
         "SKIPPED [1] tests\\test_ci_report.py:138: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)",
         "SKIPPED [1] tests\\test_ci_report.py:149: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)",
@@ -44,16 +35,12 @@
       ]
     },
     "pytest-log-py3.14": {
-      "summary": "2 failed, 866 passed, 6 skipped in 166.24s (0:02:46)",
+      "summary": "869 passed, 6 skipped in 138.56s (0:02:18)",
       "counts": {
-        "failed": 2,
-        "passed": 866,
+        "passed": 869,
         "skipped": 6
       },
-      "failed": [
-        "FAILED tests/test_shared_orders_window.py::test_the_editor_shows_stock_of_the_right_raw_article_in_green - AssertionError: assert 'Partita GG i...emain in PG-X' == 'Available: 4...article: G101'",
-        "FAILED tests/test_shared_orders_window.py::test_the_editor_flags_a_wrong_raw_article_and_an_unknown_partita_in_red - AssertionError: assert ('Partita GG i...emain in PG-X' == 'Wrong articl...99 (5 rocche)'"
-      ],
+      "failed": [],
       "skipped": [
         "SKIPPED [1] tests\\test_ci_report.py:131: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)",
         "SKIPPED [1] tests\\test_ci_report.py:138: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)",
@@ -64,11 +51,6 @@
       ]
     }
   },
-  "failed_tests": [
-    "pytest-log-py3.12: FAILED tests/test_shared_orders_window.py::test_the_editor_shows_stock_of_the_right_raw_article_in_green - AssertionError: assert 'Partita GG i...emain in PG-X' == 'Available: 4...article: G101'",
-    "pytest-log-py3.12: FAILED tests/test_shared_orders_window.py::test_the_editor_flags_a_wrong_raw_article_and_an_unknown_partita_in_red - AssertionError: assert ('Partita GG i...emain in PG-X' == 'Wrong articl...99 (5 rocche)'",
-    "pytest-log-py3.14: FAILED tests/test_shared_orders_window.py::test_the_editor_shows_stock_of_the_right_raw_article_in_green - AssertionError: assert 'Partita GG i...emain in PG-X' == 'Available: 4...article: G101'",
-    "pytest-log-py3.14: FAILED tests/test_shared_orders_window.py::test_the_editor_flags_a_wrong_raw_article_and_an_unknown_partita_in_red - AssertionError: assert ('Partita GG i...emain in PG-X' == 'Wrong articl...99 (5 rocche)'"
-  ],
+  "failed_tests": [],
   "exe_smoke": null
 }
