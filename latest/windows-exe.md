@@ -1,8 +1,8 @@
 # windows-exe — SUCCESS
 
-- commit: `ca02676` on `main` — feat(shared-order, shared-orders, situazione-loaders): 3 added, 6 mod…
-- run: https://github.com/bibo-crypto/Planning/actions/runs/43749337398
-- event: push   |   report written: 2026-11-15 18:55 UTC
+- commit: `8cb47a1` on `main` — update(shared-orders): 2 modified (+28/-3)
+- run: https://github.com/bibo-crypto/Planning/actions/runs/43760874429
+- event: push   |   report written: 2026-11-15 20:58 UTC
 
 ## Jobs
 
@@ -19,8 +19,8 @@ No pytest.log artifact for this run.
 - result: **OK** — `Planning started` logged 2× (expected 2: empty profile, then restart)
 
 ```
-2026-11-15 18:55:10  INFO      Planning v1.0.2 starting (data folder: D:\a\_temp\planning-smoke\LocalAppData\Planning)
-2026-11-15 18:55:12  INFO      Planning started: all pages built (v1.0.2)
-2026-11-15 18:55:14  INFO      Planning v1.0.2 starting (data folder: D:\a\_temp\planning-smoke\LocalAppData\Planning)
-2026-11-15 18:55:14  INFO      Planning started: all pages built (v1.0.2)
+2026-11-15 20:58:17  INFO      Planning v1.0.2 starting (data folder: D:\a\_temp\planning-smoke\LocalAppData\Planning)
+2026-11-15 20:58:19  INFO      Planning started: all pages built (v1.0.2)
+2026-11-15 20:58:21  INFO      Planning v1.0.2 starting (data folder: D:\a\_temp\planning-smoke\LocalAppData\Planning)
+2026-11-15 20:58:21  INFO      Planning started: all pages built (v1.0.2)
 ```
