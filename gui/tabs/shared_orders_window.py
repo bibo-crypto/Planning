@@ -475,11 +475,14 @@ class SharedOrdersWindowMixin:
                 ("M/C", str(record.machine or "")),
             )
             entries = {}
+            partita_var = tk.StringVar(master=editor)
             print_var = tk.BooleanVar(value=str(record.print_flag or "").strip().casefold() in {"1", "yes", "si", "true", "☑"})
             machine_choices = tuple(str(machine) for machine in range(3, 13))
             for row_idx, (label, value) in enumerate(fields, start=1):
                 ttk.Label(form, text=f"{label}:").grid(row=row_idx, column=0, sticky="w", pady=5)
-                if label in {"Articolo", "Titolo", "Partita GG"}:
+                if label == "Partita GG":
+                    entry = ttk.Combobox(form, width=30, state="normal", textvariable=partita_var)
+                elif label in {"Articolo", "Titolo"}:
                     entry = ttk.Combobox(form, width=30, state="normal")
                 elif label == "M/C":
                     entry = ttk.Combobox(form, width=30, values=machine_choices, state="normal")
@@ -510,7 +513,7 @@ class SharedOrdersWindowMixin:
                 """Check the Partita GG typed in the editor against Magazino (and the expected raw article) and show the availability message."""
                 article = entries["Articolo"].get().strip().upper()
                 view = describe_availability(
-                    ready=availability_state["ready"], key=normal_partita(entries["Partita GG"].get()),
+                    ready=availability_state["ready"], key=normal_partita(partita_var.get()),
                     expected=raw_articolo_for(article), stock_by_partita=stock_by_partita,
                 )
                 if view.valid is not None:
@@ -519,6 +522,8 @@ class SharedOrdersWindowMixin:
                 availability_var.set(view.text)
                 if view.color is not None:
                     availability_label.config(foreground=view.color)
+
+            partita_var.trace_add("write", refresh_availability)
 
             def refresh_partita_choices(*_args):
                 article = entries["Articolo"].get().strip().upper()

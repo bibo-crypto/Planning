@@ -336,9 +336,10 @@ def open_editor(root, monkeypatch, summary=None):
     status = next(w for w in walk(editor) if isinstance(w, ttk.Label) and "textvariable" in w.keys() and str(w.cget("textvariable")))
     editor.status, editor.window = status, window
     editor.fields = [w for w in walk(editor) if isinstance(w, (ttk.Combobox, ttk.Entry))]   # Articolo, Titolo, Partita GG, Bagno, Rocche, M/C
-    end = time.time() + 3
+    end = time.time() + 10
     while "loading Magazino" in editor.getvar(str(status.cget("textvariable"))) and time.time() < end:
         pump(window, 0.05)
+    assert "loading Magazino" not in editor.getvar(str(status.cget("textvariable")))
     return editor
 
 
@@ -376,6 +377,25 @@ def test_the_editor_flags_a_wrong_raw_article_and_an_unknown_partita_in_red(root
     assert status_text(editor) == "Expected raw article: G101 — Partita not found"
     type_partita(editor, "")
     assert status_text(editor) == "Partita GG is blank — the row will remain in PG-X" and str(editor.status.cget("foreground")) == "#666666"
+
+
+def test_the_editor_refreshes_availability_when_the_partita_value_changes(root, monkeypatch, dialogs):
+    editor = open_editor(root, monkeypatch)
+    partita = editor.fields[2]
+
+    partita.insert(0, "12")
+    assert status_text(editor) == "Available: 40 rocche — raw article: G101"
+    assert str(editor.status.cget("foreground")) == "#2e7d32"
+
+    partita.delete(0, "end")
+    partita.insert(0, "13")
+    assert status_text(editor) == "Wrong article. Expected G101, found G999 (5 rocche)"
+    assert str(editor.status.cget("foreground")) == "#c62828"
+
+    partita.delete(0, "end")
+    partita.insert(0, "99")
+    assert status_text(editor) == "Expected raw article: G101 — Partita not found"
+    assert str(editor.status.cget("foreground")) == "#c62828"
 
 
 def test_saving_a_valid_partita_hands_the_values_to_the_background_save(root, monkeypatch, dialogs):
