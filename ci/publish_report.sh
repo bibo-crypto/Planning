@@ -9,7 +9,8 @@
 set -euo pipefail
 
 REMOTE="${1:?remote url}"
-REPORT_DIR="${2:?report dir}"
+# absolute path first: the script changes directory below, and the workflow passes a relative one ("report")
+REPORT_DIR="$(cd "${2:?report dir}" && pwd)"
 LABEL="${3:-update}"
 BRANCH="${CI_REPORTS_BRANCH:-ci-reports}"
 KEEP_HISTORY="${CI_REPORTS_KEEP:-60}"

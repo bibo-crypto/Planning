@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import threading
-from datetime import date, datetime
 from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
@@ -12,6 +11,10 @@ from calculate.raw_batch import is_assigned_raw
 from utility.excel_io import safe_save_workbook
 from utility.master_data import finished_articolo_for, raw_articolo_for
 from utility.utils import bind_escape_to_close, keep_window_on_top
+from .shared_order_logic import (
+    ORDER_TABLE_COLUMNS, delete_confirmation, describe_availability, normal_partita, normalize_article,
+    order_row_values, partita_choice_sort_key, partita_sort_key,
+)
 from .biglietti_exports import (
     deduplicate_create_excel,
     load_articoli_marca_lookup,
@@ -332,12 +335,7 @@ class SharedOrdersWindowMixin:
             search_bar, text="📤 Upload PG-X GG",
             command=lambda: self._upload_pgx_gg_file(window, datasets, refresh_records, rebuild, partita_gg_var),
         ).grid(row=0, column=7, sticky="e", padx=(6, 0))
-        excel_columns = (
-            "Dispo/Riga", "Cliente", "Articolo", "Titolo", "Formato", "Ordine", "Codice",
-            "Colore", "Rocche", "KG", "M/C", "Partita Col", "Consegna", "Commento",
-            "Bagno", "Partita GG", "Delivery Date", "Partita MED", "Cliente MED", "POLMON",
-            "Color Tube", "VMM22", "Prezzo", "Densita` (360-390)", "Print",
-        )
+        excel_columns = ORDER_TABLE_COLUMNS
         columns = ("select",) + tuple(f"excel_{index}" for index in range(len(excel_columns)))
         tree_style = ttk.Style(window)
         tree_style.configure("Orders.Treeview", rowheight=28, background="#ffffff", fieldbackground="#ffffff")
@@ -390,51 +388,8 @@ class SharedOrdersWindowMixin:
                     sheet_by_iid[iid] = sheet_name
 
         def values_for(record, iid):
-            """Return the table cell values of one order record (customer, article, colour,
-            quantities, batch, delivery, price, density ...), with the dates formatted for
-            display; for MED orders the POLMON part of the additional text is extracted.
-            """
-            polmon = ""
-            if record.customer_code == "3004":
-                parts = [part.strip() for part in str(record.additional_raw or "").split("-")]
-                polmon = parts[4] if len(parts) > 4 and "POLMON" in parts[4].upper() else ""
-            values = {
-                "Dispo/Riga": record.dispo, "Cliente": record.customer_name,
-                "Articolo": record.article, "Titolo": record.title, "Formato": record.formato,
-                "Ordine": record.order_no, "Codice": record.color_code, "Colore": record.color_name,
-                "Rocche": record.quantity_cones, "KG": record.kg, "M/C": record.machine,
-                "Partita Col": record.colored_batch, "Consegna": record.delivery,
-                "Commento": record.commento, "Bagno": record.bagno, "Partita GG": record.raw_batch,
-                "Delivery Date": record.delivery_date, "Partita MED": record.partita_med,
-                "Cliente MED": record.cliente_med, "POLMON": polmon, "Color Tube": record.color_tube,
-                "VMM22": record.vmm22, "Prezzo": record.prezzo, "Densita` (360-390)": record.densita,
-                "Print": record.print_flag,
-            }
-
-            def display_value(name, value):
-                """Format a Consegna / Delivery Date value as dd/mm/yyyy; other columns are returned unchanged."""
-                if name not in {"Consegna", "Delivery Date"} or value in (None, ""):
-                    return value
-                if isinstance(value, datetime):
-                    return value.strftime("%d/%m/%Y")
-                if isinstance(value, date):
-                    return value.strftime("%d/%m/%Y")
-                text = str(value).strip()
-                for parser in (
-                    lambda: datetime.fromisoformat(text.replace("Z", "+00:00")),
-                    lambda: datetime.strptime(text, "%Y/%m/%d"),
-                    lambda: datetime.strptime(text, "%d/%m/%Y"),
-                ):
-                    try:
-                        return parser().strftime("%d/%m/%Y")
-                    except (ValueError, TypeError):
-                        pass
-                return text
-
-            return tuple(
-                ["☑" if selected[iid] else "☐"]
-                + [display_value(name, values.get(name, "")) for name in excel_columns]
-            )
+            """Return the table cell values of one order record (see shared_order_logic.order_row_values)."""
+            return order_row_values(record, selected[iid], excel_columns)
 
         def sort_by(column):
             if sort_state["column"] == column:
@@ -461,15 +416,7 @@ class SharedOrdersWindowMixin:
             if sort_state["column"] is not None:
                 sort_index = columns.index(sort_state["column"])
                 if sort_state["column"] == partita_col_tree_column:
-                    def partita_sort_key(pair):
-                        value = str(pair[1].colored_batch or "").strip().replace(",", ".")
-                        try:
-                            number = float(value)
-                            return (False, number, "")
-                        except ValueError:
-                            return (True, 0, value.casefold())
-
-                    visible_rows.sort(key=partita_sort_key, reverse=sort_state["reverse"])
+                    visible_rows.sort(key=lambda pair: partita_sort_key(pair[1].colored_batch), reverse=sort_state["reverse"])
                 else:
                     visible_rows.sort(key=lambda pair: str(values_for(pair[1], pair[0])[sort_index] or "").casefold(), reverse=sort_state["reverse"])
             for iid, record in visible_rows:
@@ -559,61 +506,32 @@ class SharedOrdersWindowMixin:
             sync_state = {"busy": False}
             availability_state = {"ready": False, "valid": False, "article_mismatch": False}
 
-            def normal_partita(value):
-                text = str(value or "").strip()
-                try:
-                    number = float(text.replace(",", "."))
-                    return str(int(number)) if number.is_integer() else str(number)
-                except ValueError:
-                    return text.casefold()
-
             def refresh_availability(*_args):
                 """Check the Partita GG typed in the editor against Magazino (and the expected raw article) and show the availability message."""
-                key = normal_partita(entries["Partita GG"].get())
                 article = entries["Articolo"].get().strip().upper()
-                expected = raw_articolo_for(article)
-                if not availability_state["ready"]:
-                    availability_var.set(f"Expected raw article: {expected} — loading Magazino...")
-                    return
-                if not key:
-                    availability_state["valid"] = False
-                    availability_state["article_mismatch"] = False
-                    availability_var.set("Partita GG is blank — the row will remain in PG-X")
-                    availability_label.config(foreground="#666666")
-                    return
-                items = stock_by_partita.get(key, [])
-                item = next((candidate for candidate in items if candidate[1] == expected), None)
-                if not items:
-                    availability_state["valid"] = False
-                    availability_state["article_mismatch"] = False
-                    availability_var.set(f"Expected raw article: {expected} — Partita not found")
-                    availability_label.config(foreground="#c62828")
-                else:
-                    available, article = item if item is not None else items[0]
-                    valid = item is not None
-                    availability_state["valid"] = valid
-                    availability_state["article_mismatch"] = not valid
-                    availability_var.set(f"Available: {available:g} rocche — raw article: {article}")
-                    availability_label.config(foreground="#2e7d32" if valid else "#c62828")
-                    if not valid:
-                        availability_var.set(f"Wrong article. Expected {expected}, found {article} ({available:g} rocche)")
+                view = describe_availability(
+                    ready=availability_state["ready"], key=normal_partita(entries["Partita GG"].get()),
+                    expected=raw_articolo_for(article), stock_by_partita=stock_by_partita,
+                )
+                if view.valid is not None:
+                    availability_state["valid"] = view.valid
+                    availability_state["article_mismatch"] = view.article_mismatch
+                availability_var.set(view.text)
+                if view.color is not None:
+                    availability_label.config(foreground=view.color)
 
             def refresh_partita_choices(*_args):
                 article = entries["Articolo"].get().strip().upper()
                 expected = raw_articolo_for(article)
                 choices = sorted(
                     partita_choices_by_article.get(expected, set()),
-                    key=lambda value: (normal_partita(value).casefold(), str(value)),
+                    key=partita_choice_sort_key,
                 )
                 entries["Partita GG"]["values"] = choices
 
             def refresh_articolo_choices(*_args):
                 entries["Articolo"]["values"] = sorted(articolo_choices, key=str.casefold)
                 entries["Titolo"]["values"] = sorted(titolo_choices, key=str.casefold)
-
-            def normalize_article(value):
-                article = str(value or "").strip().upper()
-                return "C" + article[1:] if article.startswith("G") else article
 
             def refresh_linked_article_title(_event=None):
                 if sync_state["busy"]:
@@ -784,14 +702,8 @@ class SharedOrdersWindowMixin:
             records = [record_by_iid[iid] for iid in selection]
             partita_cols = [str(record.colored_batch) for record in records]
             if action == "delete":
-                preview = ", ".join(partita_cols[:8])
-                suffix = "..." if len(partita_cols) > 8 else ""
-                sheet = current_sheet["name"]
-                if not messagebox.askyesno(
-                    f"Delete {sheet} Rows",
-                    f"Delete {len(partita_cols)} selected {sheet} row(s)?\n\nPartita Col: {preview}{suffix}",
-                    parent=window,
-                ):
+                title, question = delete_confirmation(current_sheet["name"], partita_cols)
+                if not messagebox.askyesno(title, question, parent=window):
                     return
                 self._pg_x_row_action_in_background(
                     window, action, partita_cols, current_sheet["name"], datasets, refresh_records, rebuild,

@@ -155,3 +155,22 @@ def test_history_is_limited_to_the_newest_files_and_latest_is_kept(tmp_path, rem
     assert [name.split("/")[1][:9] for name in history] == ["20261113T", "20261114T", "20261115T"]
     shown = subprocess.run(["git", "-C", str(remote), "show", "ci-reports:latest/tests.md"], capture_output=True, text=True).stdout
     assert shown == "run 5"
+
+
+@needs_unix
+def test_a_relative_report_folder_works_like_the_workflow_passes_it(tmp_path, remote):
+    """The workflow runs `publish_report.sh <url> report`: a path relative to the current folder."""
+    import os
+    report_dir(tmp_path, "report")
+    done = subprocess.run(["bash", str(ROOT / "ci" / "publish_report.sh"), str(remote), "report", "relative"],
+                          cwd=tmp_path, capture_output=True, text=True, env=dict(os.environ))
+    assert done.returncode == 0, done.stderr
+    assert "latest/tests.md" in branch_files(remote)
+
+
+@needs_unix
+def test_a_missing_report_folder_fails_loudly(tmp_path, remote):
+    import os
+    done = subprocess.run(["bash", str(ROOT / "ci" / "publish_report.sh"), str(remote), "no_such_folder"],
+                          cwd=tmp_path, capture_output=True, text=True, env=dict(os.environ))
+    assert done.returncode != 0 and branch_files(remote) == []

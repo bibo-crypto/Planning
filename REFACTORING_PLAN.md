@@ -31,6 +31,13 @@ every tab (17 pages, 0 Tk callback errors).
    (`shared_orders_service`, `situazione_sources_service`) and keep the mixins as
    thin views.  `_open_shared_orders_window` is a single 500-line function whose
    inner functions share state through closures -- turn it into a small class.
+   *Status:* the window's pure rules (row cells and date format, POLMON, Partita sort key, Partita/article
+   normalisation, the Magazino availability decision, the delete confirmation) now live in
+   `gui/tabs/shared_order_logic.py` (no Tk) and the Notifications window was split out of `gui.py`
+   (`gui/notifications_window.py`, `exporters/notifications_export.py`).  The shared-orders window is pinned by
+   `tests/test_shared_orders_window.py` (real Tk) and `tests/test_shared_order_logic.py` (compared with verbatim
+   copies of the old code).  Still to do: turn the remaining closures (editor dialog, toggle/debounce, button
+   wiring) into a class, then do the same for `shared_order_actions.py`.
 2. **Long functions** (cyclomatic complexity E/F, from `radon cc -n D`):
    `biglietti_tab._run_convert` (42), `kamal_tab._run_conversion` (39),
    `shared_order_actions._smart_auto_assign_pg_x` (39),

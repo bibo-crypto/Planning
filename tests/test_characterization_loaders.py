@@ -168,3 +168,22 @@ def test_produzione_colors_orders_oldest_first_and_drops_rows_without_a_colour(t
     assert out["rgb"].tolist() == [parse_rgb("RGB(2/2/2)"), parse_rgb("RGB(1/1/1)")]
     assert out["partita"].tolist() == ["P1", "P1"]
     assert list(out.columns) == ["partita", "bagno", "codice", "colore", "rgb"]
+
+
+def test_string_conversion_of_a_column_is_unchanged_and_raises_no_pandas_warning():
+    """_s() turns missing values into '' (never the text 'nan') and trims text, for every kind of column; a column of
+    dtype object that holds just a number used to raise pandas' "Downcasting object dtype" FutureWarning."""
+    import warnings
+    import numpy as np
+    from parsers import situazione_loaders as loaders_module
+    cases = [
+        pd.Series([3], dtype=object), pd.Series(["a", None, np.nan, " b ", 3, 4.0], dtype=object), pd.Series([None, None], dtype=object),
+        pd.Series([], dtype=object), pd.Series([1.0, np.nan, 2.5]), pd.Series([1, 2, 3]), pd.Series(["x", " y"]),
+        pd.Series(pd.to_datetime(["2026-07-28", None])), pd.Series([True, False]),
+    ]
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        results = [loaders_module._s(series).tolist() for series in cases]
+    assert results[0] == ["3"] and results[1] == ["a", "", "", "b", "3", "4.0"] and results[2] == ["", ""] and results[3] == []
+    assert results[4] == ["1.0", "", "2.5"] and results[5] == ["1", "2", "3"] and results[6] == ["x", "y"] and results[8] == ["True", "False"]
+    assert "nan" not in " ".join(sum(results, [])).lower().replace("nat", "")

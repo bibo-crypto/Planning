@@ -58,7 +58,13 @@ def _header_key(value):
 
 def _s(series):
     """Convert a column to string safely: missing values become '' instead of the literal text 'nan'."""
-    return series.fillna("").astype(str).str.strip()
+    if series.dtype == object:
+        # same result as fillna(""), without pandas' "Downcasting object dtype arrays" FutureWarning
+        # (e.g. a column that holds just the number 3); other dtypes keep the original path
+        series = series.where(series.notna(), "")
+    else:
+        series = series.fillna("")
+    return series.astype(str).str.strip()
 
 
 def _load_with_header(path, required_cols, sheet_name=0):
