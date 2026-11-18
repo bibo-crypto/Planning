@@ -246,6 +246,235 @@ def _run_update_script(script_path: Path, creation_flags: int, elevated: bool) -
         )
 
 
+def _check_package_is_complete(source_dir: Path) -> None:
+    """Refuse a package that could not start, before anything of the installed version is touched.
+
+    A PyInstaller build keeps the Python DLL in ``_internal``; an update ZIP without it would replace a working
+    installation with one that stops at "Failed to load Python DLL ...".
+    """
+    exe = source_dir / "Planning.exe"
+    if not exe.is_file() or exe.stat().st_size == 0:
+        raise RuntimeError("The update ZIP must contain Planning.exe.")
+    internal = source_dir / "_internal"
+    if internal.is_dir() and not any(internal.glob("python3*.dll")):
+        raise RuntimeError("The update package is incomplete (the Python DLL is missing from _internal), so it was not installed.")
+
+
+# The PowerShell helper.  Plain text with @@NAME@@ placeholders (not an f-string: PowerShell is full of braces).
+_UPDATE_SCRIPT_TEMPLATE = r"""$ErrorActionPreference = 'Stop'
+$log = Join-Path $env:TEMP 'Planning_Update.log'
+function Write-UpdateLog($message) {
+    ("{0}  {1}" -f (Get-Date -Format 's'), $message) | Out-File -FilePath $log -Append
+}
+# Give the old process time to fully exit and release its file locks, then
+# explicitly wait until no old Planning process remains before copying. The
+# fixed delay alone was not sufficient on slower machines/antivirus scans.
+Start-Sleep -Seconds @@INITIAL_DELAY@@
+for ($check = 1; $check -le @@EXIT_CHECKS@@; $check++) {
+    if (-not (Get-Process -Name 'Planning','Planing' -ErrorAction SilentlyContinue)) { break }
+    Start-Sleep -Seconds @@EXIT_INTERVAL@@
+}
+$source = @@SOURCE@@
+$target = @@TARGET@@
+$backup = @@BACKUP@@
+$exePath = @@EXE@@
+function Get-FileMap([string]$root) {
+    # relative path (lower case) -> size, for every file below $root
+    $map = @{}
+    $prefix = (Resolve-Path -LiteralPath $root).ProviderPath.TrimEnd('\','/')
+    Get-ChildItem -LiteralPath $root -Recurse -File -Force | ForEach-Object {
+        $relative = $_.FullName.Substring($prefix.Length).TrimStart('\','/').ToLowerInvariant()
+        $map[$relative] = $_.Length
+    }
+    return $map
+}
+function Find-MissingFromMap($expected, [string]$actualRoot) {
+    # the files of a recorded file list that are absent from $actualRoot or have another size
+    $actual = Get-FileMap $actualRoot
+    $problems = @()
+    foreach ($key in $expected.Keys) {
+        if (-not $actual.ContainsKey($key)) { $problems += "missing: $key" }
+        elseif ($actual[$key] -ne $expected[$key]) { $problems += "different size: $key" }
+    }
+    return ,$problems
+}
+function Find-MissingFiles([string]$expectedRoot, [string]$actualRoot) {
+    # the files of $expectedRoot that are absent from $actualRoot or have another size
+    return ,(Find-MissingFromMap (Get-FileMap $expectedRoot) $actualRoot)
+}
+# The installation may only be wiped for a rollback when the backup of it was copied completely AND verified;
+# otherwise a rollback would replace a healthy installation with a partial copy (a missing python DLL, no Planning.exe).
+$script:backupVerified = $false
+$script:previousFiles = $null
+function Restore-Backup {
+    # Never let a rollback failure propagate out under $ErrorActionPreference
+    # = 'Stop' -- that would skip the Start-Process relaunch right after it
+    # and leave nothing running at all. Best-effort is still far better than
+    # a silent, total failure here.
+    if (-not $script:backupVerified) {
+        Write-UpdateLog "No verified backup of the previous version exists: the installation is left exactly as it is (nothing is deleted)."
+        return
+    }
+    try {
+        Get-ChildItem -LiteralPath $backup -Force | ForEach-Object {
+            Copy-Item -LiteralPath $_.FullName -Destination $target -Recurse -Force -ErrorAction Continue
+        }
+        # checked against the file list recorded before the update touched anything (a backup that lost a file since
+        # it was verified must not be mistaken for a complete one)
+        $problems = Find-MissingFromMap $script:previousFiles $target
+        if ($problems.Count -gt 0) {
+            Write-UpdateLog ("Rollback incomplete: {0} file(s) of the previous version could not be restored (the full copy stays in {1}):" -f $problems.Count, $backup)
+            $problems | Select-Object -First 10 | ForEach-Object { Write-UpdateLog $_ }
+            return
+        }
+        # restored and verified: only now remove the files that exist solely in the new version
+        $keep = $script:previousFiles
+        $prefix = (Resolve-Path -LiteralPath $target).ProviderPath.TrimEnd('\','/')
+        Get-ChildItem -LiteralPath $target -Recurse -File -Force | ForEach-Object {
+            $relative = $_.FullName.Substring($prefix.Length).TrimStart('\','/').ToLowerInvariant()
+            if (-not $keep.ContainsKey($relative)) { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue }
+        }
+        Write-UpdateLog "Rolled back to the previous version (verified)."
+    } catch { $_ | Out-File -FilePath $log -Append }
+}
+function Start-Planning {
+    # Planning.exe itself should never run as Administrator ongoing -- only
+    # copying into Program Files needs that. When this whole script runs
+    # elevated (see _needs_elevation/_run_update_script), a plain
+    # Start-Process would launch Planning.exe elevated too, and an elevated
+    # GUI started from a background context is subject to Windows'
+    # focus-stealing prevention: it runs but never comes to the front,
+    # which looks exactly like "the app did not reopen". Shell.Application's
+    # ShellExecute hands the launch to the already-running, non-elevated
+    # explorer.exe instead, so the new process gets a normal-user token.
+    # It doesn't return a PID, so success here just means "launch was
+    # requested"; the caller's own wait loop (polls by process name, up to
+    # 3 minutes) is what confirms it actually came up.
+    try {
+        $shellApp = New-Object -ComObject "Shell.Application"
+        $shellApp.ShellExecute($exePath, "", $target, "open", 1)
+        return $true
+    } catch { $_ | Out-File -FilePath $log -Append }
+    try {
+        $started = Start-Process -FilePath $exePath -WorkingDirectory $target -PassThru -ErrorAction Stop
+        Start-Sleep -Seconds 2
+        if (Get-Process -Id $started.Id -ErrorAction SilentlyContinue) { return $true }
+    } catch { $_ | Out-File -FilePath $log -Append }
+    try {
+        Start-Process -FilePath 'cmd.exe' -WorkingDirectory $target -WindowStyle Hidden -ArgumentList @('/c', 'start', '""', $exePath) -ErrorAction Stop
+        return $true
+    } catch { $_ | Out-File -FilePath $log -Append; return $false }
+}
+try {
+    if (Test-Path -LiteralPath $backup) { Remove-Item -LiteralPath $backup -Recurse -Force -ErrorAction SilentlyContinue }
+    New-Item -ItemType Directory -Path $backup -Force | Out-Null
+    $previous = Get-FileMap $target
+    Get-ChildItem -LiteralPath $target -Force | ForEach-Object {
+        Copy-Item -LiteralPath $_.FullName -Destination $backup -Recurse -Force
+    }
+    $problems = Find-MissingFromMap $previous $backup
+    if ($problems.Count -gt 0) {
+        throw ("The backup of the current version is incomplete ({0} file(s), for example {1}); the update was cancelled before anything was changed." -f $problems.Count, $problems[0])
+    }
+    $script:previousFiles = $previous
+    $script:backupVerified = $true
+    Write-UpdateLog "Backup of the current version copied and verified."
+
+    $copied = $false
+    for ($attempt = 1; $attempt -le @@ATTEMPTS@@; $attempt++) {
+        try {
+            Get-ChildItem -LiteralPath $source -Force | ForEach-Object {
+                Copy-Item -LiteralPath $_.FullName -Destination $target -Recurse -Force -ErrorAction Stop
+            }
+            # the copy only counts when EVERY file of the new version is there (Planning.exe alone proves nothing:
+            # the old one already exists)
+            $problems = Find-MissingFiles $source $target
+            if ($problems.Count -eq 0) {
+                $copied = $true
+                break
+            }
+            Write-UpdateLog ("Copy attempt {0}: {1} file(s) of the new version are not in place yet, for example {2}" -f $attempt, $problems.Count, $problems[0])
+            Start-Sleep -Seconds @@RETRY_DELAY@@
+        } catch {
+            $_ | Out-File -FilePath $log -Append
+            Start-Sleep -Seconds @@RETRY_DELAY@@
+        }
+    }
+
+    if ($copied) {
+        $versionPath = Join-Path $target 'version.txt'
+        $versionValue = @@VERSION@@
+        $versionTemp = Join-Path $target ('.version.' + $PID + '.tmp')
+        Set-Content -LiteralPath $versionTemp -Value $versionValue -Encoding UTF8
+        Move-Item -LiteralPath $versionTemp -Destination $versionPath -Force
+        $writtenVersion = (Get-Content -LiteralPath $versionPath -Raw).Trim().TrimStart('v','V')
+        if ($writtenVersion -ne $versionValue.Trim().TrimStart('v','V')) { throw "version.txt verification failed: '$writtenVersion'" }
+        if (-not (Start-Planning)) { throw "Planning.exe could not be started after update" }
+        # Antivirus commonly intercepts a freshly-written, unsigned exe on
+        # its first launch -- it can run its own scan/sandbox pass, kill
+        # that first process, and start a *different* one afterwards, on
+        # top of an already slower cold start. Watching one specific PID
+        # (Start-Process -PassThru) would misread that AV cycle as a crash,
+        # and a short fixed wait isn't enough either -- this has been
+        # observed taking close to a minute in practice. So instead: poll
+        # by process name (survives the PID changing under AV) for up to 3
+        # minutes, and succeed the moment Planning.exe is seen running even
+        # once -- a genuine crash never shows up running at all, no matter
+        # how long or how many times checked.
+        $sawRunning = $false
+        for ($check = 1; $check -le @@START_CHECKS@@; $check++) {
+            Start-Sleep -Seconds @@START_INTERVAL@@
+            if (Get-Process -Name 'Planning','Planing' -ErrorAction SilentlyContinue) {
+                $sawRunning = $true
+                break
+            }
+        }
+        if (-not $sawRunning) {
+            "New version never started running within 3 minutes -- rolling back to the previous version" | Out-File -FilePath $log -Append
+            Restore-Backup
+            Start-Planning | Out-Null
+        }
+    } else {
+        "Update copy never succeeded after @@ATTEMPTS@@ attempts -- rolling back to the previous version" | Out-File -FilePath $log -Append
+        Restore-Backup
+        Start-Planning | Out-Null
+    }
+    } catch {
+        $_ | Out-File -FilePath $log -Append
+        # Whatever failed above, always try to leave *something* running --
+        # closing Planning to update and then leaving nothing open at all,
+        # not even the old version, is the one outcome worse than a failed
+        # update.
+        Restore-Backup
+        Start-Planning | Out-Null
+    }
+Remove-Item -LiteralPath @@ZIP@@ -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath @@STAGE@@ -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
+"""
+
+
+def build_update_script(*, source_dir: Path, install_dir: Path, backup_dir: Path, exe_path: Path, new_version: str,
+                        zip_path: Path, stage_root: Path, initial_delay: int = 5, exit_checks: int = 30,
+                        exit_interval: int = 2, attempts: int = 20, retry_delay: int = 2,
+                        start_checks: int = 36, start_interval: int = 5) -> str:
+    """The text of the PowerShell helper that replaces the installed files once Planning has exited.
+
+    The timing arguments only exist so the script can be run quickly in tests; the defaults are what the program uses.
+    """
+    values = {
+        "SOURCE": _powershell_quote(source_dir), "TARGET": _powershell_quote(install_dir), "BACKUP": _powershell_quote(backup_dir),
+        "EXE": _powershell_quote(exe_path), "VERSION": _powershell_quote(new_version), "ZIP": _powershell_quote(zip_path),
+        "STAGE": _powershell_quote(stage_root), "INITIAL_DELAY": str(int(initial_delay)), "EXIT_CHECKS": str(int(exit_checks)),
+        "EXIT_INTERVAL": str(int(exit_interval)), "ATTEMPTS": str(int(attempts)), "RETRY_DELAY": str(int(retry_delay)),
+        "START_CHECKS": str(int(start_checks)), "START_INTERVAL": str(int(start_interval)),
+    }
+    script = _UPDATE_SCRIPT_TEMPLATE
+    for name, value in values.items():
+        script = script.replace(f"@@{name}@@", value)
+    return script
+
+
 def install_update(zip_path: Path, install_dir: Path, new_version: str) -> None:
     """Stage a ZIP update and start a hidden process that replaces files later.
 
@@ -280,6 +509,7 @@ def install_update(zip_path: Path, install_dir: Path, new_version: str) -> None:
         # Accept all common ZIP layouts: Planning.exe at the root, inside a
         # Planning folder, or inside an archived dist/Planning folder.
         source_dir = executables[0].parent
+        _check_package_is_complete(source_dir)
 
         script_path = stage_root.parent / f"Planning_Update_{os.getpid()}.ps1"
         exe_path = install_dir / "Planning.exe"
@@ -288,134 +518,10 @@ def install_update(zip_path: Path, install_dir: Path, new_version: str) -> None:
         # Overwritten fresh on every update -- always exactly one, most
         # recent known-good version to fall back to.
         backup_dir = install_dir.parent / "Planning_Backup"
-        script = f"""$ErrorActionPreference = 'Stop'
-$log = Join-Path $env:TEMP 'Planning_Update.log'
-# Give the old process time to fully exit and release its file locks, then
-# explicitly wait until no old Planning process remains before copying. The
-# fixed delay alone was not sufficient on slower machines/antivirus scans.
-Start-Sleep -Seconds 5
-for ($check = 1; $check -le 30; $check++) {{
-    if (-not (Get-Process -Name 'Planning','Planing' -ErrorAction SilentlyContinue)) {{ break }}
-    Start-Sleep -Seconds 2
-}}
-$source = {_powershell_quote(source_dir)}
-$target = {_powershell_quote(install_dir)}
-$backup = {_powershell_quote(backup_dir)}
-$exePath = {_powershell_quote(exe_path)}
-function Restore-Backup {{
-    # Never let a rollback failure propagate out under $ErrorActionPreference
-    # = 'Stop' -- that would skip the Start-Process relaunch right after it
-    # and leave nothing running at all. Best-effort is still far better than
-    # a silent, total failure here.
-    try {{
-        Get-ChildItem -LiteralPath $target -Force | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-        Get-ChildItem -LiteralPath $backup -Force | ForEach-Object {{
-            Copy-Item -LiteralPath $_.FullName -Destination $target -Recurse -Force -ErrorAction SilentlyContinue
-        }}
-    }} catch {{ $_ | Out-File -FilePath $log -Append }}
-}}
-function Start-Planning {{
-    # Planning.exe itself should never run as Administrator ongoing -- only
-    # copying into Program Files needs that. When this whole script runs
-    # elevated (see _needs_elevation/_run_update_script), a plain
-    # Start-Process would launch Planning.exe elevated too, and an elevated
-    # GUI started from a background context is subject to Windows'
-    # focus-stealing prevention: it runs but never comes to the front,
-    # which looks exactly like "the app did not reopen". Shell.Application's
-    # ShellExecute hands the launch to the already-running, non-elevated
-    # explorer.exe instead, so the new process gets a normal-user token.
-    # It doesn't return a PID, so success here just means "launch was
-    # requested"; the caller's own wait loop (polls by process name, up to
-    # 3 minutes) is what confirms it actually came up.
-    try {{
-        $shellApp = New-Object -ComObject "Shell.Application"
-        $shellApp.ShellExecute($exePath, "", $target, "open", 1)
-        return $true
-    }} catch {{ $_ | Out-File -FilePath $log -Append }}
-    try {{
-        $started = Start-Process -FilePath $exePath -WorkingDirectory $target -PassThru -ErrorAction Stop
-        Start-Sleep -Seconds 2
-        if (Get-Process -Id $started.Id -ErrorAction SilentlyContinue) {{ return $true }}
-    }} catch {{ $_ | Out-File -FilePath $log -Append }}
-    try {{
-        Start-Process -FilePath 'cmd.exe' -WorkingDirectory $target -WindowStyle Hidden -ArgumentList @('/c', 'start', '""', $exePath) -ErrorAction Stop
-        return $true
-    }} catch {{ $_ | Out-File -FilePath $log -Append; return $false }}
-}}
-try {{
-    if (Test-Path -LiteralPath $backup) {{ Remove-Item -LiteralPath $backup -Recurse -Force -ErrorAction SilentlyContinue }}
-    New-Item -ItemType Directory -Path $backup -Force | Out-Null
-    Get-ChildItem -LiteralPath $target -Force | ForEach-Object {{
-        Copy-Item -LiteralPath $_.FullName -Destination $backup -Recurse -Force
-    }}
-
-    $copied = $false
-    for ($attempt = 1; $attempt -le 20; $attempt++) {{
-        try {{
-            Get-ChildItem -LiteralPath $source -Force | ForEach-Object {{
-                Copy-Item -LiteralPath $_.FullName -Destination $target -Recurse -Force -ErrorAction Stop
-            }}
-            if (Test-Path -LiteralPath $exePath) {{
-                $copied = $true
-                break
-            }}
-        }} catch {{
-            $_ | Out-File -FilePath $log -Append
-            Start-Sleep -Seconds 2
-        }}
-    }}
-
-    if ($copied) {{
-        $versionPath = Join-Path $target 'version.txt'
-        $versionValue = {_powershell_quote(new_version)}
-        $versionTemp = Join-Path $target ('.version.' + $PID + '.tmp')
-        Set-Content -LiteralPath $versionTemp -Value $versionValue -Encoding UTF8
-        Move-Item -LiteralPath $versionTemp -Destination $versionPath -Force
-        $writtenVersion = (Get-Content -LiteralPath $versionPath -Raw).Trim().TrimStart('v','V')
-        if ($writtenVersion -ne $versionValue.Trim().TrimStart('v','V')) {{ throw "version.txt verification failed: '$writtenVersion'" }}
-        if (-not (Start-Planning)) {{ throw "Planning.exe could not be started after update" }}
-        # Antivirus commonly intercepts a freshly-written, unsigned exe on
-        # its first launch -- it can run its own scan/sandbox pass, kill
-        # that first process, and start a *different* one afterwards, on
-        # top of an already slower cold start. Watching one specific PID
-        # (Start-Process -PassThru) would misread that AV cycle as a crash,
-        # and a short fixed wait isn't enough either -- this has been
-        # observed taking close to a minute in practice. So instead: poll
-        # by process name (survives the PID changing under AV) for up to 3
-        # minutes, and succeed the moment Planning.exe is seen running even
-        # once -- a genuine crash never shows up running at all, no matter
-        # how long or how many times checked.
-        $sawRunning = $false
-        for ($check = 1; $check -le 36; $check++) {{
-            Start-Sleep -Seconds 5
-            if (Get-Process -Name 'Planning','Planing' -ErrorAction SilentlyContinue) {{
-                $sawRunning = $true
-                break
-            }}
-        }}
-        if (-not $sawRunning) {{
-            "New version never started running within 3 minutes -- rolling back to the previous version" | Out-File -FilePath $log -Append
-            Restore-Backup
-            Start-Planning | Out-Null
-        }}
-    }} else {{
-        "Update copy never succeeded after 20 attempts -- rolling back to the previous version" | Out-File -FilePath $log -Append
-        Restore-Backup
-        Start-Planning | Out-Null
-    }}
-    }} catch {{
-        $_ | Out-File -FilePath $log -Append
-        # Whatever failed above, always try to leave *something* running --
-        # closing Planning to update and then leaving nothing open at all,
-        # not even the old version, is the one outcome worse than a failed
-        # update.
-        Restore-Backup
-        Start-Planning | Out-Null
-    }}
-Remove-Item -LiteralPath {_powershell_quote(zip_path)} -Force -ErrorAction SilentlyContinue
-Remove-Item -LiteralPath {_powershell_quote(stage_root)} -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
-"""
+        script = build_update_script(
+            source_dir=source_dir, install_dir=install_dir, backup_dir=backup_dir, exe_path=exe_path,
+            new_version=new_version, zip_path=zip_path, stage_root=stage_root,
+        )
         script_path.write_text(script, encoding="utf-8")
         # CREATE_NO_WINDOW alone only hides the console -- it doesn't
         # detach the process from anything. If Planning.exe is running

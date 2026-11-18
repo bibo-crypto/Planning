@@ -80,5 +80,6 @@ def test_elvy_files_are_named_from_the_commento_values(comments, expected):
 
 
 def test_word_files_no_longer_carry_the_word_biglietti():
-    source = open("gui/tabs/biglietti_tab.py", encoding="utf-8").read()
+    with open("gui/tabs/biglietti_tab.py", encoding="utf-8") as handle:
+        source = handle.read()
     assert "_Biglietti.docx" not in source and "_ELVY_Biglietti" not in source and "_MED_Biglietti" not in source

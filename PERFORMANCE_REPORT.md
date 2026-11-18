@@ -1,3 +1,6 @@
+> **HISTORICAL — measured on v1.1.11 on 2026-10-10; the figures below are not the current ones.**
+> Current test and performance evidence: `REVIEW_REPORT.md`.
+
 # Performance Report — Planning v1.1.11
 
 Generated: 2026-10-10

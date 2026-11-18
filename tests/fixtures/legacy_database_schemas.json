@@ -1,0 +1,132 @@
+{
+ "situazione": [
+  {
+   "commit": "0ef1226",
+   "date": "2026-09-07",
+   "statements": [
+    "CREATE TABLE codes (\n    articolo_filato TEXT PRIMARY KEY,\n    titolo          TEXT\n)",
+    "CREATE TABLE partita_state (\n    partita         TEXT PRIMARY KEY,\n    cliente         TEXT,\n    articolo        TEXT,\n    titolo          TEXT,\n    codice          TEXT,\n    colore          TEXT,\n    ordine          TEXT,\n    riga            TEXT,\n    data            TEXT,\n    consegna        TEXT,\n    rocche          TEXT,\n    mc              TEXT,\n    comment         TEXT,\n    cq              TEXT,\n    bagno           TEXT,\n    tinto           TEXT,\n    planedate       TEXT,\n    data_qualita    TEXT,\n    data_uscita     TEXT,\n    custom          TEXT,\n    days_in_qc      TEXT,\n    old_comment     TEXT,\n    new_comment     TEXT,\n    last_seen_at    TEXT,\n    row_hash        TEXT\n)",
+    "CREATE TABLE upload_log (\n    source_name     TEXT PRIMARY KEY,\n    file_name       TEXT,\n    file_path       TEXT,\n    uploaded_at     TEXT,\n    row_count       INTEGER,\n    status          TEXT,\n    message         TEXT,\n    data_json       TEXT\n)"
+   ]
+  },
+  {
+   "commit": "a407367",
+   "date": "2026-09-09",
+   "statements": [
+    "CREATE TABLE codes (\n    articolo_filato TEXT PRIMARY KEY,\n    titolo          TEXT\n)",
+    "CREATE TABLE partita_history (\n    id              INTEGER PRIMARY KEY AUTOINCREMENT,\n    partita         TEXT,\n    cliente         TEXT,\n    articolo        TEXT,\n    colore          TEXT,\n    data            TEXT,\n    consegna        TEXT,\n    comment         TEXT,\n    bagno           TEXT,\n    tinto           TEXT,\n    data_qualita    TEXT,\n    data_uscita     TEXT,\n    old_comment     TEXT,\n    new_comment     TEXT,\n    changed_at      TEXT\n)",
+    "CREATE TABLE partita_state (\n    partita         TEXT PRIMARY KEY,\n    cliente         TEXT,\n    articolo        TEXT,\n    titolo          TEXT,\n    codice          TEXT,\n    colore          TEXT,\n    ordine          TEXT,\n    riga            TEXT,\n    data            TEXT,\n    consegna        TEXT,\n    rocche          TEXT,\n    mc              TEXT,\n    comment         TEXT,\n    cq              TEXT,\n    bagno           TEXT,\n    tinto           TEXT,\n    planedate       TEXT,\n    data_qualita    TEXT,\n    data_uscita     TEXT,\n    custom          TEXT,\n    days_in_qc      TEXT,\n    old_comment     TEXT,\n    new_comment     TEXT,\n    last_seen_at    TEXT,\n    row_hash        TEXT\n)",
+    "CREATE TABLE upload_log (\n    source_name     TEXT PRIMARY KEY,\n    file_name       TEXT,\n    file_path       TEXT,\n    uploaded_at     TEXT,\n    row_count       INTEGER,\n    status          TEXT,\n    message         TEXT,\n    data_json       TEXT\n)",
+    "CREATE INDEX idx_partita_history_partita ON partita_history(partita)"
+   ]
+  },
+  {
+   "commit": "2d0fb7d",
+   "date": "2026-09-09",
+   "statements": [
+    "CREATE TABLE codes (\n    articolo_filato TEXT PRIMARY KEY,\n    titolo          TEXT\n)",
+    "CREATE TABLE partita_history (\n    id              INTEGER PRIMARY KEY AUTOINCREMENT,\n    partita         TEXT,\n    cliente         TEXT,\n    articolo        TEXT,\n    colore          TEXT,\n    data            TEXT,\n    consegna        TEXT,\n    comment         TEXT,\n    bagno           TEXT,\n    tinto           TEXT,\n    data_qualita    TEXT,\n    data_uscita     TEXT,\n    days_in_qc      TEXT,\n    ritardo_consegna TEXT,\n    old_comment     TEXT,\n    new_comment     TEXT,\n    changed_at      TEXT\n)",
+    "CREATE TABLE partita_state (\n    partita         TEXT PRIMARY KEY,\n    cliente         TEXT,\n    articolo        TEXT,\n    titolo          TEXT,\n    codice          TEXT,\n    colore          TEXT,\n    ordine          TEXT,\n    riga            TEXT,\n    data            TEXT,\n    consegna        TEXT,\n    rocche          TEXT,\n    mc              TEXT,\n    comment         TEXT,\n    cq              TEXT,\n    bagno           TEXT,\n    tinto           TEXT,\n    planedate       TEXT,\n    data_qualita    TEXT,\n    data_uscita     TEXT,\n    custom          TEXT,\n    days_in_qc      TEXT,\n    ritardo_consegna TEXT,\n    old_comment     TEXT,\n    new_comment     TEXT,\n    last_seen_at    TEXT,\n    row_hash        TEXT\n)",
+    "CREATE TABLE upload_log (\n    source_name     TEXT PRIMARY KEY,\n    file_name       TEXT,\n    file_path       TEXT,\n    uploaded_at     TEXT,\n    row_count       INTEGER,\n    status          TEXT,\n    message         TEXT,\n    data_json       TEXT\n)",
+    "CREATE INDEX idx_partita_history_partita ON partita_history(partita)"
+   ]
+  },
+  {
+   "commit": "b77a206",
+   "date": "2026-09-22",
+   "statements": [
+    "CREATE TABLE codes (\n    articolo_filato TEXT PRIMARY KEY,\n    titolo          TEXT\n)",
+    "CREATE TABLE partita_history (\n    id              INTEGER PRIMARY KEY AUTOINCREMENT,\n    partita         TEXT,\n    cliente         TEXT,\n    articolo        TEXT,\n    colore          TEXT,\n    data            TEXT,\n    consegna        TEXT,\n    comment         TEXT,\n    bagno           TEXT,\n    tinto           TEXT,\n    data_qualita    TEXT,\n    data_uscita     TEXT,\n    days_in_qc      TEXT,\n    ritardo_consegna TEXT,\n    old_comment     TEXT,\n    new_comment     TEXT,\n    changed_at      TEXT\n)",
+    "CREATE TABLE partita_state (\n    partita         TEXT PRIMARY KEY,\n    cliente         TEXT,\n    articolo        TEXT,\n    titolo          TEXT,\n    codice          TEXT,\n    colore          TEXT,\n    ordine          TEXT,\n    riga            TEXT,\n    data            TEXT,\n    consegna        TEXT,\n    rocche          TEXT,\n    mc              TEXT,\n    comment         TEXT,\n    cq              TEXT,\n    bagno           TEXT,\n    tinto           TEXT,\n    planedate       TEXT,\n    data_qualita    TEXT,\n    data_uscita     TEXT,\n    custom          TEXT,\n    days_in_qc      TEXT,\n    ritardo_consegna TEXT,\n    old_comment     TEXT,\n    new_comment     TEXT,\n    prezzo          TEXT,\n    last_seen_at    TEXT,\n    row_hash        TEXT\n)",
+    "CREATE TABLE upload_log (\n    source_name     TEXT PRIMARY KEY,\n    file_name       TEXT,\n    file_path       TEXT,\n    uploaded_at     TEXT,\n    row_count       INTEGER,\n    status          TEXT,\n    message         TEXT,\n    data_json       TEXT\n)",
+    "CREATE INDEX idx_partita_history_partita ON partita_history(partita)"
+   ]
+  },
+  {
+   "commit": "8a5a846",
+   "date": "2026-10-02",
+   "statements": [
+    "CREATE TABLE codes (\n    articolo_filato TEXT PRIMARY KEY,\n    titolo          TEXT\n)",
+    "CREATE TABLE frame_cache (\n    source_name TEXT PRIMARY KEY,\n    data_json TEXT NOT NULL,\n    saved_at TEXT NOT NULL\n)",
+    "CREATE TABLE partita_state (\n    partita         TEXT PRIMARY KEY,\n    cliente         TEXT,\n    articolo        TEXT,\n    titolo          TEXT,\n    codice          TEXT,\n    colore          TEXT,\n    ordine          TEXT,\n    riga            TEXT,\n    data            TEXT,\n    consegna        TEXT,\n    rocche          TEXT,\n    mc              TEXT,\n    comment         TEXT,\n    cq              TEXT,\n    bagno           TEXT,\n    tinto           TEXT,\n    planedate       TEXT,\n    data_qualita    TEXT,\n    data_uscita     TEXT,\n    custom          TEXT,\n    days_in_qc      TEXT,\n    ritardo_consegna TEXT,\n    old_comment     TEXT,\n    new_comment     TEXT,\n    prezzo          TEXT,\n    last_seen_at    TEXT,\n    row_hash        TEXT\n)",
+    "CREATE TABLE source_snapshot (\n    source_name TEXT PRIMARY KEY,\n    schema_version INTEGER NOT NULL DEFAULT 1,\n    source_path TEXT,\n    source_mtime_ns INTEGER,\n    row_count INTEGER NOT NULL DEFAULT 0,\n    saved_at TEXT NOT NULL\n)",
+    "CREATE TABLE source_snapshot_row (\n    source_name TEXT NOT NULL,\n    row_number INTEGER NOT NULL,\n    row_json TEXT NOT NULL,\n    PRIMARY KEY (source_name, row_number),\n    FOREIGN KEY (source_name) REFERENCES source_snapshot(source_name) ON DELETE CASCADE\n)",
+    "CREATE TABLE upload_log (\n    source_name     TEXT PRIMARY KEY,\n    file_name       TEXT,\n    file_path       TEXT,\n    uploaded_at     TEXT,\n    row_count       INTEGER,\n    status          TEXT,\n    message         TEXT,\n    data_json       TEXT\n)",
+    "CREATE INDEX idx_source_snapshot_row_source ON source_snapshot_row(source_name)"
+   ]
+  },
+  {
+   "commit": "473b181",
+   "date": "2026-10-03",
+   "statements": [
+    "CREATE TABLE codes (\n    articolo_filato TEXT PRIMARY KEY,\n    titolo          TEXT\n)",
+    "CREATE TABLE frame_cache (\n    source_name TEXT PRIMARY KEY,\n    data_json TEXT NOT NULL,\n    saved_at TEXT NOT NULL\n)",
+    "CREATE TABLE partita_state (\n    partita         TEXT PRIMARY KEY,\n    cliente         TEXT,\n    articolo        TEXT,\n    titolo          TEXT,\n    codice          TEXT,\n    colore          TEXT,\n    ordine          TEXT,\n    riga            TEXT,\n    data            TEXT,\n    consegna        TEXT,\n    rocche          TEXT,\n    mc              TEXT,\n    comment         TEXT,\n    cq              TEXT,\n    bagno           TEXT,\n    tinto           TEXT,\n    planedate       TEXT,\n    data_qualita    TEXT,\n    data_uscita     TEXT,\n    custom          TEXT,\n    days_in_qc      TEXT,\n    ritardo_consegna TEXT,\n    old_comment     TEXT,\n    new_comment     TEXT,\n    prezzo          TEXT,\n    last_seen_at    TEXT,\n    row_hash        TEXT\n)",
+    "CREATE TABLE source_snapshot (\n    source_name TEXT PRIMARY KEY,\n    schema_version INTEGER NOT NULL DEFAULT 1,\n    source_path TEXT,\n    source_mtime_ns INTEGER,\n    row_count INTEGER NOT NULL DEFAULT 0,\n    saved_at TEXT NOT NULL\n)",
+    "CREATE TABLE source_snapshot_row (\n    source_name TEXT NOT NULL,\n    row_number INTEGER NOT NULL,\n    row_json TEXT NOT NULL,\n    PRIMARY KEY (source_name, row_number),\n    FOREIGN KEY (source_name) REFERENCES source_snapshot(source_name) ON DELETE CASCADE\n)",
+    "CREATE TABLE upload_log (\n    source_name     TEXT PRIMARY KEY,\n    file_name       TEXT,\n    file_path       TEXT,\n    uploaded_at     TEXT,\n    row_count       INTEGER,\n    status          TEXT,\n    message         TEXT,\n    data_json       TEXT\n)",
+    "CREATE INDEX idx_partita_state_articolo ON partita_state(articolo)",
+    "CREATE INDEX idx_partita_state_bagno ON partita_state(bagno)",
+    "CREATE INDEX idx_partita_state_cliente ON partita_state(cliente)",
+    "CREATE INDEX idx_partita_state_consegna ON partita_state(consegna)",
+    "CREATE INDEX idx_partita_state_data_uscita ON partita_state(data_uscita)",
+    "CREATE INDEX idx_source_snapshot_row_source ON source_snapshot_row(source_name)"
+   ]
+  },
+  {
+   "commit": "68c950c",
+   "date": "2026-10-10",
+   "statements": [
+    "CREATE TABLE codes (\n    articolo_filato TEXT PRIMARY KEY,\n    titolo          TEXT\n)",
+    "CREATE TABLE frame_cache (\n    source_name TEXT PRIMARY KEY,\n    data_json TEXT NOT NULL,\n    saved_at TEXT NOT NULL\n)",
+    "CREATE TABLE partita_state (\n    partita         TEXT PRIMARY KEY,\n    cliente         TEXT,\n    articolo        TEXT,\n    titolo          TEXT,\n    codice          TEXT,\n    colore          TEXT,\n    ordine          TEXT,\n    riga            TEXT,\n    data            TEXT,\n    consegna        TEXT,\n    rocche          TEXT,\n    mc              TEXT,\n    comment         TEXT,\n    cq              TEXT,\n    bagno           TEXT,\n    tinto           TEXT,\n    planedate       TEXT,\n    data_qualita    TEXT,\n    data_uscita     TEXT,\n    custom          TEXT,\n    days_in_qc      TEXT,\n    ritardo_consegna TEXT,\n    old_comment     TEXT,\n    new_comment     TEXT,\n    prezzo          TEXT,\n    last_seen_at    TEXT,\n    row_hash        TEXT\n)",
+    "CREATE TABLE source_snapshot (\n    source_name TEXT PRIMARY KEY,\n    schema_version INTEGER NOT NULL DEFAULT 1,\n    source_path TEXT,\n    source_mtime_ns INTEGER,\n    row_count INTEGER NOT NULL DEFAULT 0,\n    saved_at TEXT NOT NULL,\n    data_fingerprint TEXT,\n    column_meta TEXT\n)",
+    "CREATE TABLE source_snapshot_row (\n    source_name TEXT NOT NULL,\n    row_number INTEGER NOT NULL,\n    row_json TEXT NOT NULL,\n    PRIMARY KEY (source_name, row_number),\n    FOREIGN KEY (source_name) REFERENCES source_snapshot(source_name) ON DELETE CASCADE\n)",
+    "CREATE TABLE upload_log (\n    source_name     TEXT PRIMARY KEY,\n    file_name       TEXT,\n    file_path       TEXT,\n    uploaded_at     TEXT,\n    row_count       INTEGER,\n    status          TEXT,\n    message         TEXT,\n    data_json       TEXT\n)",
+    "CREATE INDEX idx_partita_state_articolo ON partita_state(articolo)",
+    "CREATE INDEX idx_partita_state_bagno ON partita_state(bagno)",
+    "CREATE INDEX idx_partita_state_cliente ON partita_state(cliente)",
+    "CREATE INDEX idx_partita_state_consegna ON partita_state(consegna)",
+    "CREATE INDEX idx_partita_state_data_uscita ON partita_state(data_uscita)",
+    "CREATE INDEX idx_source_snapshot_row_source ON source_snapshot_row(source_name)"
+   ]
+  },
+  {
+   "commit": "bfd502a",
+   "date": "2026-10-14",
+   "statements": [
+    "CREATE TABLE codes (\n    articolo_filato TEXT PRIMARY KEY,\n    titolo          TEXT\n)",
+    "CREATE TABLE frame_cache (\n    source_name TEXT PRIMARY KEY,\n    data_json TEXT NOT NULL,\n    saved_at TEXT NOT NULL\n)",
+    "CREATE TABLE partita_state (\n    partita         TEXT PRIMARY KEY,\n    cliente         TEXT,\n    articolo        TEXT,\n    titolo          TEXT,\n    codice          TEXT,\n    colore          TEXT,\n    ordine          TEXT,\n    riga            TEXT,\n    data            TEXT,\n    consegna        TEXT,\n    rocche          TEXT,\n    mc              TEXT,\n    comment         TEXT,\n    cq              TEXT,\n    bagno           TEXT,\n    tinto           TEXT,\n    planedate       TEXT,\n    data_qualita    TEXT,\n    data_uscita     TEXT,\n    custom          TEXT,\n    days_in_qc      TEXT,\n    ritardo_consegna TEXT,\n    old_comment     TEXT,\n    new_comment     TEXT,\n    prezzo          TEXT,\n    last_seen_at    TEXT,\n    row_hash        TEXT\n)",
+    "CREATE TABLE source_snapshot (\n    source_name TEXT PRIMARY KEY,\n    schema_version INTEGER NOT NULL DEFAULT 1,\n    source_path TEXT,\n    source_mtime_ns INTEGER,\n    row_count INTEGER NOT NULL DEFAULT 0,\n    saved_at TEXT NOT NULL,\n    data_fingerprint TEXT,\n    column_meta TEXT,\n    payload_json TEXT\n)",
+    "CREATE TABLE source_snapshot_row (\n    source_name TEXT NOT NULL,\n    row_number INTEGER NOT NULL,\n    row_json TEXT NOT NULL,\n    PRIMARY KEY (source_name, row_number),\n    FOREIGN KEY (source_name) REFERENCES source_snapshot(source_name) ON DELETE CASCADE\n)",
+    "CREATE TABLE upload_log (\n    source_name     TEXT PRIMARY KEY,\n    file_name       TEXT,\n    file_path       TEXT,\n    uploaded_at     TEXT,\n    row_count       INTEGER,\n    status          TEXT,\n    message         TEXT,\n    data_json       TEXT\n)",
+    "CREATE INDEX idx_partita_state_articolo ON partita_state(articolo)",
+    "CREATE INDEX idx_partita_state_bagno ON partita_state(bagno)",
+    "CREATE INDEX idx_partita_state_cliente ON partita_state(cliente)",
+    "CREATE INDEX idx_partita_state_consegna ON partita_state(consegna)",
+    "CREATE INDEX idx_partita_state_data_uscita ON partita_state(data_uscita)",
+    "CREATE INDEX idx_source_snapshot_row_source ON source_snapshot_row(source_name)"
+   ]
+  }
+ ],
+ "orders": [
+  {
+   "commit": "b77a206",
+   "date": "2026-09-22",
+   "statements": [
+    "CREATE TABLE orders (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        source_file TEXT NOT NULL,\n        sheet_name TEXT NOT NULL,\n        partita_col TEXT NOT NULL,\n        order_json TEXT NOT NULL,\n        status TEXT NOT NULL DEFAULT 'open',\n        archived_reason TEXT,\n        created_at TEXT NOT NULL,\n        updated_at TEXT NOT NULL,\n        archived_at TEXT\n    )",
+    "CREATE UNIQUE INDEX ux_orders_key ON orders(source_file, sheet_name, partita_col)"
+   ]
+  }
+ ],
+ "prezzi": [
+  {
+   "commit": "8a5a846",
+   "date": "2026-10-02",
+   "statements": [
+    "CREATE TABLE prezzi_frame_cache (\n        cache_key TEXT PRIMARY KEY,\n        fingerprint TEXT NOT NULL,\n        payload TEXT NOT NULL,\n        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n    )"
+   ]
+  }
+ ]
+}

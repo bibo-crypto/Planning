@@ -1,8 +1,7 @@
 # Refactoring plan (SOLID review)
 
-Status of the review done on 2026-10-21.  Everything below is backed by the test
-suite (`pytest`, 345 tests) and a headless start-up of the real window that opens
-every tab (17 pages, 0 Tk callback errors).
+Status of the review started on 2026-10-21, updated 2026-11-16: the test suite now has 969 tests (`pytest`), and the real window is opened and every
+tab visited by `tests/test_startup_pages.py`.
 
 ## Done in this pass
 
@@ -36,7 +35,8 @@ every tab (17 pages, 0 Tk callback errors).
    `gui/tabs/shared_order_logic.py` (no Tk) and the Notifications window was split out of `gui.py`
    (`gui/notifications_window.py`, `exporters/notifications_export.py`).  The shared-orders window is pinned by
    `tests/test_shared_orders_window.py` (real Tk) and `tests/test_shared_order_logic.py` (compared with verbatim
-   copies of the old code).  Still to do: turn the remaining closures (editor dialog, toggle/debounce, button
+   copies of the old code).  The Smart Auto-Assign algorithm moved to the same module (`build_auto_assign_suggestions`, compared with the original on 600
+   random cases) and every background operation now releases its in-progress flag when its result cannot be delivered (`post_to_ui(on_dropped=)`).  Still to do: turn the remaining closures (editor dialog, toggle/debounce, button
    wiring) into a class, then do the same for `shared_order_actions.py`.
 2. **Long functions** (cyclomatic complexity E/F, from `radon cc -n D`):
    `biglietti_tab._run_convert` (42), `kamal_tab._run_conversion` (39),

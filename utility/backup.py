@@ -125,6 +125,18 @@ def create_backup(destination: str | Path) -> Path:
     return destination
 
 
+def _is_healthy_sqlite(path: Path) -> bool:
+    """True when *path* opens as a SQLite database and passes integrity_check (read-only: the file is never modified)."""
+    try:
+        conn = sqlite3.connect(f"{path.as_uri()}?mode=ro&immutable=1", uri=True)
+        try:
+            return conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return False
+
+
 def restore_backup(source: str | Path) -> int:
     """Safely restore a backup into APP_DATA_DIR; return restored file count."""
     source = Path(source)
@@ -140,6 +152,12 @@ def restore_backup(source: str | Path) -> int:
                 if name.is_absolute() or ".." in name.parts or name.name == "backup_info.txt":
                     continue
                 archive.extract(member, temp_root)
+        # Everything is checked BEFORE the first file is replaced: a backup that holds a damaged database (it can
+        # have been taken from an already damaged one) must not overwrite a healthy one.
+        damaged = [path.relative_to(temp_root).as_posix() for path in sorted(temp_root.rglob("*"))
+                   if path.is_file() and path.suffix.lower() in _SQLITE_SUFFIXES and not _is_healthy_sqlite(path)]
+        if damaged:
+            raise ValueError(f"The backup contains a damaged database ({', '.join(damaged)}); nothing was restored.")
         for path in temp_root.rglob("*"):
             if not path.is_file():
                 continue

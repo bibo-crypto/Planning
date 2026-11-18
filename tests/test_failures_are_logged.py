@@ -83,6 +83,7 @@ def test_biglietti_lookups_log_when_codes_or_prices_cannot_be_loaded(monkeypatch
 def test_a_master_import_that_skips_a_sheet_says_why(monkeypatch, tmp_path, caplog):
     import pipelines.master_import as master_import
     assert master_import.logger is not None
-    source = open(master_import.__file__, encoding="utf-8").read()
+    with open(master_import.__file__, encoding="utf-8") as handle:
+        source = handle.read()
     # the skip handler logs with the traceback (it is exercised end to end by the master-import tests)
     assert 'logger.warning("Master import: %s was skipped because it failed", LABELS[key], exc_info=True)' in source

@@ -1,73 +1,205 @@
-# Planning 1.1.11 — Review Report
+# Planning 1.0.2 — Engineering Review Report
 
-## Scope
+Review date: 2026-11-16. Basis: the project as pushed in commit `8cb47a1` (main) plus the changes listed in section 3.
+Nothing in this review was pushed or merged: the result is a complete project folder for testing on a Windows machine first.
 
-The attached archive `Planning_1.1.11_merged.zip` was unpacked and reviewed without modifying the original uploaded archive. The requested MED bath-sequence feature was implemented only in the separate working copy and then refined against the supplied screenshot example.
+> Everything marked **executed** was actually run, with the evidence kept in `test_reports/`. Everything marked **NOT VERIFIED**
+> could not be run in the review environment (Linux) and is listed again in section 10 with the exact steps to verify it.
 
-## Verification
+## 1. Executive summary
 
-| Check | Result |
+* **A critical defect was found in the in-app updater and fixed.** The PowerShell helper that replaces the installed files wiped the
+  healthy installation and "restored" a partial copy whenever its own backup step failed (a locked file, no permission to create the
+  backup folder, a full disk). The program then stopped with `Failed to load Python DLL '...\_internal\python312.dll'` — the error
+  seen on the test machine. Reproduced with the real script (install folder left **empty**), fixed (install left **intact**),
+  and covered by tests that run the script under PowerShell. See 4.1.
+* A backup holding a damaged SQLite database could overwrite a healthy one on restore: fixed (checked before anything is replaced).
+* Five operations of the shared-orders pages stayed marked "running" for ever when their result could not be delivered to the window,
+  silently ignoring every later click: fixed. Seven direct Tk calls made from worker threads: fixed and now enforced by a test.
+* The Smart Auto-Assign algorithm (matching PG-X rows to Magazino stock) had no test and lived inside a GUI method: moved unchanged to a
+  Tk-free module and proven identical to the original on 600 random cases, plus business-rule tests.
+* **Tests (Linux, Python 3.12 and 3.14): 968 passed, 0 failed, 1 skipped, 0 warnings on each.** Windows CI at commit `8cb47a1`:
+  869 passed, 6 skipped per Python version; the Windows EXE build and its start/restart smoke test succeeded (section 6).
+* Not done and not claimed: running the new code on Windows, and a real update of an installed copy (section 10).
+
+## 2. Environment and what was executed
+
+| Item | Value |
 |---|---|
-| Python bytecode compilation | PASS |
-| Full automated test suite before feature | **243 passed** |
-| Full automated test suite after feature | **247 passed** |
-| GUI smoke test in this sandbox | Not executed: the environment has no graphical display (`$DISPLAY`) |
-| ZIP/archive integrity | Original archive unpacked successfully |
+| Python | 3.12.3 and 3.14.10 (pandas 2.3.3, numpy 2.4.6) |
+| OS | Linux (Ubuntu 24.04) with a virtual display 1920x1080; PowerShell 7.4.6 for the updater tests |
+| Windows | **not available** to the reviewer; Windows evidence comes from the project's own GitHub Actions (section 6) |
+| Packaging | PyInstaller 6.22 with the project's `main.spec` on Linux (section 7) |
 
-## Findings
+## 3. Changes
 
-### Critical defects
+**Modified** (production code): `utility/updater.py` (script rewritten, package check), `utility/backup.py` (restore checks databases first),
+`utility/ui_thread.py` (`post_to_ui(..., on_dropped=)`), `gui/tabs/shared_order_actions.py` (flags released; auto-assign moved out),
+`gui/tabs/shared_order_logic.py` (auto-assign algorithm added), `gui/tabs/kamal_tab.py`, `gui/tabs/ordine_med_tab.py` (Tk variables read on the UI thread),
+`gui/tabs/overview_tab.py` (no `winfo_exists()` in a worker).
+**Modified** (documents/tests): `REVIEW_REPORT.md` (replaced), `PERFORMANCE_REPORT.md` (marked historical), `REFACTORING_PLAN.md`, `ARCHITECTURE.md`,
+`tests/test_elvy_prezzi_names.py`, `tests/test_failures_are_logged.py` (closed files; assertions unchanged).
+**New:** `tools/verify_windows.ps1`; `docs/history/REVIEW_REPORT_1.1.11_historical.md`; tests `test_update_script.py`, `test_sqlite_reliability.py`
+(+ `tests/fixtures/legacy_database_schemas.json`), `test_shared_workbook_scenarios.py`, `test_upload_gg_scenarios.py`, `test_auto_assign_suggestions.py`,
+`test_auto_assign_apply.py`, `test_background_flags_released.py`, `test_thread_safety_rules.py`.
+**Deleted:** nothing. No test was removed, weakened, skipped or marked xfail to pass.
+The business logic (calculations, Excel formats, database schemas) was not changed.
 
-No reproducible critical defect was found in the automated checks.
+## 4. Problems found, fixed, and how each was proven
 
-### Important operational notes
+### 4.1 Updater: a failed backup destroyed the installation — CRITICAL, fixed
+* **Cause:** in the helper script, a failure of the backup copy went to the `catch` block, which ran `Restore-Backup`: delete everything in the
+  install folder, then copy back whatever the (incomplete) backup contained, ignoring errors. The "copy succeeded" test was only
+  `Test-Path Planning.exe`, which is always true because the old file is still there.
+* **Reproduction (executed, real script, PowerShell 7):** the folder for `Planning_Backup` could not be created. Old script: install folder **empty**
+  (`Planning.exe` and `python312.dll` gone). New script: install folder identical to the original. Second reproduction: one unreadable file
+  during the backup — old script removed `Planning.exe` and `version.txt`. Evidence: `test_reports/update_script_before_after.txt`.
+* **Fix:** (1) the backup is verified file by file against a list recorded before anything changes; (2) a rollback only happens when that backup
+  is verified, otherwise the install is left untouched and the old program is started again; (3) the rollback is verified against the same
+  list and nothing is deleted if it cannot be proven complete; (4) the update counts as copied only when every file of the new version is
+  in place; (5) the package is refused before anything is touched if `_internal` has no `python3*.dll`.
+* **Tests (executed):** `tests/test_update_script.py` renders the script exactly as the updater does and runs it with PowerShell: good update (all files,
+  verified backup, cleanup), backup impossible, unreadable file, copy that never succeeds, new version that never starts, rollback that cannot be completed,
+  incomplete package refused. Each compares the install folder byte for byte. Four of them also run on Windows PowerShell 5.1 when the suite runs on Windows.
 
-1. **GUI startup needs a desktop/display.** `test_startup.py` creates `ConverterApp()` directly and is not headless-safe. This is an environment limitation rather than an application regression, but a CI pipeline should run it under Windows or Xvfb.
-2. **Development test dependencies are not listed in `requirements.txt`.** The runtime dependencies are present, but `pytest` is used by the repository tests and should be installed separately in a development/CI requirements file.
-3. **Some GUI worker paths use broad exception handling.** This prevents user-facing crashes, but can hide source/cache problems in logs. No failing behavior was exposed by the current tests; future hardening should add more specific logging around those paths.
-4. **Excel output is generated asynchronously.** This is correct for responsiveness, but manual acceptance should verify that users do not open/lock the target workbook while conversion is writing it.
+### 4.2 Restore accepted a damaged database — HIGH, fixed
+`restore_backup` replaced the live database with whatever the ZIP held. A backup taken from an already damaged database (the backup falls back to a raw copy
+when the SQLite snapshot fails) would overwrite a healthy one. Now every database in the backup passes `PRAGMA integrity_check` (read-only) **before** the
+first file is replaced; otherwise the restore is refused with a clear message and nothing changes. Test written first and failed (`DID NOT RAISE`), passes now.
 
-## Implemented MED feature
+### 4.3 Tk access from worker threads — MEDIUM, fixed and enforced
+Found by scanning every `threading.Thread` target in `gui/`: `BooleanVar.get()` ×4 (Ordine MED, Ordine Kamal), `winfo_exists()` (Overview export) and two direct
+`widget.after()` calls (PG-X upload). Tkinter refuses `after()` from a worker while the main thread is not in `mainloop` (for example inside a modal dialog).
+Values are now read on the UI thread before the worker starts (the project's own pattern). `tests/test_thread_safety_rules.py` fails if any worker touches Tk again.
 
-The MED tab now includes:
+### 4.4 Operations blocked for ever when a result is dropped — MEDIUM/HIGH, fixed
+PG-X save, PG-X editor save, move/delete rows, delete shipped colours and the Partita GG upload set a "running" flag cleared by a callback on the UI thread.
+When that callback could not be scheduled the flag stayed set and every later click did nothing, silently. `post_to_ui` gained `on_dropped`; all 14 call sites
+release their flag. Each of the five operations has a test that drops the first result and checks that the next click works (all five failed before the fix).
 
-- A text field for the first bath, e.g. `T1200`.
-- A checkbox named **Use bagno sequence**.
-- Default state: **disabled**.
-- The value is persisted in application preferences.
-- Invalid values are rejected unless they match letters plus a number, such as `T1200`.
+### 4.5 Smart Auto-Assign was untested — fixed (tested and extracted, behaviour unchanged)
+The algorithm was moved to `gui/tabs/shared_order_logic.build_auto_assign_suggestions`. A verbatim copy of the original is kept in the test and compared on 600 random
+cases (more than 300 matches), then 12 business rules (smallest sufficient batch, rocche already promised, lotto priority, fallback to the raw article, ...)
+and the saving step (4 scenarios with a real thread and workbook).
 
-When enabled, the sequence is calculated in source-row order. A group qualifies only if consecutive rows share:
+### 4.6 Earlier in this review cycle (already delivered and pushed)
+Startup failures are reported (no more silent "Loading application pages"); `init_db` no longer hides real migration errors and retries transient lock/I-O
+errors; the notification store never overwrites an unreadable file and the price refresh can no longer save the result of a half-failed check; "Mark Resolved"
+asks when the problem is still reported; the CI report branch `ci-reports` (verified live, section 8); 35 silent `except Exception` now log, and a test blocks new ones.
 
-- the same five-digit-normalized colour code;
-- the same machine (`GRUPPO MACCHINA`); and
-- the same non-zero `ABBIN`.
+## 5. Test results (executed)
 
-The sequence advances once per contiguous row group. For a qualifying split group, the first row is left blank and the following rows receive the bath. For rows without a qualifying group, the output remains blank. The internal calculation also records **Bagno Reale** for every sequential group. The value written to the ERP-facing column is **BAGNO PREPOSTO** in:
+**Python 3.12.3** (Linux, virtual display 1920x1080, PowerShell 7.4.6 present)
 
-- `Ordine_MED.xlsx` → `Dati sistema (B-N)`;
-- the separate ERP workbook `EXCEL PER ORDINE VENDITA EGITTO.xlsx`.
+| Test group | Passed | Failed | Skipped | Warnings | Total |
+|---|---:|---:|---:|---:|---:|
+| Shared Orders: window, logic, workbook, upload, auto-assign, background flags, thread rules | 209 | 0 | 0 | 0 | 209 |
+| SQLite, notifications, backup, data integrity | 114 | 0 | 0 | 0 | 114 |
+| Updater (real PowerShell script) and CI report | 19 | 0 | 1 | 0 | 20 |
+| Application startup and GUI pages | 51 | 0 | 0 | 0 | 51 |
+| Business logic, parsers, exporters, pipelines and the rest | 575 | 0 | 0 | 0 | 575 |
+| **Total** | **968** | **0** | **1** | **0** | **969** |
 
-Example result for a repeated MED colour/machine/ABBIN group:
+**Python 3.14.10** (Linux, virtual display 1920x1080, PowerShell 7.4.6 present)
 
-```text
-Bagno Reale:     T1200, T1201, T1201, T1202
-Bagno Preposato: blank,  blank,  T1201, blank
-```
+| Test group | Passed | Failed | Skipped | Warnings | Total |
+|---|---:|---:|---:|---:|---:|
+| Shared Orders: window, logic, workbook, upload, auto-assign, background flags, thread rules | 209 | 0 | 0 | 0 | 209 |
+| SQLite, notifications, backup, data integrity | 114 | 0 | 0 | 0 | 114 |
+| Updater (real PowerShell script) and CI report | 19 | 0 | 1 | 0 | 20 |
+| Application startup and GUI pages | 51 | 0 | 0 | 0 | 51 |
+| Business logic, parsers, exporters, pipelines and the rest | 575 | 0 | 0 | 0 | 575 |
+| **Total** | **968** | **0** | **1** | **0** | **969** |
 
-## Files changed in the working copy
+Skipped (1, both versions): `test_a_file_that_cannot_be_read_while_backing_up_cancels_the_update` — permissions do not bind root; the same situation was run by hand
+as an unprivileged user (`update_script_before_after.txt`). Warnings: 0 with the project's normal settings; the suite also passes with `-W error::ResourceWarning`
+on the files changed here.
 
-- `pipelines/ordine_med.py`
-- `gui/tabs/ordine_med_tab.py`
-- `tests/test_regressions.py`
+Line coverage **76.1%**, branch coverage **56.6%** (was 71.0% / 51.5% at the start of this review). Modules touched by this review:
 
-## Recommendation
+| Module | Line | Branch |
+|---|---:|---:|
+| `calculate/prezzi.py` | 89.4% | 81.2% |
+| `exporters/biglietti/shared_workbook.py` | 87.9% | 75.7% |
+| `gui/notifications_window.py` | 96.8% | 96.2% |
+| `gui/tabs/shared_order_actions.py` | 62.0% | 49.1% |
+| `gui/tabs/shared_order_logic.py` | 100.0% | 100.0% |
+| `gui/tabs/shared_orders_window.py` | 56.3% | 50.7% |
+| `pipelines/ordine_med.py` | 80.5% | 67.5% |
+| `utility/backup.py` | 95.9% | 95.0% |
+| `utility/notifications.py` | 91.0% | 77.9% |
+| `utility/situazione_db.py` | 91.2% | 85.2% |
+| `utility/source_manager.py` | 90.4% | 77.3% |
+| `utility/ui_thread.py` | 100.0% | 100.0% |
+| `utility/updater.py` | 70.3% | 51.9% |
 
-After Convert finishes (success or error), First bagno is cleared and Use bagno sequence is automatically disabled.
+### SQLite and data integrity (executed, real files and real processes)
+| Scenario | Result |
+|---|---|
+| New database | created with every table and column |
+| Databases exactly as 8 older releases left them (rebuilt from each release's own `init_db`) | all upgraded, every old row identical, second start changes nothing |
+| Orders-history and Listini-cache databases of the older release | rows kept, new writes work |
+| Program killed (SIGKILL) while saving, 4 timings | database opens, `integrity_check` ok, one complete snapshot (never a mix) |
+| 3 writer processes + 1 reader at the same time | no "database is locked", no lost write, last snapshot of each writer complete |
+| Backup taken while the data is only in the `-wal` file | backup contains it; restore brings back exactly that state |
+| Stale `-wal` of the replaced database | not replayed onto the restored one |
+| Backup holding a damaged database / file that is not a backup | refused, nothing replaced |
+| Restart persistence (separate processes) | data identical, no duplicates, no lock left behind |
 
-The implementation is ready for MED-only user acceptance with a real ORDINE workbook. The next validation should compare the two generated workbooks against one known-good MED order, especially rows where the same colour appears on adjacent rows with the same machine and non-zero ABBIN.
+### Shared orders scenarios (executed, workbooks with the production headers)
+Orders / PG-X split and numeric sort; re-append idempotent; assign Partita GG (right and wrong raw article, with and without confirmation); edit, move, delete rows;
+shipped delete archived in the history; the open history always equals the workbook; Excel round trip (leading zeros, numbers); workbook of an older version migrated
+(no Print column, waiting rows on Orders); locked workbook gives a clear message and stays intact; 1,500 rows; Partita GG upload (available / mismatching / missing batch
+confirmed or declined / wrong headers / equal numbers in other formats / second upload refused); Auto-Assign.
 
+## 6. Windows (evidence from the project's GitHub Actions, commit `8cb47a1`, read from branch `ci-reports`)
 
-## Latest Bagno counter correction
+| Run | Result |
+|---|---|
+| `tests` Python 3.12 / 3.14 on Windows | **869 passed, 0 failed, 6 skipped** each (5 publish-script tests run on Ubuntu by design, 1 `win32com` environment test) |
+| `windows-exe` | **success**: PyInstaller build, package contents check, packaged `Planning.exe` started on an empty profile and restarted on the saved one, closed |
 
-The counter now advances one position for every preceding ABBIN=0 row and one position for each consecutive non-zero ABBIN group. This prevents a preceding run of zero rows from being collapsed by colour/machine matching. The supplied scenario now produces `S1219`, blank, `S1220`, blank, `S1221` after the preceding rows, as requested.
+These runs do **not** include the changes of section 3 (they were not pushed). **NOT VERIFIED on Windows:** all of section 3. Run `tools\verify_windows.ps1` (section 10).
+
+## 7. Packaging (executed on Linux with the project's `main.spec`)
+Build succeeded; 113 of 114 project modules are inside the archive (the remaining one is `runtime_hook`, executed at boot by design); `icon.ico`, `version.txt`
+and `data/prezzi_category_map.json` are present; no database file is packaged; the **packaged binary** started on an empty profile, restarted on it and closed.
+This confirms hidden imports and data files for the Linux build only; the Windows build is covered by the CI evidence in section 6.
+
+## 8. CI report publishing (executed)
+`ci/make_report.py` and `ci/publish_report.sh` were exercised on Ubuntu with relative and absolute paths, first publish (orphan branch), a second workflow on the same branch,
+no-change, two publishers at the same moment, history pruning, a run without artifacts, and a missing folder. The relative-path defect that stopped the first deployment was
+reproduced, fixed and has a regression test. Live: branch `ci-reports` exists with `latest/` and `history/`; every report names the commit and the run URL; `history/` keeps
+earlier reports; `latest/` is overwritten by design. The workflow cannot loop (a push made with `GITHUB_TOKEN` starts no workflow), runs only for this repository's own runs,
+takes its scripts from the default branch and has the two permissions it needs (`contents: write`, `actions: read`).
+
+## 9. Version and project hygiene
+`version.txt`, `installer.iss` (`AppVersion`) and `DEFAULT_APP_VERSION` in `utility/updater.py` all say **1.0.2** (the fixed base version; each release stores its own version in `version.txt`).
+No secrets in the current files or in any of the 115 commits (token/key patterns scanned); no database, Excel, log or ZIP file is tracked; `.gitignore` covers logs, backups, databases and caches.
+Stale reports were replaced or marked historical (`PERFORMANCE_REPORT.md`, `docs/history/`). Dependencies in `requirements.txt` are ranges, not pins (section 11).
+
+## 10. Not executed / not verified — and how to verify
+| What | Why | How |
+|---|---|---|
+| All code of section 3 on Windows (tests, build, EXE) | no Windows in the review environment | `powershell -ExecutionPolicy Bypass -File tools\verify_windows.ps1` (runs deps, full pytest, PyInstaller build, package check, EXE smoke; logs in `verify_logs\<time>`) |
+| The update helper under Windows PowerShell 5.1 and in `C:\Program Files` with UAC and antivirus | needs Windows; four updater tests do run on `powershell.exe` when the suite runs on Windows | the verify script runs them; then do one real update from the installed 1.0.2 to a build of this folder and read `%TEMP%\Planning_Update.log` |
+| Manual end-to-end use of every page with production Excel files | production data is not available | planner acceptance test |
+| `Planning_Backup` after a real update | needs a real update | after the test update, `C:\Program Files\Planning_Backup` must exist and equal the previous version |
+
+## 11. Remaining issues
+**High**
+* After a failed update the user is not told (the old version simply starts again; the reason is only in `%TEMP%\Planning_Update.log`). Suggest an in-app notice on the next start.
+**Medium**
+* Auto-Assign: if its result cannot be delivered the "Assigning Stock..." window stays open; after a failure part-way the earlier rows stay assigned and the table is not refreshed (documented by a test).
+* `_sync_workbook_history` hides a failing history at debug level (it must not stop saving, but should be a warning).
+* `restore_backup` replaces files one by one (not atomic) once the databases pass the check.
+* 100 broad handlers log without a traceback; large modules still low in coverage and made of closures: `shared_orders_window.py` 56%, `shared_order_actions.py` 62%, `situazione_tab.py`, `overview_tab.py`.
+* `requirements.txt` ranges (pandas, numpy, pyinstaller) make two builds not guaranteed identical; a lock/constraints file is advisable for releases.
+**Low**
+* A Partita Col whose text is `nan` gives a NaN sort key (behaviour of the original code, left unchanged).
+* No `PRAGMA user_version` in the databases (upgrades rely on idempotent column checks).
+
+## 12. Release readiness
+The code is **ready for the Windows verification step**, not yet for release. Before releasing: (1) `tools\verify_windows.ps1` passes on a Windows machine, (2) one real update of an installed
+copy succeeds and a deliberate failure (e.g. antivirus-locked file) leaves the old version working, (3) the planners confirm the shared-orders pages with real files. No known defect blocks
+(1)–(3); the critical updater defect is fixed and proven at script level only.

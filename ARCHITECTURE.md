@@ -353,3 +353,17 @@ Uploaded/normalized source data is persisted as SQLite snapshots. On restart, th
 - **SQLite snapshots** (1.1.9 payload format + 1.1.10 migration/in-memory reuse + the column types and staleness guard of
   the 1.1.8 review): one compact payload per source; dates restored as datetimes (ISO text, or epoch milliseconds from
   older blobs); identical re-uploads write nothing; a snapshot older than its registered file is not served.
+
+## Structure added in the November 2026 review
+| Module | Responsibility |
+|---|---|
+| `gui/notifications_window.py` | the Notifications window and what its buttons do (Mark Resolved with confirmation, Snooze, Refresh, Excel export) |
+| `exporters/notifications_export.py` | writes notifications to an Excel file; no window code |
+| `gui/tabs/shared_order_logic.py` | pure rules of the shared-orders pages: row cells, date format, Partita sort/normalisation, Magazino availability decision, Smart Auto-Assign matching. No Tk, no I/O |
+| `utility/ui_thread.py` | `post_to_ui(widget, callback, on_dropped=...)`: the only way a worker thread hands a result to the UI; `on_dropped` releases an in-progress flag when nothing could be scheduled |
+| `utility/updater.py` | downloads the release, checks the package, and builds the PowerShell helper (`build_update_script`) that replaces the installed files with a verified backup and a verified rollback |
+| `ci/` | `smoke_exe.py` (start/restart/close of the packaged EXE), `make_report.py` + `publish_report.sh` (the `ci-reports` branch) |
+| `tools/verify_windows.ps1` | one-command verification on a Windows machine: tests, build, package check, EXE smoke, logs in one folder |
+
+Rules enforced by tests: no new silent `except Exception` (`tests/test_exception_policy.py`); worker threads never touch Tk (`tests/test_thread_safety_rules.py`).
+

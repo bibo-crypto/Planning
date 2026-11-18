@@ -478,10 +478,22 @@ class KamalTab(ttk.Frame):
                 logger.exception("Could not read the Overview machine schedule; CONSEGNA uses this order only")
                 self._machine_totals_snapshot = {}
 
+        # Tkinter variables must not be read from the worker thread: take their values here, on the UI thread.
+        self._update_erp_snapshot = bool(self._kamal_update_erp_file.get())
+        self._update_filato_snapshot = bool(self._kamal_update_filato_file.get())
+
         self._btn_convert.config(state="disabled")
         self._lbl_status.config(text="Converting…", foreground="grey")
         thread = threading.Thread(target=self._run_conversion, args=(pdf_paths,), daemon=True)
         thread.start()
+
+    def _snapshot_of(self, name: str, variable) -> bool:
+        """The value of a Tk variable as read on the UI thread before the worker started.
+
+        Without a snapshot the method was called directly on the UI thread (tests, scripts), where reading the variable is safe.
+        """
+        value = getattr(self, name, None)
+        return bool(variable.get()) if value is None else value
 
     def _set_status(self, text: str):
         """Thread-safe status label update — safe to call from the background conversion thread."""
@@ -588,7 +600,7 @@ class KamalTab(ttk.Frame):
             except Exception as exc:  # noqa: BLE001
                 errors.append(f"Error exporting: {exc}")
 
-            if self._kamal_update_erp_file.get():
+            if self._snapshot_of("_update_erp_snapshot", self._kamal_update_erp_file):
                 if self._kamal_erp_export_dir is None:
                     errors.append("ERP file extraction was enabled but no ERP folder is selected.")
                 else:
@@ -610,7 +622,7 @@ class KamalTab(ttk.Frame):
                     except Exception as exc:  # noqa: BLE001
                         errors.append(f"Error extracting {ordini_path.name}: {exc}")
 
-            if self._kamal_update_filato_file.get():
+            if self._snapshot_of("_update_filato_snapshot", self._kamal_update_filato_file):
                 if self._kamal_filato_export_dir is None:
                     errors.append("Filato x Tinturia extraction was enabled but no Filato folder is selected.")
                 else:

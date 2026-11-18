@@ -301,8 +301,8 @@ def export_dataframe_fast(df: pd.DataFrame, default_filename: str, parent: tk.Wi
                 messagebox.showerror("Export Failed", error, parent=parent)
             else:
                 messagebox.showinfo("Export Completed", f"Exported to:\n{path}", parent=parent)
-        if parent is not None and parent.winfo_exists():
-            post_to_ui(parent, done)
+        if parent is not None:
+            post_to_ui(parent, done)      # copes with a parent that no longer exists; winfo_exists() must not run in a worker thread
 
     threading.Thread(target=worker, name="planning-excel-export", daemon=True).start()
 

@@ -9,6 +9,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime
 
+from calculate.raw_batch import is_assigned_raw
+from exporters.biglietti.fields import requested_lotto_for
+from utility.master_data import raw_articolo_for
+
 # The Excel columns of the table (after the "Print" tick-box), in display order.
 ORDER_TABLE_COLUMNS = (
     "Dispo/Riga", "Cliente", "Articolo", "Titolo", "Formato", "Ordine", "Codice",
@@ -137,3 +141,71 @@ def delete_confirmation(sheet: str, partita_cols: list[str]) -> tuple[str, str]:
     suffix = "..." if len(partita_cols) > 8 else ""
     return (f"Delete {sheet} Rows",
             f"Delete {len(partita_cols)} selected {sheet} row(s)?\n\nPartita Col: {preview}{suffix}")
+
+
+def build_auto_assign_suggestions(pgx_records, magazino_summary) -> list[dict]:
+    """Smart Auto-Assign: which Magazino Filato batch could cover each PG-X row.
+
+    *magazino_summary* is the stock table (articolo, partita, lotto, mag_rocche, mag_peso).  Rows that already hold one
+    of our raw batches are skipped.  A lotto named by the row (customer lot in Partita GG, or "PG-<lotto>" in the comment)
+    is authoritative when the stock has it; otherwise the raw article of the colour is used.  Inside the candidates the
+    smallest batch with enough rocche left wins, and rocche already promised to an earlier row are not offered again.
+    Returns one dict per matched row (``record``, ``partita_col``, ``suggested_partita``, ``available_rocche`` ...).
+    """
+    stock_pool = {}
+    stock_by_lotto = {}
+    for row in magazino_summary.itertuples(index=False):
+        art = str(getattr(row, "articolo", "") or "").strip().upper()
+        partita = str(getattr(row, "partita", "") or "").strip()
+        lotto = str(getattr(row, "lotto", "") or "").strip()
+        rocche = float(getattr(row, "mag_rocche", 0) or 0)
+        peso = float(getattr(row, "mag_peso", 0) or 0)
+        if art and partita and rocche > 0:
+            item = {"partita": partita, "rocche": rocche, "peso": peso, "lotto": lotto, "articolo": art}
+            stock_pool.setdefault(art, []).append(item)
+            if lotto:
+                stock_by_lotto.setdefault(lotto.casefold(), []).append(item)
+
+    for art in stock_pool:
+        stock_pool[art].sort(key=lambda b: b["rocche"])
+
+    suggestions = []
+    used_capacity = {}
+
+    for record in pgx_records:
+        if is_assigned_raw(record.raw_batch, record.customer_code):
+            continue                      # already holds one of our raw batches
+
+        raw_art = str(record.article or "").strip().upper()
+        if raw_art.startswith("C"):
+            raw_art = raw_articolo_for(raw_art)
+
+        need_rocche = float(record.quantity_cones or 0)
+        requested_lotto = requested_lotto_for(record)
+        candidates = stock_by_lotto.get(requested_lotto.casefold(), []) if requested_lotto else []
+        # Lotto is authoritative when present. If no matching Lotto exists,
+        # use the requested color's raw article as the fallback.
+        if not candidates:
+            candidates = stock_pool.get(raw_art, [])
+
+        matching_batch = None
+        for b in candidates:
+            rem = b["rocche"] - used_capacity.get(b["partita"], 0)
+            if rem >= need_rocche:
+                matching_batch = b
+                break
+
+        if matching_batch:
+            used_capacity[matching_batch["partita"]] = used_capacity.get(matching_batch["partita"], 0) + need_rocche
+            suggestions.append({
+                "record": record,
+                "partita_col": str(record.colored_batch or ""),
+                "cliente": str(record.customer_name or ""),
+                "articolo": str(record.article or ""),
+                "codice": str(record.color_code or ""),
+                "colore": str(record.color_name or ""),
+                "rocche": record.quantity_cones,
+                "suggested_partita": matching_batch["partita"],
+                "available_rocche": matching_batch["rocche"],
+            })
+    return suggestions

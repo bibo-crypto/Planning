@@ -19,13 +19,13 @@ from .biglietti_exports import (
     move_pg_x_to_orders,
     pg_x_batch_stock_status,
     remove_uploaded_pgx_rows,
-    requested_lotto_for,
     save_pg_x_partita,
     update_order_row,
     update_pg_x_row,
 )
 from utility.ui_thread import post_to_ui
 from calculate.raw_batch import is_assigned_raw
+from .shared_order_logic import build_auto_assign_suggestions
 
 
 def _upload_partita_key(value):
@@ -114,6 +114,9 @@ class SharedOrdersActionsMixin:
             "M/C": values.get("M/C", ""),
         }
 
+        def release_flag():
+            self._pg_x_saving = False
+
         def worker():
             """Worker: apply the edited values to the row in the shared Excel (an Orders row, or a PG-X row), recomputing what depends on Partita GG, then reload the sheets."""
             try:
@@ -149,9 +152,9 @@ class SharedOrdersActionsMixin:
                     "Orders": load_create_excel_records(self.shared_excel_path, sheet_name="Orders"),
                     "PG-X": load_create_excel_records(self.shared_excel_path, sheet_name="PG-X"),
                 }
-                post_to_ui(self, lambda: finish(new_datasets, message))
+                post_to_ui(self, lambda: finish(new_datasets, message), on_dropped=release_flag)
             except Exception as exc:
-                post_to_ui(self, lambda exc=exc: fail(exc))
+                post_to_ui(self, lambda exc=exc: fail(exc), on_dropped=release_flag)
 
         def finish(new_datasets, message):
             self._pg_x_saving = False
@@ -178,6 +181,9 @@ class SharedOrdersActionsMixin:
             return
         self._pg_x_saving = True
 
+        def release_flag():
+            self._pg_x_saving = False
+
         def worker():
             """Worker: save the Partita GG assignment into the shared Excel and reload the Orders and PG-X sheets."""
             try:
@@ -192,9 +198,9 @@ class SharedOrdersActionsMixin:
                     "Orders": load_create_excel_records(self.shared_excel_path, sheet_name="Orders"),
                     "PG-X": load_create_excel_records(self.shared_excel_path, sheet_name="PG-X"),
                 }
-                post_to_ui(self, lambda: finish(result, new_datasets))
+                post_to_ui(self, lambda: finish(result, new_datasets), on_dropped=release_flag)
             except Exception as exc:
-                post_to_ui(self, lambda exc=exc: fail(exc))
+                post_to_ui(self, lambda exc=exc: fail(exc), on_dropped=release_flag)
 
         def finish(result, new_datasets):
             self._pg_x_saving = False
@@ -229,6 +235,9 @@ class SharedOrdersActionsMixin:
         if isinstance(partita_cols, str):
             partita_cols = [partita_cols]
 
+        def release_flag():
+            self._pg_x_action_running = False
+
         def worker():
             try:
                 if action == "move":
@@ -243,9 +252,9 @@ class SharedOrdersActionsMixin:
                     "Orders": load_create_excel_records(self.shared_excel_path, sheet_name="Orders"),
                     "PG-X": load_create_excel_records(self.shared_excel_path, sheet_name="PG-X"),
                 }
-                post_to_ui(self, lambda: finish(count, new_datasets))
+                post_to_ui(self, lambda: finish(count, new_datasets), on_dropped=release_flag)
             except Exception as exc:
-                post_to_ui(self, lambda exc=exc: fail(exc))
+                post_to_ui(self, lambda exc=exc: fail(exc), on_dropped=release_flag)
 
         def finish(count, new_datasets):
             self._pg_x_action_running = False
@@ -292,6 +301,9 @@ class SharedOrdersActionsMixin:
             except ValueError:
                 return text.casefold()
 
+        def release_flag():
+            self._delete_shipped_running = False
+
         def worker():
             """Worker: read the Uscita file and collect the rows of the sheet whose partita has already shipped."""
             try:
@@ -306,9 +318,9 @@ class SharedOrdersActionsMixin:
                     if sheet_by_iid.get(iid) == sheet_name
                 ]
                 count = sum(1 for record in page_records if normalize(record.colored_batch) in shipped)
-                post_to_ui(self, lambda: confirm_and_delete(count, shipped))
+                post_to_ui(self, lambda: confirm_and_delete(count, shipped), on_dropped=release_flag)
             except Exception as exc:
-                post_to_ui(self, lambda exc=exc: shipped_delete_failed(exc, window))
+                post_to_ui(self, lambda exc=exc: shipped_delete_failed(exc, window), on_dropped=release_flag)
 
         def confirm_and_delete(count, shipped):
             """Report how many shipped colours were found, ask for confirmation and delete them from the shared Excel."""
@@ -334,9 +346,9 @@ class SharedOrdersActionsMixin:
                         "Orders": load_create_excel_records(self.shared_excel_path, sheet_name="Orders"),
                         "PG-X": load_create_excel_records(self.shared_excel_path, sheet_name="PG-X"),
                     }
-                    post_to_ui(self, lambda: delete_finished(deleted, new_datasets))
+                    post_to_ui(self, lambda: delete_finished(deleted, new_datasets), on_dropped=release_flag)
                 except Exception as exc:
-                    post_to_ui(self, lambda exc=exc: shipped_delete_failed(exc, window))
+                    post_to_ui(self, lambda exc=exc: shipped_delete_failed(exc, window), on_dropped=release_flag)
 
             threading.Thread(target=delete_worker, daemon=True).start()
 
@@ -488,6 +500,9 @@ class SharedOrdersActionsMixin:
 
         self._pgx_upload_running = True
 
+        def release_flag():
+            self._pgx_upload_running = False
+
         def inspect_file():
             """Worker of the PG-X upload: read the uploaded Partita Col / Partita GG pairs and
             check each against the PG-X rows and the magazino stock, sorting them into
@@ -524,14 +539,9 @@ class SharedOrdersActionsMixin:
                             f"{partita_col}: Partita GG {partita_gg} exists in Magazino "
                             f"but is not for the required raw article(s) {required}; not loaded."
                         )
-                self.after(
-                    0,
-                    lambda: confirm_missing(
-                        ready, missing, errors, densita_map, vmm_ratio_map, summary,
-                    ),
-                )
+                post_to_ui(self, lambda: confirm_missing(ready, missing, errors, densita_map, vmm_ratio_map, summary), on_dropped=release_flag)
             except Exception as exc:
-                post_to_ui(self, lambda exc=exc: fail_upload(exc))
+                post_to_ui(self, lambda exc=exc: fail_upload(exc), on_dropped=release_flag)
 
         def confirm_missing(ready, missing, errors, densita_map, vmm_ratio_map, summary):
             # Any failure here (for example the window was closed while the
@@ -607,14 +617,9 @@ class SharedOrdersActionsMixin:
                     "Orders": load_create_excel_records(self.shared_excel_path, sheet_name="Orders"),
                     "PG-X": load_create_excel_records(self.shared_excel_path, sheet_name="PG-X"),
                 }
-                self.after(
-                    0,
-                    lambda: finish_upload(
-                        updated, source_rows_removed, errors, new_datasets,
-                    ),
-                )
+                post_to_ui(self, lambda: finish_upload(updated, source_rows_removed, errors, new_datasets), on_dropped=release_flag)
             except Exception as exc:
-                post_to_ui(self, lambda exc=exc: fail_upload(exc))
+                post_to_ui(self, lambda exc=exc: fail_upload(exc), on_dropped=release_flag)
 
         def finish_upload(updated, source_rows_removed, errors, new_datasets):
             self._pgx_upload_running = False
@@ -652,62 +657,7 @@ class SharedOrdersActionsMixin:
         if magazino_summary is None or magazino_summary.empty:
             return messagebox.showinfo("No Stock Data", "Magazino Filato stock is empty or not uploaded.", parent=parent_window)
 
-        stock_pool = {}
-        stock_by_lotto = {}
-        for row in magazino_summary.itertuples(index=False):
-            art = str(getattr(row, "articolo", "") or "").strip().upper()
-            partita = str(getattr(row, "partita", "") or "").strip()
-            lotto = str(getattr(row, "lotto", "") or "").strip()
-            rocche = float(getattr(row, "mag_rocche", 0) or 0)
-            peso = float(getattr(row, "mag_peso", 0) or 0)
-            if art and partita and rocche > 0:
-                item = {"partita": partita, "rocche": rocche, "peso": peso, "lotto": lotto, "articolo": art}
-                stock_pool.setdefault(art, []).append(item)
-                if lotto:
-                    stock_by_lotto.setdefault(lotto.casefold(), []).append(item)
-
-        for art in stock_pool:
-            stock_pool[art].sort(key=lambda b: b["rocche"])
-
-        suggestions = []
-        used_capacity = {}
-
-        for record in pgx_records:
-            if is_assigned_raw(record.raw_batch, record.customer_code):
-                continue                      # already holds one of our raw batches
-
-            raw_art = str(record.article or "").strip().upper()
-            if raw_art.startswith("C"):
-                raw_art = raw_articolo_for(raw_art)
-
-            need_rocche = float(record.quantity_cones or 0)
-            requested_lotto = requested_lotto_for(record)
-            candidates = stock_by_lotto.get(requested_lotto.casefold(), []) if requested_lotto else []
-            # Lotto is authoritative when present. If no matching Lotto exists,
-            # use the requested color's raw article as the fallback.
-            if not candidates:
-                candidates = stock_pool.get(raw_art, [])
-
-            matching_batch = None
-            for b in candidates:
-                rem = b["rocche"] - used_capacity.get(b["partita"], 0)
-                if rem >= need_rocche:
-                    matching_batch = b
-                    break
-
-            if matching_batch:
-                used_capacity[matching_batch["partita"]] = used_capacity.get(matching_batch["partita"], 0) + need_rocche
-                suggestions.append({
-                    "record": record,
-                    "partita_col": str(record.colored_batch or ""),
-                    "cliente": str(record.customer_name or ""),
-                    "articolo": str(record.article or ""),
-                    "codice": str(record.color_code or ""),
-                    "colore": str(record.color_name or ""),
-                    "rocche": record.quantity_cones,
-                    "suggested_partita": matching_batch["partita"],
-                    "available_rocche": matching_batch["rocche"],
-                })
+        suggestions = build_auto_assign_suggestions(pgx_records, magazino_summary)
 
         if not suggestions:
             return messagebox.showinfo("Smart Auto-Assign", "No matching raw-yarn stock found in Magazino Filato for current PG-X rows.", parent=parent_window)

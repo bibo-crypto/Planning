@@ -307,6 +307,8 @@ class OrdineMedTab(ttk.Frame):
         # must not be read from a background thread.
         self._bagno_enabled_snapshot = bool(self.bagno_enabled.get())
         self._bagno_start_snapshot = self.bagno_start_var.get().strip()
+        self._erp_enabled_snapshot = bool(self.erp_enabled.get())
+        self._filato_enabled_snapshot = bool(self.filato_enabled.get())
         # The columns the planner switched off in the column picker (also a UI-thread read).
         from utility.column_selection import load_hidden
         self._hidden_columns_snapshot = load_hidden("ordine_med")
@@ -392,13 +394,13 @@ class OrdineMedTab(ttk.Frame):
             ordine_med.export_ordine_med_workbook(output_file, records, availability, hidden_columns=hidden_columns)
             prezzi_file = ordine_med.next_prezzi_path(output_dir)
             ordine_med.export_prezzi_workbook(prezzi_file, records, hidden_columns=hidden_columns.get("Prezzi"))
-            if self.erp_enabled.get():
+            if self._erp_enabled_snapshot:
                 if not self.erp_folder or not self.erp_folder.is_dir():
                     raise ValueError("ERP extraction is enabled but no ERP Files Folder is selected.")
                 ordine_med.export_erp_order_workbook(
                     self.erp_folder / "EXCEL PER ORDINE VENDITA EGITTO.xlsx", records
                 )
-            if self.filato_enabled.get():
+            if self._filato_enabled_snapshot:
                 if not self.filato_folder or not self.filato_folder.is_dir():
                     raise ValueError("Filato extraction is enabled but no Filato folder is selected.")
                 ordine_med.export_filato_availability_workbook(
