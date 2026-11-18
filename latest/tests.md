@@ -1,8 +1,8 @@
 # tests — SUCCESS
 
-- commit: `ae6875e` on `main` — update(docs, updater, shared-order): 11 added, 14 modified (+2545/-258)
-- run: https://github.com/bibo-crypto/Planning/actions/runs/44318914817
-- event: push   |   report written: 2026-11-18 14:02 UTC
+- commit: `ae6875e` on `v1.2.8` — update(docs, updater, shared-order): 11 added, 14 modified (+2545/-258)
+- run: https://github.com/bibo-crypto/Planning/actions/runs/44320767040
+- event: push   |   report written: 2026-11-18 14:12 UTC
 
 ## Jobs
 
@@ -13,11 +13,11 @@
 
 ## pytest — pytest-log-py3.12
 
-`960 passed, 9 skipped in 189.70s (0:03:09)`
+`960 passed, 9 skipped in 196.30s (0:03:16)`
 
 Skipped (reason):
 
-- `SKIPPED [1] tests\test_category_integration.py:241: no display available`
+- `SKIPPED [1] tests\test_background_flags_released.py:111: no display available for Tk: Can't find a usable init.tcl in the following directories: `
 - `SKIPPED [1] tests\test_ci_report.py:131: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)`
 - `SKIPPED [1] tests\test_ci_report.py:138: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)`
 - `SKIPPED [1] tests\test_ci_report.py:149: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)`
@@ -29,7 +29,7 @@ Skipped (reason):
 
 ## pytest — pytest-log-py3.14
 
-`961 passed, 8 skipped in 263.91s (0:04:23)`
+`961 passed, 8 skipped in 219.97s (0:03:39)`
 
 Skipped (reason):
 
