@@ -10,6 +10,7 @@ import pandas as pd
 
 from utility.orders_db import DB_PATH
 from utility.utils import logger
+from utility.sqlite_retry import connect_with_retry
 
 
 _NUMERIC_COLUMNS = ("LIVELLOLPZ", "PREZZOLPZ")
@@ -18,7 +19,12 @@ _NUMERIC_COLUMNS = ("LIVELLOLPZ", "PREZZOLPZ")
 def _connect(db_path: Path | None = None) -> sqlite3.Connection:
     path = Path(db_path or DB_PATH)
     path.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(path, timeout=10)
+    connection = connect_with_retry(
+        path,
+        timeout=10,
+        row_factory=sqlite3.Row,
+        pragmas=("PRAGMA busy_timeout=5000",),
+    )
     connection.execute("""CREATE TABLE IF NOT EXISTS prezzi_frame_cache (
         cache_key TEXT PRIMARY KEY,
         fingerprint TEXT NOT NULL,

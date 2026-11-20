@@ -147,3 +147,50 @@ def test_a_non_transient_error_is_raised_at_once_without_retry(db, monkeypatch):
     with pytest.raises(sqlite3.OperationalError, match="readonly"):
         situazione_db.init_db()
     assert calls["n"] == 1
+
+
+def test_get_conn_retries_transient_open_and_pragma_failures(db, monkeypatch):
+    calls = {"n": 0}
+    real_connect = sqlite3.connect
+
+    def flaky(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] <= 2:
+            raise sqlite3.OperationalError("disk I/O error")
+        return real_connect(*args, **kwargs)
+
+    monkeypatch.setattr(situazione_db.sqlite3, "connect", flaky)
+    monkeypatch.setattr(situazione_db.time, "sleep", lambda _s: None)
+    conn = situazione_db.get_conn()
+    try:
+        assert conn.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+    finally:
+        conn.close()
+    assert calls["n"] == 3
+
+
+def test_get_conn_raises_a_lasting_transient_error_after_four_attempts(db, monkeypatch):
+    calls = {"n": 0}
+
+    def locked(*args, **kwargs):
+        calls["n"] += 1
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(situazione_db.sqlite3, "connect", locked)
+    monkeypatch.setattr(situazione_db.time, "sleep", lambda _s: None)
+    with pytest.raises(sqlite3.OperationalError, match="locked"):
+        situazione_db.get_conn()
+    assert calls["n"] == 4
+
+
+def test_get_conn_does_not_retry_non_transient_errors(db, monkeypatch):
+    calls = {"n": 0}
+
+    def readonly(*args, **kwargs):
+        calls["n"] += 1
+        raise sqlite3.OperationalError("attempt to write a readonly database")
+
+    monkeypatch.setattr(situazione_db.sqlite3, "connect", readonly)
+    with pytest.raises(sqlite3.OperationalError, match="readonly"):
+        situazione_db.get_conn()
+    assert calls["n"] == 1

@@ -8,6 +8,7 @@ import shutil
 import sqlite3
 import tempfile
 import zipfile
+import os
 
 from utility.utils import APP_DATA_DIR, logger
 
@@ -158,20 +159,49 @@ def restore_backup(source: str | Path) -> int:
                    if path.is_file() and path.suffix.lower() in _SQLITE_SUFFIXES and not _is_healthy_sqlite(path)]
         if damaged:
             raise ValueError(f"The backup contains a damaged database ({', '.join(damaged)}); nothing was restored.")
-        for path in temp_root.rglob("*"):
-            if not path.is_file():
-                continue
-            target = APP_DATA_DIR / path.relative_to(temp_root)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            if target.suffix.lower() in _SQLITE_SUFFIXES:
-                # A leftover -wal/-shm from the database being replaced would be
-                # replayed onto the restored file and corrupt it.
-                for suffix in _SQLITE_SIDECARS:
-                    sidecar = target.with_name(target.name + suffix)
-                    try:
-                        sidecar.unlink()
-                    except FileNotFoundError:
-                        pass
-            shutil.copy2(path, target)
-            restored += 1
+        replaced: list[tuple[Path, Path | None, Path | None]] = []
+        try:
+            for path in temp_root.rglob("*"):
+                if not path.is_file():
+                    continue
+                target = APP_DATA_DIR / path.relative_to(temp_root)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                old_backup: Path | None = None
+                if target.exists():
+                    fd, old_name = tempfile.mkstemp(prefix=f".{target.name}.planning-old-", dir=target.parent)
+                    os.close(fd)
+                    old_backup = Path(old_name)
+                    shutil.copy2(target, old_backup)
+
+                if target.suffix.lower() in _SQLITE_SUFFIXES:
+                    for suffix in _SQLITE_SIDECARS:
+                        sidecar = target.with_name(target.name + suffix)
+                        try:
+                            sidecar.unlink()
+                        except FileNotFoundError:
+                            pass
+
+                fd, tmp_name = tempfile.mkstemp(prefix=f".{target.name}.planning-new-", dir=target.parent)
+                os.close(fd)
+                temporary = Path(tmp_name)
+                try:
+                    shutil.copy2(path, temporary)
+                    os.replace(temporary, target)
+                    replaced.append((target, old_backup, temporary))
+                finally:
+                    temporary.unlink(missing_ok=True)
+        except Exception:
+            for target, old_backup, _temporary in reversed(replaced):
+                if old_backup is not None:
+                    os.replace(old_backup, target)
+                else:
+                    target.unlink(missing_ok=True)
+                if old_backup is not None:
+                    old_backup.unlink(missing_ok=True)
+            raise
+        finally:
+            for _target, old_backup, _temporary in replaced:
+                if old_backup is not None:
+                    old_backup.unlink(missing_ok=True)
+        restored = len(replaced)
     return restored

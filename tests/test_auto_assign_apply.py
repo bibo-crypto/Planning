@@ -67,7 +67,8 @@ def test_a_suggestion_of_the_wrong_raw_article_is_never_accepted(root, monkeypat
     assert "does not belong to article G101" in dialogs.errors[0][1]
     assert row_of(shared, "PG-X", "5")["Partita GG"] in (None, "")                                    # nothing was saved
     assert notified and notified[0][0] == "pgx-save-error" and notified[0][3] == "Shared Orders"    # the planner is also notified
-    assert calls.refreshed == [] and toplevels(root) == []
+    assert len(calls.refreshed) == 1 and set(calls.refreshed[0]) == {"Orders", "PG-X"}
+    assert calls.rebuilt == [True] and toplevels(root) == []
 
 
 def test_a_workbook_that_is_open_in_excel_gives_a_clear_message(root, monkeypatch, shared):

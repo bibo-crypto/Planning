@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Iterable, Any
 
 from utility.utils import APP_DATA_DIR
+from utility.sqlite_retry import connect_with_retry
 
 DB_PATH = APP_DATA_DIR / "data" / "planning_orders.sqlite3"
 
@@ -20,8 +21,12 @@ DB_PATH = APP_DATA_DIR / "data" / "planning_orders.sqlite3"
 def _connect(path: Path = DB_PATH) -> sqlite3.Connection:
     """Open the orders SQLite database (creating the folder and the orders table when missing) with rows accessible by name."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path, timeout=10)
-    conn.row_factory = sqlite3.Row
+    conn = connect_with_retry(
+        path,
+        timeout=10,
+        row_factory=sqlite3.Row,
+        pragmas=("PRAGMA busy_timeout=5000",),
+    )
     conn.execute("""CREATE TABLE IF NOT EXISTS orders (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         source_file TEXT NOT NULL,

@@ -11,6 +11,7 @@ from tkinter import filedialog, messagebox
 import pandas as pd
 import pytest
 from openpyxl import Workbook, load_workbook
+from tests.conftest import create_tk_root
 
 from exporters.biglietti import shared_workbook as sw
 from gui.tabs.shared_order_actions import SharedOrdersActionsMixin
@@ -34,10 +35,7 @@ class UploadHost(SharedOrdersActionsMixin, tk.Frame):
 
 @pytest.fixture
 def root():
-    try:
-        tk_root = tk.Tk()
-    except tk.TclError as exc:
-        pytest.skip(f"no display available for Tk: {exc}")
+    tk_root = create_tk_root()
     tk_root.withdraw()
     yield tk_root
     try:
@@ -217,11 +215,9 @@ def test_a_result_that_cannot_be_delivered_to_the_ui_releases_the_upload_flag(ro
     dialogs = Dialogs(monkeypatch, upload)
     host = UploadHost(root, shared, STOCK)
     run_upload(root, host)
-    end = time.time() + 5
-    while time.time() < end:                                                            # update(), not mainloop(): nothing can be posted
-        root.update()
-        time.sleep(0.02)
-    assert host._pgx_upload_running is False, "the flag stayed set although the result could never reach the UI"
+    assert pump_until(root, lambda: host._pgx_upload_running is False, timeout=12), (
+        "the flag stayed set although the result could never reach the UI"
+    )
     # and a new upload is accepted afterwards
     run_upload(root, host)
     assert pump_until(root, lambda: dialogs.infos or dialogs.errors)

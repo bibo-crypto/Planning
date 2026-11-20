@@ -23,6 +23,9 @@ Set-Location $project
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $out = Join-Path $project "verify_logs\$stamp"
 New-Item -ItemType Directory -Path $out -Force | Out-Null
+$pytest_temp = Join-Path $env:TEMP "planning_verify_$stamp"
+Remove-Item -Recurse -Force $pytest_temp -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Path $pytest_temp -Force | Out-Null
 
 $python = Join-Path $project 'venv\Scripts\python.exe'
 if (-not (Test-Path $python)) { $python = 'python' }
@@ -48,7 +51,7 @@ function Invoke-Step([string]$name, [scriptblock]$body) {
 Invoke-Step 'dependencies' { & $python -m pip install -r requirements-dev.txt }
 Invoke-Step 'tests' {
     # --basetemp on the project drive: the default temp folder of some user profiles is not writable by pytest
-    & $python -m pytest -q -rfEs --tb=short --basetemp (Join-Path $out 'pytest_tmp') --junitxml (Join-Path $out 'junit.xml')
+    & $python -m pytest -q -rfEs --tb=short --basetemp $pytest_temp --junitxml (Join-Path $out 'junit.xml')
 }
 Invoke-Step 'build' { & $python -m PyInstaller main.spec --noconfirm }
 Invoke-Step 'package' {

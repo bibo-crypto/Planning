@@ -6,6 +6,28 @@ Nothing in this review was pushed or merged: the result is a complete project fo
 > Everything marked **executed** was actually run, with the evidence kept in `test_reports/`. Everything marked **NOT VERIFIED**
 > could not be run in the review environment (Linux) and is listed again in section 10 with the exact steps to verify it.
 
+## Update 2026-11-20
+
+The previous update-script diagnosis uncovered a real short-path/8.3 defect: PowerShell 5.1 could return an 8.3 temporary path while
+`Get-ChildItem.FullName` returned the long path, making prefix subtraction produce keys such as `bj\planning.exe`. The relative
+file names are now derived from path items, and the Windows verifier keeps pytest's basetemp outside the repository. This Linux
+review cannot prove the real 8.3 or real-update behavior; Windows verification remains required.
+
+The latest Windows evidence reported by the user was `955 passed, 2 failed, 12 skipped`. The two failures were caused by pytest's
+basetemp being inside `E:\Planning`, not by application code, and are addressed by the basetemp isolation and Tk retry changes.
+SQLite opening/PRAGMA access now retries known transient lock/I/O errors; backup restore is staged and rolled back atomically;
+Auto-Assign refreshes the workbook after a partial failure and retries UI delivery while a modal can block the main loop; the
+history sync now logs a traceback; `nan` is sorted as text; and release dependency constraints are documented.
+
+## Executed verification
+
+* Python 3.14.3 Windows: `974 passed, 10 skipped, 0 failed`.
+* Python 3.12 Windows: `972 passed, 12 skipped, 0 failed`.
+* JUnit reports: `test_reports/junit-3.14.xml`, `test_reports/junit-3.12.xml`.
+* Real 8.3 short-name and Windows PowerShell 5.1/real-update verification remain NOT VERIFIED here.
+* A release constraints file was added: `constraints-release.txt`; the PRAGMA `user_version` migration gate remains deferred
+  because existing idempotent column/schema checks are the project's established migration mechanism and no current defect requires it.
+
 ## 1. Executive summary
 
 * **A critical defect was found in the in-app updater and fixed.** The PowerShell helper that replaces the installed files wiped the

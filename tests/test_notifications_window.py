@@ -4,6 +4,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 
 import pytest
+from tests.conftest import create_tk_root
 
 from gui.notifications_window import NOTIFICATION_COLUMNS, NotificationsWindow, build_resolve_warning
 from tests.test_startup_pages import start_app  # noqa: F401  (fixture used by the last test)
@@ -21,10 +22,7 @@ def store(tmp_path, monkeypatch):
 
 @pytest.fixture
 def root():
-    try:
-        tk_root = tk.Tk()
-    except tk.TclError as exc:
-        pytest.skip(f"no display available for Tk: {exc}")
+    tk_root = create_tk_root()
     tk_root.withdraw()
     yield tk_root
     try:

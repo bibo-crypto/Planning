@@ -9,6 +9,7 @@ from datetime import datetime
 from tkinter import messagebox, ttk
 
 import pytest
+from tests.conftest import create_tk_root
 
 from exporters.biglietti.records import OrderRecord
 from gui.tabs.shared_orders_window import SharedOrdersWindowMixin
@@ -48,10 +49,7 @@ class Dialogs:
 
 @pytest.fixture
 def root(monkeypatch):
-    try:
-        tk_root = tk.Tk()
-    except tk.TclError as exc:
-        pytest.skip(f"no display available for Tk: {exc}")
+    tk_root = create_tk_root()
     monkeypatch.setattr(tk.Toplevel, "grab_set", lambda self: None)      # the real window grabs input; not needed (or possible) here
     tk_root.geometry("1200x700+0+0")
     tk_root.update()

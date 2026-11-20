@@ -8,9 +8,12 @@ windowed EXE showed nothing.  These tests start the real ``ConverterApp`` (isola
 import time
 import tkinter as tk
 import traceback
+import os
+import sys
 from tkinter import messagebox, ttk
 
 import pytest
+from tests.conftest import create_tk_root
 
 from gui import gui as gui_module
 from gui.gui import ConverterApp
@@ -27,14 +30,25 @@ def start_app(monkeypatch):
     apps = []
     errors = []
     shown = []
+    warnings = []
     monkeypatch.setattr(messagebox, "showerror", lambda *a, **k: shown.append(a))
+    monkeypatch.setattr(messagebox, "showwarning", lambda *a, **k: warnings.append(a))
     monkeypatch.setattr(gui_module.ConverterApp, "_check_for_updates", lambda self: None)
 
     def start(timeout=60):
-        try:
-            app = ConverterApp()
-        except tk.TclError:
-            pytest.skip("no display")
+        last_error = None
+        for attempt in range(5):
+            try:
+                app = ConverterApp()
+                break
+            except tk.TclError as exc:
+                last_error = exc
+                if attempt < 4:
+                    time.sleep(0.5)
+        else:
+            if sys.platform.startswith("linux") and not os.environ.get("DISPLAY"):
+                pytest.skip("no display available for Tk")
+            raise last_error
         apps.append(app)
         app.report_callback_exception = lambda t, v, tb: errors.append((t, v, "".join(traceback.format_exception(t, v, tb))))
         end = time.time() + timeout
@@ -44,6 +58,7 @@ def start_app(monkeypatch):
             if errors or label is None or not label.winfo_exists():
                 break
             time.sleep(0.02)
+        app._test_startup_warnings = warnings
         return app, errors, shown
 
     yield start
@@ -98,3 +113,15 @@ def test_a_page_that_fails_to_build_is_logged_shown_and_not_swallowed(start_app,
     assert "could not load its pages" in label_text and "button_min_width" in label_text
     # logged with the traceback
     assert any(r.exc_info and r.exc_info[0] is TypeError for r in caplog.records)
+
+
+def test_update_failure_notice_is_shown_once_and_only_when_present(start_app, monkeypatch):
+    monkeypatch.setattr(
+        gui_module,
+        "consume_update_failure_notice",
+        lambda: "The update was not installed.",
+    )
+    app, errors, shown = start_app(timeout=10)
+    warnings = getattr(app, "_test_startup_warnings", [])
+    assert warnings and warnings[0][0] == "Update not installed"
+    assert not errors

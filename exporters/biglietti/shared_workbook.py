@@ -291,9 +291,13 @@ def _sync_workbook_history(path: Path, wb) -> None:
             other = next((name for name in keys_by_sheet if name != sheet_name), None)
             moved_to = {key: other for key in keys_by_sheet.get(other, ())} if other else {}
             reconcile_sheet(path, sheet_name, keys, moved_to)
-    except Exception as _ignored:
+    except Exception:
         # History must never prevent the operational Excel export from saving.
-        logger.debug("exporters.biglietti.shared_workbook._sync_workbook_history: ignored %r", _ignored)
+        logger.warning(
+            "Could not sync workbook history for %s",
+            path,
+            exc_info=True,
+        )
 
 
 def sync_workbook_history(path: Path) -> None:

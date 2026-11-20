@@ -9,3 +9,6 @@ pandas>=2.0,<3
 pyinstaller>=6,<7
 xlrd>=2.0.1
 pywin32>=306; sys_platform == "win32"
+
+# Release builds should install with:
+#   pip install -r requirements.txt -c constraints-release.txt

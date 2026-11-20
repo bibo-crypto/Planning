@@ -152,9 +152,9 @@ class SharedOrdersActionsMixin:
                     "Orders": load_create_excel_records(self.shared_excel_path, sheet_name="Orders"),
                     "PG-X": load_create_excel_records(self.shared_excel_path, sheet_name="PG-X"),
                 }
-                post_to_ui(self, lambda: finish(new_datasets, message), on_dropped=release_flag)
+                post_to_ui(self, lambda: finish(new_datasets, message), on_dropped=release_flag, retry_for=10.0)
             except Exception as exc:
-                post_to_ui(self, lambda exc=exc: fail(exc), on_dropped=release_flag)
+                post_to_ui(self, lambda exc=exc: fail(exc), on_dropped=release_flag, retry_for=10.0)
 
         def finish(new_datasets, message):
             self._pg_x_saving = False
@@ -198,9 +198,9 @@ class SharedOrdersActionsMixin:
                     "Orders": load_create_excel_records(self.shared_excel_path, sheet_name="Orders"),
                     "PG-X": load_create_excel_records(self.shared_excel_path, sheet_name="PG-X"),
                 }
-                post_to_ui(self, lambda: finish(result, new_datasets), on_dropped=release_flag)
+                post_to_ui(self, lambda: finish(result, new_datasets), on_dropped=release_flag, retry_for=10.0)
             except Exception as exc:
-                post_to_ui(self, lambda exc=exc: fail(exc), on_dropped=release_flag)
+                post_to_ui(self, lambda exc=exc: fail(exc), on_dropped=release_flag, retry_for=10.0)
 
         def finish(result, new_datasets):
             self._pg_x_saving = False
@@ -252,9 +252,9 @@ class SharedOrdersActionsMixin:
                     "Orders": load_create_excel_records(self.shared_excel_path, sheet_name="Orders"),
                     "PG-X": load_create_excel_records(self.shared_excel_path, sheet_name="PG-X"),
                 }
-                post_to_ui(self, lambda: finish(count, new_datasets), on_dropped=release_flag)
+                post_to_ui(self, lambda: finish(count, new_datasets), on_dropped=release_flag, retry_for=10.0)
             except Exception as exc:
-                post_to_ui(self, lambda exc=exc: fail(exc), on_dropped=release_flag)
+                post_to_ui(self, lambda exc=exc: fail(exc), on_dropped=release_flag, retry_for=10.0)
 
         def finish(count, new_datasets):
             self._pg_x_action_running = False
@@ -318,9 +318,9 @@ class SharedOrdersActionsMixin:
                     if sheet_by_iid.get(iid) == sheet_name
                 ]
                 count = sum(1 for record in page_records if normalize(record.colored_batch) in shipped)
-                post_to_ui(self, lambda: confirm_and_delete(count, shipped), on_dropped=release_flag)
+                post_to_ui(self, lambda: confirm_and_delete(count, shipped), on_dropped=release_flag, retry_for=10.0)
             except Exception as exc:
-                post_to_ui(self, lambda exc=exc: shipped_delete_failed(exc, window), on_dropped=release_flag)
+                post_to_ui(self, lambda exc=exc: shipped_delete_failed(exc, window), on_dropped=release_flag, retry_for=10.0)
 
         def confirm_and_delete(count, shipped):
             """Report how many shipped colours were found, ask for confirmation and delete them from the shared Excel."""
@@ -346,9 +346,9 @@ class SharedOrdersActionsMixin:
                         "Orders": load_create_excel_records(self.shared_excel_path, sheet_name="Orders"),
                         "PG-X": load_create_excel_records(self.shared_excel_path, sheet_name="PG-X"),
                     }
-                    post_to_ui(self, lambda: delete_finished(deleted, new_datasets), on_dropped=release_flag)
+                    post_to_ui(self, lambda: delete_finished(deleted, new_datasets), on_dropped=release_flag, retry_for=10.0)
                 except Exception as exc:
-                    post_to_ui(self, lambda exc=exc: shipped_delete_failed(exc, window), on_dropped=release_flag)
+                    post_to_ui(self, lambda exc=exc: shipped_delete_failed(exc, window), on_dropped=release_flag, retry_for=10.0)
 
             threading.Thread(target=delete_worker, daemon=True).start()
 
@@ -539,9 +539,9 @@ class SharedOrdersActionsMixin:
                             f"{partita_col}: Partita GG {partita_gg} exists in Magazino "
                             f"but is not for the required raw article(s) {required}; not loaded."
                         )
-                post_to_ui(self, lambda: confirm_missing(ready, missing, errors, densita_map, vmm_ratio_map, summary), on_dropped=release_flag)
+                post_to_ui(self, lambda: confirm_missing(ready, missing, errors, densita_map, vmm_ratio_map, summary), on_dropped=release_flag, retry_for=10.0)
             except Exception as exc:
-                post_to_ui(self, lambda exc=exc: fail_upload(exc), on_dropped=release_flag)
+                post_to_ui(self, lambda exc=exc: fail_upload(exc), on_dropped=release_flag, retry_for=10.0)
 
         def confirm_missing(ready, missing, errors, densita_map, vmm_ratio_map, summary):
             # Any failure here (for example the window was closed while the
@@ -617,9 +617,9 @@ class SharedOrdersActionsMixin:
                     "Orders": load_create_excel_records(self.shared_excel_path, sheet_name="Orders"),
                     "PG-X": load_create_excel_records(self.shared_excel_path, sheet_name="PG-X"),
                 }
-                post_to_ui(self, lambda: finish_upload(updated, source_rows_removed, errors, new_datasets), on_dropped=release_flag)
+                post_to_ui(self, lambda: finish_upload(updated, source_rows_removed, errors, new_datasets), on_dropped=release_flag, retry_for=10.0)
             except Exception as exc:
-                post_to_ui(self, lambda exc=exc: fail_upload(exc), on_dropped=release_flag)
+                post_to_ui(self, lambda exc=exc: fail_upload(exc), on_dropped=release_flag, retry_for=10.0)
 
         def finish_upload(updated, source_rows_removed, errors, new_datasets):
             self._pgx_upload_running = False
@@ -768,9 +768,9 @@ class SharedOrdersActionsMixin:
                     "Orders": load_create_excel_records(self.shared_excel_path, sheet_name="Orders"),
                     "PG-X": load_create_excel_records(self.shared_excel_path, sheet_name="PG-X"),
                 }
-                post_to_ui(self, lambda: finish(loading, new_datasets, updated_count))
+                post_to_ui(self, lambda: finish(loading, new_datasets, updated_count), retry_for=10.0)
             except Exception as exc:
-                post_to_ui(self, lambda exc=exc: fail(loading, exc))
+                post_to_ui(self, lambda exc=exc: fail(loading, exc), retry_for=10.0)
 
         def finish(loading, new_datasets, updated_count):
             if loading.winfo_exists():
@@ -792,6 +792,15 @@ class SharedOrdersActionsMixin:
             text = str(exc)
             if self._on_notification and ("does not belong to article" in text or "open or locked" in text or "Cannot save" in text):
                 self._on_notification("pgx-save-error", "PG-X assignment needs attention", text, "Shared Orders", "high")
+            try:
+                new_datasets = {
+                    "Orders": load_create_excel_records(self.shared_excel_path, sheet_name="Orders"),
+                    "PG-X": load_create_excel_records(self.shared_excel_path, sheet_name="PG-X"),
+                }
+                refresh_records(new_datasets)
+                rebuild()
+            except Exception:
+                self._logger.warning("Could not refresh shared workbook after Auto-Assign failure", exc_info=True)
             messagebox.showerror("Auto-Assign Error", str(exc), parent=parent_window)
 
         threading.Thread(target=worker, daemon=True).start()

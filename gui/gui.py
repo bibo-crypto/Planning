@@ -39,7 +39,9 @@ from tkinter import filedialog, messagebox, ttk
 
 from utility.magazino_cache import load_magazino_cache
 from utility.utils import APP_DATA_DIR, load_settings, logger, save_settings
-from utility.updater import APP_VERSION, ReleaseInfo, check_for_updates_async, download_installer, install_update
+from utility.updater import (
+    APP_VERSION, ReleaseInfo, check_for_updates_async, consume_update_failure_notice, download_installer, install_update,
+)
 from utility import notifications
 from utility.backup import BACKUP_DIR, create_backup, daily_backup, restore_backup
 from gui.modern_widgets import RoundedButton
@@ -301,7 +303,15 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
         self._disarm_startup_watchdog()
         # The line the packaged-EXE smoke test (ci/smoke_exe.py) waits for: proof that the loading screen was left.
         logger.info("Planning started: all pages built (v%s)", APP_VERSION)
+        self._show_update_failure_notice()
         self._check_for_updates()
+
+    def _show_update_failure_notice(self) -> None:
+        """Tell the user when the last update was rolled back (the helper leaves a note, see utility/updater.py); shown once."""
+        notice = consume_update_failure_notice()
+        if notice:
+            logger.warning("The last update was not installed: %s", notice.replace("\n", " "))
+            messagebox.showwarning("Update not installed", notice, parent=self)
 
     # How long the pages may take to build before the program writes down where it is stuck.
     STARTUP_WATCHDOG_SECONDS = 25
@@ -689,7 +699,7 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
         ordine_notebook.add(po_tab, text="Ordine Elvy")
         self._build_po_tab(po_tab)
 
-        kamal_placeholder = lazy_page(
+        lazy_page(
             ordine_notebook,
             "Ordine Kamal",
             lambda ph: build_into(
@@ -698,7 +708,7 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
                 "_kamal_tab",
             ),
         )
-        ordine_med_placeholder = lazy_page(
+        lazy_page(
             ordine_notebook,
             "Ordine Med",
             lambda ph: build_into(
@@ -764,7 +774,7 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
         )
         notebook.add(self._prezzi_tab, text="Prezzi")
 
-        master_placeholder = lazy_page(
+        lazy_page(
             notebook,
             "Master Data",
             lambda ph: build_into(
@@ -1046,7 +1056,6 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
             if waited < 1.0 or (self._upload_in_progress(key) and waited < 600):
                 self.after(300, poll)
                 return
-            ok = source_hub.is_ready(key) and source_hub.stamp(key) != ""
             status = self._upload_status_text(key)
             failed = status.startswith("❌") or not source_hub.is_ready(key)
             if not failed:

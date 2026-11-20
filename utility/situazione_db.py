@@ -18,6 +18,7 @@ import hashlib
 import os
 from io import StringIO
 from datetime import datetime
+from utility.sqlite_retry import connect_with_retry
 
 from utility.utils import APP_DATA_DIR, logger
 
@@ -145,12 +146,12 @@ def _add_column_if_missing(conn, table, column):
 
 
 def get_conn():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA busy_timeout=5000")
-    conn.execute("PRAGMA synchronous=NORMAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    return conn
+    return connect_with_retry(
+        DB_PATH,
+        timeout=5,
+        row_factory=sqlite3.Row,
+        pragmas=("PRAGMA busy_timeout=5000", "PRAGMA synchronous=NORMAL", "PRAGMA foreign_keys=ON"),
+    )
 
 
 # SQLite errors that can clear up by themselves a moment later (antivirus / cloud-sync / another process

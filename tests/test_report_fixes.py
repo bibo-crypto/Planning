@@ -350,6 +350,36 @@ def test_restore_removes_stale_wal_files_of_the_replaced_database(tmp_path, monk
     assert not (app / "data" / "orders.sqlite3-wal").exists() and not (app / "data" / "orders.sqlite3-shm").exists()
 
 
+def test_restore_rolls_back_every_replaced_file_when_a_later_replace_fails(tmp_path, monkeypatch):
+    from utility import backup
+
+    app = tmp_path / "app"
+    app.mkdir()
+    (app / "first.txt").write_text("old-first", encoding="utf-8")
+    (app / "second.txt").write_text("old-second", encoding="utf-8")
+    zip_path = tmp_path / "b.zip"
+    with zipfile.ZipFile(zip_path, "w") as archive:
+        archive.writestr("first.txt", "new-first")
+        archive.writestr("second.txt", "new-second")
+
+    monkeypatch.setattr(backup, "APP_DATA_DIR", app)
+    real_replace = backup.os.replace
+    replacements = 0
+
+    def fail_second_replace(source, target):
+        nonlocal replacements
+        replacements += 1
+        if replacements == 2:
+            raise OSError("simulated replace failure")
+        return real_replace(source, target)
+
+    monkeypatch.setattr(backup.os, "replace", fail_second_replace)
+    with pytest.raises(OSError, match="simulated replace"):
+        backup.restore_backup(zip_path)
+    assert (app / "first.txt").read_text(encoding="utf-8") == "old-first"
+    assert (app / "second.txt").read_text(encoding="utf-8") == "old-second"
+
+
 # ------------------------------------------------------------ build environment
 def test_venv_prune_keeps_dev_tools_and_their_dependencies():
     import sync_venv_packages as sync

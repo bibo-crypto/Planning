@@ -12,11 +12,18 @@ from __future__ import annotations
 
 import tkinter as tk
 from typing import Any, Callable
+import time
 
 from utility.utils import logger
 
 
-def post_to_ui(widget: tk.Misc, callback: Callable[..., Any], *args: Any, on_dropped: Callable[[], Any] | None = None) -> bool:
+def post_to_ui(
+    widget: tk.Misc,
+    callback: Callable[..., Any],
+    *args: Any,
+    on_dropped: Callable[[], Any] | None = None,
+    retry_for: float = 0,
+) -> bool:
     """Run ``callback(*args)`` on the UI thread as soon as possible.
 
     ``widget`` is any live Tk widget (it only supplies the event loop).
@@ -29,14 +36,19 @@ def post_to_ui(widget: tk.Misc, callback: Callable[..., Any], *args: Any, on_dro
     callback, so a dropped callback would leave the operation blocked for ever: pass ``on_dropped`` (it runs on the
     calling thread, only when nothing was scheduled) to release it.
     """
-    try:
-        widget.after(0, callback, *args)
-        return True
-    except (tk.TclError, RuntimeError) as exc:
-        logger.debug("UI is gone; dropped %s: %s", getattr(callback, "__name__", callback), exc)
-        if on_dropped is not None:
-            try:
-                on_dropped()
-            except Exception:  # noqa: BLE001 -- must not turn a dropped result into a crashing worker
-                logger.warning("on_dropped of %s failed", getattr(callback, "__name__", callback), exc_info=True)
-        return False
+    deadline = time.monotonic() + max(0.0, float(retry_for))
+    while True:
+        try:
+            widget.after(0, callback, *args)
+            return True
+        except (tk.TclError, RuntimeError) as exc:
+            if time.monotonic() < deadline:
+                time.sleep(0.1)
+                continue
+            logger.debug("UI is gone; dropped %s: %s", getattr(callback, "__name__", callback), exc)
+            if on_dropped is not None:
+                try:
+                    on_dropped()
+                except Exception:  # noqa: BLE001 -- must not turn a dropped result into a crashing worker
+                    logger.warning("on_dropped of %s failed", getattr(callback, "__name__", callback), exc_info=True)
+            return False

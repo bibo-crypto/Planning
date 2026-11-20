@@ -15,11 +15,14 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 import zipfile
 
+from utility.utils import APP_DATA_DIR
 
 DEFAULT_APP_VERSION = "1.0.2"
 GITHUB_REPOSITORY = "bibo-crypto/Planning"
 RELEASES_API_URL = f"https://api.github.com/repos/{GITHUB_REPOSITORY}/releases/latest"
 RELEASES_PAGE_URL = f"https://github.com/{GITHUB_REPOSITORY}/releases"
+# Written by the update helper when an update could not be installed; shown (once) on the next start.
+UPDATE_FAILURE_NOTICE = APP_DATA_DIR / "update_failed.txt"
 
 
 def version_file_path() -> Path:
@@ -37,7 +40,7 @@ def version_file_path() -> Path:
 
 def get_installed_version() -> str:
     try:
-        value = version_file_path().read_text(encoding="utf-8").strip()
+        value = version_file_path().read_text(encoding="utf-8-sig").strip().lstrip("\ufeff")
         if value:
             return value.lstrip("vV")
     except OSError:
@@ -52,7 +55,7 @@ def write_version_file(version: str, target: Path | None = None) -> Path:
     temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
     temporary.write_text(str(version).strip().lstrip("vV") + "\n", encoding="utf-8")
     temporary.replace(path)
-    written = path.read_text(encoding="utf-8").strip().lstrip("vV")
+    written = path.read_text(encoding="utf-8-sig").strip().lstrip("vV")
     if written != str(version).strip().lstrip("vV"):
         raise RuntimeError(f"The version file could not be verified at {path}.")
     return path
@@ -246,6 +249,33 @@ def _run_update_script(script_path: Path, creation_flags: int, elevated: bool) -
         )
 
 
+def consume_update_failure_notice(path: Path | None = None) -> str | None:
+    """The message for the user when the last update was NOT installed, else None.
+
+    The update helper leaves ``update_failed.txt`` when it had to roll back; it is removed here so the message appears once.
+    """
+    note = Path(path) if path else UPDATE_FAILURE_NOTICE
+    try:
+        raw = note.read_text(encoding="utf-8-sig")
+    except OSError:
+        return None
+    try:
+        note.unlink()
+    except OSError:
+        pass
+    fields = {}
+    for line in raw.splitlines():
+        if "=" in line:
+            key, value = line.split("=", 1)
+            fields[key.strip()] = value.strip()
+    version = fields.get("version") or "the new version"
+    message = (f"The update to {version} was NOT installed. The previous version ({get_installed_version()}) is still in use "
+               f"and nothing was lost.\n\nReason: {fields.get('reason') or 'unknown'}")
+    if fields.get("log"):
+        message += f"\n\nDetails: {fields['log']}"
+    return message
+
+
 def _check_package_is_complete(source_dir: Path) -> None:
     """Refuse a package that could not start, before anything of the installed version is touched.
 
@@ -278,14 +308,31 @@ $source = @@SOURCE@@
 $target = @@TARGET@@
 $backup = @@BACKUP@@
 $exePath = @@EXE@@
+function Get-RelativeFiles([string]$root) {
+    # Every file below $root as @{Relative; Length}, built from item NAMES only.  Cutting a prefix off full paths is not safe:
+    # Windows PowerShell 5.1 returns long names in FullName but keeps an 8.3 short form (MEGAST~1) in Resolve-Path, so the
+    # prefix was 2 characters too short and every file looked "missing" ("bj\planning.exe") -- the update never completed.
+    $found = New-Object System.Collections.ArrayList
+    $pending = New-Object System.Collections.Stack
+    $pending.Push('')
+    while ($pending.Count -gt 0) {
+        $relativeDir = [string]$pending.Pop()
+        $dir = if ($relativeDir -eq '') { $root } else { Join-Path $root $relativeDir }
+        foreach ($item in (Get-ChildItem -LiteralPath $dir -Force)) {
+            $relative = if ($relativeDir -eq '') { $item.Name } else { Join-Path $relativeDir $item.Name }
+            if ($item.PSIsContainer) {
+                if (-not ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) { $pending.Push($relative) }
+            } else {
+                [void]$found.Add([pscustomobject]@{ Relative = $relative; Length = $item.Length })
+            }
+        }
+    }
+    return ,$found
+}
 function Get-FileMap([string]$root) {
     # relative path (lower case) -> size, for every file below $root
     $map = @{}
-    $prefix = (Resolve-Path -LiteralPath $root).ProviderPath.TrimEnd('\','/')
-    Get-ChildItem -LiteralPath $root -Recurse -File -Force | ForEach-Object {
-        $relative = $_.FullName.Substring($prefix.Length).TrimStart('\','/').ToLowerInvariant()
-        $map[$relative] = $_.Length
-    }
+    foreach ($file in (Get-RelativeFiles $root)) { $map[$file.Relative.ToLowerInvariant()] = $file.Length }
     return $map
 }
 function Find-MissingFromMap($expected, [string]$actualRoot) {
@@ -304,6 +351,18 @@ function Find-MissingFiles([string]$expectedRoot, [string]$actualRoot) {
 }
 # The installation may only be wiped for a rollback when the backup of it was copied completely AND verified;
 # otherwise a rollback would replace a healthy installation with a partial copy (a missing python DLL, no Planning.exe).
+$newVersion = @@VERSION@@
+$notice = @@NOTICE@@
+Remove-Item -LiteralPath $notice -Force -ErrorAction SilentlyContinue
+function Write-UpdateFailure([string]$reason) {
+    # Leaves a note for the program: on its next start it tells the user the update was not installed, and why.
+    try {
+        $noticeDir = Split-Path -Parent $notice
+        if (-not (Test-Path -LiteralPath $noticeDir)) { New-Item -ItemType Directory -Path $noticeDir -Force | Out-Null }
+        $text = "version=$newVersion`r`ntime=$(Get-Date -Format 's')`r`nlog=$log`r`nreason=$reason`r`n"
+        [System.IO.File]::WriteAllText($notice, $text, (New-Object System.Text.UTF8Encoding($false)))
+    } catch { }
+}
 $script:backupVerified = $false
 $script:previousFiles = $null
 function Restore-Backup {
@@ -329,10 +388,10 @@ function Restore-Backup {
         }
         # restored and verified: only now remove the files that exist solely in the new version
         $keep = $script:previousFiles
-        $prefix = (Resolve-Path -LiteralPath $target).ProviderPath.TrimEnd('\','/')
-        Get-ChildItem -LiteralPath $target -Recurse -File -Force | ForEach-Object {
-            $relative = $_.FullName.Substring($prefix.Length).TrimStart('\','/').ToLowerInvariant()
-            if (-not $keep.ContainsKey($relative)) { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue }
+        foreach ($file in (Get-RelativeFiles $target)) {
+            if (-not $keep.ContainsKey($file.Relative.ToLowerInvariant())) {
+                Remove-Item -LiteralPath (Join-Path $target $file.Relative) -Force -ErrorAction SilentlyContinue
+            }
         }
         Write-UpdateLog "Rolled back to the previous version (verified)."
     } catch { $_ | Out-File -FilePath $log -Append }
@@ -381,6 +440,7 @@ try {
     Write-UpdateLog "Backup of the current version copied and verified."
 
     $copied = $false
+    $lastProblem = ''
     for ($attempt = 1; $attempt -le @@ATTEMPTS@@; $attempt++) {
         try {
             Get-ChildItem -LiteralPath $source -Force | ForEach-Object {
@@ -393,9 +453,11 @@ try {
                 $copied = $true
                 break
             }
-            Write-UpdateLog ("Copy attempt {0}: {1} file(s) of the new version are not in place yet, for example {2}" -f $attempt, $problems.Count, $problems[0])
+            $lastProblem = ("{0} file(s) of the new version are not in place yet, for example {1}" -f $problems.Count, $problems[0])
+            Write-UpdateLog ("Copy attempt {0}: {1}" -f $attempt, $lastProblem)
             Start-Sleep -Seconds @@RETRY_DELAY@@
         } catch {
+            $lastProblem = [string]$_.Exception.Message
             $_ | Out-File -FilePath $log -Append
             Start-Sleep -Seconds @@RETRY_DELAY@@
         }
@@ -405,9 +467,10 @@ try {
         $versionPath = Join-Path $target 'version.txt'
         $versionValue = @@VERSION@@
         $versionTemp = Join-Path $target ('.version.' + $PID + '.tmp')
-        Set-Content -LiteralPath $versionTemp -Value $versionValue -Encoding UTF8
+        # without a byte-order mark: Set-Content -Encoding UTF8 of Windows PowerShell 5.1 writes one, and it ended up in the version text
+        [System.IO.File]::WriteAllText($versionTemp, ($versionValue + "`n"), (New-Object System.Text.UTF8Encoding($false)))
         Move-Item -LiteralPath $versionTemp -Destination $versionPath -Force
-        $writtenVersion = (Get-Content -LiteralPath $versionPath -Raw).Trim().TrimStart('v','V')
+        $writtenVersion = ([System.IO.File]::ReadAllText($versionPath)).Trim().TrimStart('v','V')
         if ($writtenVersion -ne $versionValue.Trim().TrimStart('v','V')) { throw "version.txt verification failed: '$writtenVersion'" }
         if (-not (Start-Planning)) { throw "Planning.exe could not be started after update" }
         # Antivirus commonly intercepts a freshly-written, unsigned exe on
@@ -431,16 +494,19 @@ try {
         }
         if (-not $sawRunning) {
             "New version never started running within 3 minutes -- rolling back to the previous version" | Out-File -FilePath $log -Append
+            Write-UpdateFailure 'The new version did not start, so the previous version was restored.'
             Restore-Backup
             Start-Planning | Out-Null
         }
     } else {
         "Update copy never succeeded after @@ATTEMPTS@@ attempts -- rolling back to the previous version" | Out-File -FilePath $log -Append
+        Write-UpdateFailure ('The new files could not be copied completely: ' + $lastProblem)
         Restore-Backup
         Start-Planning | Out-Null
     }
     } catch {
         $_ | Out-File -FilePath $log -Append
+        Write-UpdateFailure ([string]$_.Exception.Message)
         # Whatever failed above, always try to leave *something* running --
         # closing Planning to update and then leaving nothing open at all,
         # not even the old version, is the one outcome worse than a failed
@@ -455,7 +521,7 @@ Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
 
 
 def build_update_script(*, source_dir: Path, install_dir: Path, backup_dir: Path, exe_path: Path, new_version: str,
-                        zip_path: Path, stage_root: Path, initial_delay: int = 5, exit_checks: int = 30,
+                        zip_path: Path, stage_root: Path, notice_path: Path | None = None, initial_delay: int = 5, exit_checks: int = 30,
                         exit_interval: int = 2, attempts: int = 20, retry_delay: int = 2,
                         start_checks: int = 36, start_interval: int = 5) -> str:
     """The text of the PowerShell helper that replaces the installed files once Planning has exited.
@@ -465,7 +531,7 @@ def build_update_script(*, source_dir: Path, install_dir: Path, backup_dir: Path
     values = {
         "SOURCE": _powershell_quote(source_dir), "TARGET": _powershell_quote(install_dir), "BACKUP": _powershell_quote(backup_dir),
         "EXE": _powershell_quote(exe_path), "VERSION": _powershell_quote(new_version), "ZIP": _powershell_quote(zip_path),
-        "STAGE": _powershell_quote(stage_root), "INITIAL_DELAY": str(int(initial_delay)), "EXIT_CHECKS": str(int(exit_checks)),
+        "STAGE": _powershell_quote(stage_root), "NOTICE": _powershell_quote(notice_path or UPDATE_FAILURE_NOTICE), "INITIAL_DELAY": str(int(initial_delay)), "EXIT_CHECKS": str(int(exit_checks)),
         "EXIT_INTERVAL": str(int(exit_interval)), "ATTEMPTS": str(int(attempts)), "RETRY_DELAY": str(int(retry_delay)),
         "START_CHECKS": str(int(start_checks)), "START_INTERVAL": str(int(start_interval)),
     }
@@ -511,7 +577,14 @@ def install_update(zip_path: Path, install_dir: Path, new_version: str) -> None:
         source_dir = executables[0].parent
         _check_package_is_complete(source_dir)
 
-        script_path = stage_root.parent / f"Planning_Update_{os.getpid()}.ps1"
+        install_dir.parent.mkdir(parents=True, exist_ok=True)
+        fd, script_name = tempfile.mkstemp(
+            prefix="Planning_Update_",
+            suffix=".txt",
+            dir=install_dir.parent,
+        )
+        os.close(fd)
+        script_path = Path(script_name)
         exe_path = install_dir / "Planning.exe"
         # A sibling of install_dir, not inside it, so clearing/restoring
         # install_dir during a rollback never touches the backup itself.
@@ -522,7 +595,11 @@ def install_update(zip_path: Path, install_dir: Path, new_version: str) -> None:
             source_dir=source_dir, install_dir=install_dir, backup_dir=backup_dir, exe_path=exe_path,
             new_version=new_version, zip_path=zip_path, stage_root=stage_root,
         )
-        script_path.write_text(script, encoding="utf-8")
+        # Binary UTF-8 avoids PowerShell 5.1 adding a UTF-8 BOM and avoids
+        # text-mode filename/path edge cases on Windows.
+        with open(script_path, "wb") as script_file:
+            script_file.write(script.encode("utf-8"))
+            script_file.flush()
         # CREATE_NO_WINDOW alone only hides the console -- it doesn't
         # detach the process from anything. If Planning.exe is running
         # inside a Windows Job Object (common under some launchers, remote

@@ -76,6 +76,8 @@ def partita_sort_key(colored_batch):
     value = str(colored_batch or "").strip().replace(",", ".")
     try:
         number = float(value)
+        if str(number).lower() == "nan" or number != number:
+            return (True, 0, "nan")
         return (False, number, "")
     except ValueError:
         return (True, 0, value.casefold())

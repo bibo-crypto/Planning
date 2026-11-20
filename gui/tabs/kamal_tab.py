@@ -53,6 +53,17 @@ from utility.utils import find_pdfs, logger, load_settings, save_settings
 from typing import Callable
 from utility.ui_thread import post_to_ui
 from gui.numbered_frames import numbered_label_frame
+from parsers.dfm_lookup import load_dfm_cache, load_dfm_entries_by_prefix
+from parsers.kamal_parser import KamalParser
+from exporters.kamal_excel_exporter import KamalExcelExporter
+from pipelines.ordine_kamal import (
+    assign_bagno_prepostato,
+    assign_ordine_kamal_machines,
+    build_ordine_kamal_rows,
+    match_by_lotto,
+)
+from pipelines.ordini_elvy import export_filato_full, export_ordini_full, match_raw_yarn
+from calculate.consegna import apply_order_consegna
 
 
 # Page section rows; update these numbers to reorder the sections.
@@ -379,7 +390,7 @@ class KamalTab(ttk.Frame):
 
     def sync_shared_dfm(self):
         """Reflect the DFM file uploaded on Data Elvy/Situazione, if any."""
-        cache = load_dfm_cache()
+        cache = load_dfm_cache(KAMAL_ARTICLE_PREFIX)
         source_path = cache.get("source_path", "")
         if source_path and source_path != self._shared_dfm_path:
             self._shared_dfm_path = source_path
