@@ -225,7 +225,20 @@ def test_an_update_package_without_the_python_dll_is_refused_before_anything_cha
 def test_a_complete_package_is_accepted_and_the_script_is_started(tmp_path, monkeypatch):
     _frozen(monkeypatch)
     started = []
-    monkeypatch.setattr(updater, "_run_update_script", lambda path, flags, elevated: started.append(Path(path).read_text(encoding="utf-8")))
+    written = []
+    real_write_text = Path.write_text
+
+    def capture_script(path, contents, *args, **kwargs):
+        if path.name.startswith("Planning_Update_") and path.suffix == ".ps1":
+            written.append((path, contents))
+            return len(contents)
+        return real_write_text(path, contents, *args, **kwargs)
+
+    def run_script(path, flags, elevated):
+        started.append(Path(path))
+
+    monkeypatch.setattr(Path, "write_text", capture_script)
+    monkeypatch.setattr(updater, "_run_update_script", run_script)
     install = make_install(tmp_path)
     good = make_release(tmp_path)
     archive = tmp_path / "good.zip"
@@ -234,7 +247,10 @@ def test_a_complete_package_is_accepted_and_the_script_is_started(tmp_path, monk
             if path.is_file():
                 z.write(path, "Planning/" + path.relative_to(good).as_posix())
     updater.install_update(archive, install, "9.9.9")
-    assert len(started) == 1 and "Find-MissingFiles" in started[0] and "$script:backupVerified = $true" in started[0]
+    assert len(written) == 1 and started == [written[0][0]]
+    script_path, script = written[0]
+    assert script_path.suffix == ".ps1" and script_path.parent != install.parent
+    assert "Find-MissingFiles" in script and "$script:backupVerified = $true" in script
 
 
 # ------------------------------------------------------------------ the update that never completed on a real machine

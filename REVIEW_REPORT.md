@@ -1,10 +1,17 @@
-# Planning 1.0.2 — Engineering Review Report
+# Planning 1.2.9 — Engineering Review and Release Preparation
 
 Review date: 2026-11-16. Basis: the project as pushed in commit `8cb47a1` (main) plus the changes listed in section 3.
 Nothing in this review was pushed or merged: the result is a complete project folder for testing on a Windows machine first.
 
-> Everything marked **executed** was actually run, with the evidence kept in `test_reports/`. Everything marked **NOT VERIFIED**
-> could not be run in the review environment (Linux) and is listed again in section 10 with the exact steps to verify it.
+## Release preparation 1.2.9 (2026-11-21)
+
+* Version metadata is synchronized at 1.2.9 in `version.txt`, `installer.iss`, and `utility/updater.py`.
+* Targeted checks: `18 passed, 3 skipped` across `tests/test_version_consistency.py` and `tests/test_update_script.py`; Ruff and Python compilation checks passed.
+* Windows PyInstaller build succeeded; the packaged `version.txt` contains 1.2.9. The packaged executable passed the empty-profile/restart smoke test.
+* A real in-place update on the user's installed copy has **not** been verified. These build and smoke checks do not prove that the updater replaces files successfully on that machine.
+
+> The review results below are historical: items marked **executed** have evidence in `test_reports/`, and items marked **NOT VERIFIED**
+> could not be run in that review environment (Linux). Current 1.2.9 checks are listed above; real in-place update verification remains outstanding.
 
 ## Update 2026-11-20
 
@@ -196,7 +203,7 @@ earlier reports; `latest/` is overwritten by design. The workflow cannot loop (a
 takes its scripts from the default branch and has the two permissions it needs (`contents: write`, `actions: read`).
 
 ## 9. Version and project hygiene
-`version.txt`, `installer.iss` (`AppVersion`) and `DEFAULT_APP_VERSION` in `utility/updater.py` all say **1.0.2** (the fixed base version; each release stores its own version in `version.txt`).
+`version.txt`, `installer.iss` (`AppVersion`) and `DEFAULT_APP_VERSION` in `utility/updater.py` all say **1.2.9**.
 No secrets in the current files or in any of the 115 commits (token/key patterns scanned); no database, Excel, log or ZIP file is tracked; `.gitignore` covers logs, backups, databases and caches.
 Stale reports were replaced or marked historical (`PERFORMANCE_REPORT.md`, `docs/history/`). Dependencies in `requirements.txt` are ranges, not pins (section 11).
 
@@ -204,7 +211,7 @@ Stale reports were replaced or marked historical (`PERFORMANCE_REPORT.md`, `docs
 | What | Why | How |
 |---|---|---|
 | All code of section 3 on Windows (tests, build, EXE) | no Windows in the review environment | `powershell -ExecutionPolicy Bypass -File tools\verify_windows.ps1` (runs deps, full pytest, PyInstaller build, package check, EXE smoke; logs in `verify_logs\<time>`) |
-| The update helper under Windows PowerShell 5.1 and in `C:\Program Files` with UAC and antivirus | needs Windows; four updater tests do run on `powershell.exe` when the suite runs on Windows | the verify script runs them; then do one real update from the installed 1.0.2 to a build of this folder and read `%TEMP%\Planning_Update.log` |
+| The update helper under Windows PowerShell 5.1 and in `C:\Program Files` with UAC and antivirus | needs Windows; updater tests run on `powershell.exe` when the suite runs on Windows | install the 1.2.9 build first, then verify an update from that version and read `%TEMP%\Planning_Update.log` |
 | Manual end-to-end use of every page with production Excel files | production data is not available | planner acceptance test |
 | `Planning_Backup` after a real update | needs a real update | after the test update, `C:\Program Files\Planning_Backup` must exist and equal the previous version |
 

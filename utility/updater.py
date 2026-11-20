@@ -17,7 +17,7 @@ import zipfile
 
 from utility.utils import APP_DATA_DIR
 
-DEFAULT_APP_VERSION = "1.0.2"
+DEFAULT_APP_VERSION = "1.2.9"
 GITHUB_REPOSITORY = "bibo-crypto/Planning"
 RELEASES_API_URL = f"https://api.github.com/repos/{GITHUB_REPOSITORY}/releases/latest"
 RELEASES_PAGE_URL = f"https://github.com/{GITHUB_REPOSITORY}/releases"
@@ -577,14 +577,7 @@ def install_update(zip_path: Path, install_dir: Path, new_version: str) -> None:
         source_dir = executables[0].parent
         _check_package_is_complete(source_dir)
 
-        install_dir.parent.mkdir(parents=True, exist_ok=True)
-        fd, script_name = tempfile.mkstemp(
-            prefix="Planning_Update_",
-            suffix=".txt",
-            dir=install_dir.parent,
-        )
-        os.close(fd)
-        script_path = Path(script_name)
+        script_path = stage_root.parent / f"Planning_Update_{os.getpid()}.ps1"
         exe_path = install_dir / "Planning.exe"
         # A sibling of install_dir, not inside it, so clearing/restoring
         # install_dir during a rollback never touches the backup itself.
@@ -595,11 +588,7 @@ def install_update(zip_path: Path, install_dir: Path, new_version: str) -> None:
             source_dir=source_dir, install_dir=install_dir, backup_dir=backup_dir, exe_path=exe_path,
             new_version=new_version, zip_path=zip_path, stage_root=stage_root,
         )
-        # Binary UTF-8 avoids PowerShell 5.1 adding a UTF-8 BOM and avoids
-        # text-mode filename/path edge cases on Windows.
-        with open(script_path, "wb") as script_file:
-            script_file.write(script.encode("utf-8"))
-            script_file.flush()
+        script_path.write_text(script, encoding="utf-8")
         # CREATE_NO_WINDOW alone only hides the console -- it doesn't
         # detach the process from anything. If Planning.exe is running
         # inside a Windows Job Object (common under some launchers, remote
