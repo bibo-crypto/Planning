@@ -2,9 +2,9 @@
   "workflow": "tests",
   "conclusion": "success",
   "sha": "70150d8",
-  "branch": "main",
-  "url": "https://github.com/bibo-crypto/Planning/actions/runs/44839173980",
-  "written": "2026-11-20 23:51 UTC",
+  "branch": "v1.3.0",
+  "url": "https://github.com/bibo-crypto/Planning/actions/runs/44839845371",
+  "written": "2026-11-20 23:56 UTC",
   "jobs": [
     {
       "name": "pytest (3.14)",
@@ -19,13 +19,14 @@
   ],
   "pytest": {
     "pytest-log-py3.12": {
-      "summary": "975 passed, 9 skipped in 271.50s (0:04:31)",
+      "summary": "974 passed, 10 skipped in 205.91s (0:03:25)",
       "counts": {
-        "passed": 975,
-        "skipped": 9
+        "passed": 974,
+        "skipped": 10
       },
       "failed": [],
       "skipped": [
+        "SKIPPED [1] tests\\test_category_integration.py:210: no display available",
         "SKIPPED [1] tests\\test_ci_report.py:131: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)",
         "SKIPPED [1] tests\\test_ci_report.py:138: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)",
         "SKIPPED [1] tests\\test_ci_report.py:149: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)",
@@ -38,7 +39,7 @@
       ]
     },
     "pytest-log-py3.14": {
-      "summary": "975 passed, 9 skipped in 228.99s (0:03:48)",
+      "summary": "975 passed, 9 skipped in 194.01s (0:03:14)",
       "counts": {
         "passed": 975,
         "skipped": 9
