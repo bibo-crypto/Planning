@@ -1,10 +1,10 @@
 {
   "workflow": "tests",
   "conclusion": "success",
-  "sha": "ae6875e",
-  "branch": "v1.2.8",
-  "url": "https://github.com/bibo-crypto/Planning/actions/runs/44320767040",
-  "written": "2026-11-18 14:12 UTC",
+  "sha": "65ff9f4",
+  "branch": "main",
+  "url": "https://github.com/bibo-crypto/Planning/actions/runs/44831704483",
+  "written": "2026-11-20 22:52 UTC",
   "jobs": [
     {
       "name": "pytest (3.14)",
@@ -19,14 +19,33 @@
   ],
   "pytest": {
     "pytest-log-py3.12": {
-      "summary": "960 passed, 9 skipped in 196.30s (0:03:16)",
+      "summary": "974 passed, 10 skipped in 215.86s (0:03:35)",
       "counts": {
-        "passed": 960,
+        "passed": 974,
+        "skipped": 10
+      },
+      "failed": [],
+      "skipped": [
+        "SKIPPED [1] tests\\test_ci_report.py:131: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)",
+        "SKIPPED [1] tests\\test_ci_report.py:138: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)",
+        "SKIPPED [1] tests\\test_ci_report.py:149: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)",
+        "SKIPPED [1] tests\\test_ci_report.py:160: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)",
+        "SKIPPED [1] tests\\test_ci_report.py:171: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)",
+        "SKIPPED [1] tests\\test_create_pages.py:209: no display",
+        "SKIPPED [1] tests\\test_regressions.py:1452: win32com is available in this environment",
+        "SKIPPED [1] tests\\test_update_script.py:120: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh",
+        "SKIPPED [1] tests\\test_update_script.py:149: needs an unprivileged user: permissions do not bind root (verified by hand with runuser)",
+        "SKIPPED [1] tests\\test_update_script.py:319: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh"
+      ]
+    },
+    "pytest-log-py3.14": {
+      "summary": "975 passed, 9 skipped in 245.31s (0:04:05)",
+      "counts": {
+        "passed": 975,
         "skipped": 9
       },
       "failed": [],
       "skipped": [
-        "SKIPPED [1] tests\\test_background_flags_released.py:111: no display available for Tk: Can't find a usable init.tcl in the following directories: ",
         "SKIPPED [1] tests\\test_ci_report.py:131: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)",
         "SKIPPED [1] tests\\test_ci_report.py:138: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)",
         "SKIPPED [1] tests\\test_ci_report.py:149: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)",
@@ -34,25 +53,8 @@
         "SKIPPED [1] tests\\test_ci_report.py:171: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)",
         "SKIPPED [1] tests\\test_regressions.py:1452: win32com is available in this environment",
         "SKIPPED [1] tests\\test_update_script.py:120: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh",
-        "SKIPPED [1] tests\\test_update_script.py:149: needs an unprivileged user: permissions do not bind root (verified by hand with runuser)"
-      ]
-    },
-    "pytest-log-py3.14": {
-      "summary": "961 passed, 8 skipped in 219.97s (0:03:39)",
-      "counts": {
-        "passed": 961,
-        "skipped": 8
-      },
-      "failed": [],
-      "skipped": [
-        "SKIPPED [1] tests\\test_ci_report.py:131: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)",
-        "SKIPPED [1] tests\\test_ci_report.py:138: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)",
-        "SKIPPED [1] tests\\test_ci_report.py:149: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)",
-        "SKIPPED [1] tests\\test_ci_report.py:160: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)",
-        "SKIPPED [1] tests\\test_ci_report.py:171: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)",
-        "SKIPPED [1] tests\\test_regressions.py:1452: win32com is available in this environment",
-        "SKIPPED [1] tests\\test_update_script.py:120: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh",
-        "SKIPPED [1] tests\\test_update_script.py:149: needs an unprivileged user: permissions do not bind root (verified by hand with runuser)"
+        "SKIPPED [1] tests\\test_update_script.py:149: needs an unprivileged user: permissions do not bind root (verified by hand with runuser)",
+        "SKIPPED [1] tests\\test_update_script.py:319: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh"
       ]
     }
   },
