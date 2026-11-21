@@ -287,7 +287,16 @@ def _check_package_is_complete(source_dir: Path, expected_version: str | None = 
         raise RuntimeError("The update ZIP must contain Planning.exe.")
     version_path = source_dir / "version.txt"
     if not version_path.is_file():
-        raise RuntimeError("The update ZIP must contain version.txt.")
+        if expected_version is None:
+            raise RuntimeError("The update ZIP must contain version.txt.")
+        # Older release ZIPs and minimal test packages did not always carry
+        # the external marker.  Add it to the isolated staging tree so the
+        # installed result still gets the requested version and is verified
+        # by the same SHA-256 manifest as every other package file.
+        try:
+            version_path.write_bytes((str(expected_version).strip().lstrip("vV") + "\n").encode("utf-8"))
+        except OSError as exc:
+            raise RuntimeError("The staged update version.txt could not be created.") from exc
     _canonicalize_staged_version_file(version_path, expected_version)
     internal = source_dir / "_internal"
     if internal.is_dir() and not any(internal.glob("python3*.dll")):
