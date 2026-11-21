@@ -1,7 +1,15 @@
-# Planning 1.2.9 — Engineering Review and Release Preparation
+# Planning — Engineering Review and Release Preparation
 
 Review date: 2026-11-16. Basis: the project as pushed in commit `8cb47a1` (main) plus the changes listed in section 3.
 Nothing in this review was pushed or merged: the result is a complete project folder for testing on a Windows machine first.
+
+## Release preparation 1.3.3 (2026-11-22)
+
+* Version metadata is synchronized at 1.3.3 in `version.txt`, `installer.iss`, and `utility/updater.py`.
+* The published v1.3.2 `Planning.zip` was verified to contain only `Planning.exe`; the source at that tag still says 1.3.0 in `version.txt`.
+* Targeted release/updater tests: 6 passed. Ruff and Python compilation checks passed.
+* PyInstaller build succeeded on Windows. The 1.3.3 ZIP contains 2,741 entries, `_internal/version.txt` (1.3.3), and `_internal/python314.dll`; no database files are included.
+* The packaged executable passed both empty-profile and saved-profile restart smoke tests. A real in-place update from GitHub remains unverified; this ZIP has not been uploaded.
 
 ## Release preparation 1.2.9 (2026-11-21)
 
@@ -11,7 +19,7 @@ Nothing in this review was pushed or merged: the result is a complete project fo
 * A real in-place update on the user's installed copy has **not** been verified. These build and smoke checks do not prove that the updater replaces files successfully on that machine.
 
 > The review results below are historical: items marked **executed** have evidence in `test_reports/`, and items marked **NOT VERIFIED**
-> could not be run in that review environment (Linux). Current 1.2.9 checks are listed above; real in-place update verification remains outstanding.
+> could not be run in that review environment (Linux). The latest 1.3.3 checks are listed above; real in-place update verification remains outstanding.
 
 ## Update 2026-11-20
 

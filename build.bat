@@ -139,6 +139,12 @@ if /i "%~1"=="zip" (
         if not defined PLANNING_NO_PAUSE pause
         exit /b 1
     )
+    "%VENV_PY%" -c "import sys, zipfile; p=r'dist\Planning_v!PLANNING_VERSION!.zip'; z=zipfile.ZipFile(p); names=set(z.namelist()); dll=any(n.replace('\\','/').lower().startswith('_internal/python3') and n.lower().endswith('.dll') for n in names); ok='Planning.exe' in names and '_internal/version.txt' in names and dll; print('Release ZIP contents: ' + ('OK' if ok else 'INCOMPLETE')); sys.exit(0 if ok else 1)"
+    if errorlevel 1 (
+        echo  [ERROR] Release ZIP must contain Planning.exe, _internal\version.txt, and _internal\python3*.dll.
+        if not defined PLANNING_NO_PAUSE pause
+        exit /b 1
+    )
     set "ZIP_NOTE=   Release ZIP:   dist\Planning_v!PLANNING_VERSION!.zip"
 )
 echo.

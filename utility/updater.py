@@ -17,7 +17,7 @@ import zipfile
 
 from utility.utils import APP_DATA_DIR
 
-DEFAULT_APP_VERSION = "1.3.0"
+DEFAULT_APP_VERSION = "1.3.3"
 GITHUB_REPOSITORY = "bibo-crypto/Planning"
 RELEASES_API_URL = f"https://api.github.com/repos/{GITHUB_REPOSITORY}/releases/latest"
 RELEASES_PAGE_URL = f"https://github.com/{GITHUB_REPOSITORY}/releases"
