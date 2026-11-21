@@ -1,8 +1,8 @@
 # tests — FAILURE
 
-- commit: `fdf2934` on `v1.3.2` — update(updater): 2 modified (+15/-1)
-- run: https://github.com/bibo-crypto/Planning/actions/runs/44953872176
-- event: push   |   report written: 2026-11-21 21:58 UTC
+- commit: `a3172dd` on `main` — chore(release): bump version to 1.3.3
+- run: https://github.com/bibo-crypto/Planning/actions/runs/44956537173
+- event: push   |   report written: 2026-11-21 22:29 UTC
 
 ## Jobs
 
@@ -13,7 +13,7 @@
 
 ## pytest — pytest-log-py3.12
 
-`4 failed, 979 passed, 9 skipped in 207.61s (0:03:27)`
+`4 failed, 979 passed, 9 skipped in 200.51s (0:03:20)`
 
 Failed / errored:
 
@@ -36,7 +36,7 @@ Skipped (reason):
 
 ## pytest — pytest-log-py3.14
 
-`4 failed, 979 passed, 9 skipped in 223.84s (0:03:43)`
+`4 failed, 979 passed, 9 skipped in 240.55s (0:04:00)`
 
 Failed / errored:
 
