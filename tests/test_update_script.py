@@ -222,6 +222,20 @@ def test_an_update_package_without_the_python_dll_is_refused_before_anything_cha
     assert launched == [] and tree(install) == original
 
 
+def test_an_update_package_with_only_the_executable_is_refused_before_anything_changes(tmp_path, monkeypatch):
+    _frozen(monkeypatch)
+    launched = []
+    monkeypatch.setattr(updater, "_run_update_script", lambda *a, **k: launched.append(a))
+    install = make_install(tmp_path)
+    original = tree(install)
+    archive = tmp_path / "exe_only.zip"
+    with zipfile.ZipFile(archive, "w") as z:
+        z.write(make_release(tmp_path) / "Planning.exe", "Planning.exe")
+    with pytest.raises(RuntimeError, match="Python DLL is missing"):
+        updater.install_update(archive, install, "9.9.9")
+    assert launched == [] and tree(install) == original
+
+
 @pytest.mark.parametrize(
     "raw",
     [

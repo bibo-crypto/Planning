@@ -299,7 +299,7 @@ def _check_package_is_complete(source_dir: Path, expected_version: str | None = 
             raise RuntimeError("The staged update version.txt could not be created.") from exc
     _canonicalize_staged_version_file(version_path, expected_version)
     internal = source_dir / "_internal"
-    if internal.is_dir() and not any(internal.glob("python3*.dll")):
+    if not internal.is_dir() or not any(internal.glob("python3*.dll")):
         raise RuntimeError("The update package is incomplete (the Python DLL is missing from _internal), so it was not installed.")
 
 
