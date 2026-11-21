@@ -229,7 +229,7 @@ def test_a_complete_package_is_accepted_and_the_script_is_started(tmp_path, monk
     real_write_text = Path.write_text
 
     def capture_script(path, contents, *args, **kwargs):
-        if path.name.startswith("Planning_Update_") and path.suffix == ".ps1":
+        if path.name.startswith("Planning_UpdateBootstrap_") and path.suffix == ".ps1":
             written.append((path, contents))
             return len(contents)
         return real_write_text(path, contents, *args, **kwargs)
@@ -250,7 +250,7 @@ def test_a_complete_package_is_accepted_and_the_script_is_started(tmp_path, monk
     assert len(written) == 1 and started == [written[0][0]]
     script_path, script = written[0]
     assert script_path.suffix == ".ps1" and script_path.parent != install.parent
-    assert "Find-MissingFiles" in script and "$script:backupVerified = $true" in script
+    assert "Find-MissingFiles" in script and "Get-FileHash" in script and "$script:backupVerified = $true" in script
 
 
 # ------------------------------------------------------------------ the update that never completed on a real machine
@@ -263,6 +263,20 @@ def test_relative_paths_are_built_from_names_not_by_cutting_a_prefix_off_full_pa
     code = "\n".join(line for line in script.splitlines() if not line.lstrip().startswith("#"))      # the comments explain the old bug
     assert "Substring($prefix" not in code and "Resolve-Path" not in code
     assert "function Get-RelativeFiles" in code
+
+
+def test_file_verification_uses_normalized_relative_keys_and_sha256_not_size_only():
+    script = updater.build_update_script(
+        source_dir=Path("C:/Mega Store/Planning"), install_dir=Path("C:/Program Files/Planning"),
+        backup_dir=Path("C:/Program Files/Planning_Backup"), exe_path=Path("C:/Program Files/Planning/Planning.exe"),
+        new_version="9.9.9", zip_path=Path("C:/Temp/update.zip"), stage_root=Path("C:/Temp/stage"),
+    )
+    code = "\n".join(line for line in script.splitlines() if not line.lstrip().startswith("#"))
+    assert "function Get-RelativeKey" in code
+    assert "Get-FileHash" in code and "SHA256" in code
+    assert "different SHA-256" in code
+    assert ".ToLowerInvariant()" in code
+    assert "different size" not in code
 
 
 def _short_path(path: Path) -> str:

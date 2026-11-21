@@ -5,7 +5,7 @@ from pathlib import Path
 from utility import updater
 
 ROOT = Path(__file__).resolve().parent.parent
-EXPECTED = "1.2.9"
+EXPECTED = "1.3.0"
 
 
 def test_version_txt_is_the_fixed_release_version():

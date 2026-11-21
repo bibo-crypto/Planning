@@ -17,7 +17,7 @@ import zipfile
 
 from utility.utils import APP_DATA_DIR
 
-DEFAULT_APP_VERSION = "1.2.9"
+DEFAULT_APP_VERSION = "1.3.0"
 GITHUB_REPOSITORY = "bibo-crypto/Planning"
 RELEASES_API_URL = f"https://api.github.com/repos/{GITHUB_REPOSITORY}/releases/latest"
 RELEASES_PAGE_URL = f"https://github.com/{GITHUB_REPOSITORY}/releases"
@@ -323,25 +323,34 @@ function Get-RelativeFiles([string]$root) {
             if ($item.PSIsContainer) {
                 if (-not ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) { $pending.Push($relative) }
             } else {
-                [void]$found.Add([pscustomobject]@{ Relative = $relative; Length = $item.Length })
+                [void]$found.Add([pscustomobject]@{ Relative = $relative })
             }
         }
     }
     return ,$found
 }
+function Get-RelativeKey([string]$relative) {
+    # Relative keys are the only identity used by the transaction.  They are
+    # made from child item names (never FullName/Resolve-Path), use one slash
+    # convention, and compare case-insensitively like the Windows filesystem.
+    return (($relative -replace '/', '\').TrimStart('\')).ToLowerInvariant()
+}
 function Get-FileMap([string]$root) {
-    # relative path (lower case) -> size, for every file below $root
+    # relative path (normalised lower case) -> SHA-256, for every file below $root
     $map = @{}
-    foreach ($file in (Get-RelativeFiles $root)) { $map[$file.Relative.ToLowerInvariant()] = $file.Length }
+    foreach ($file in (Get-RelativeFiles $root)) {
+        $path = Join-Path $root $file.Relative
+        $map[(Get-RelativeKey $file.Relative)] = (Get-FileHash -LiteralPath $path -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+    }
     return $map
 }
 function Find-MissingFromMap($expected, [string]$actualRoot) {
-    # the files of a recorded file list that are absent from $actualRoot or have another size
+    # the files of a recorded file list that are absent or have another digest
     $actual = Get-FileMap $actualRoot
     $problems = @()
     foreach ($key in $expected.Keys) {
         if (-not $actual.ContainsKey($key)) { $problems += "missing: $key" }
-        elseif ($actual[$key] -ne $expected[$key]) { $problems += "different size: $key" }
+        elseif ($actual[$key] -ne $expected[$key]) { $problems += "different SHA-256: $key" }
     }
     return ,$problems
 }
@@ -389,7 +398,7 @@ function Restore-Backup {
         # restored and verified: only now remove the files that exist solely in the new version
         $keep = $script:previousFiles
         foreach ($file in (Get-RelativeFiles $target)) {
-            if (-not $keep.ContainsKey($file.Relative.ToLowerInvariant())) {
+            if (-not $keep.ContainsKey((Get-RelativeKey $file.Relative))) {
                 Remove-Item -LiteralPath (Join-Path $target $file.Relative) -Force -ErrorAction SilentlyContinue
             }
         }
@@ -446,6 +455,14 @@ try {
             Get-ChildItem -LiteralPath $source -Force | ForEach-Object {
                 Copy-Item -LiteralPath $_.FullName -Destination $target -Recurse -Force -ErrorAction Stop
             }
+            # version.txt is part of the package and changes on every release.
+            # Write it before digest verification so it is compared against
+            # the new package value rather than the old installed marker.
+            $versionPath = Join-Path $target 'version.txt'
+            $versionValue = @@VERSION@@
+            $versionTemp = Join-Path $target ('.version.' + $PID + '.tmp')
+            [System.IO.File]::WriteAllText($versionTemp, ($versionValue + "`n"), (New-Object System.Text.UTF8Encoding($false)))
+            Move-Item -LiteralPath $versionTemp -Destination $versionPath -Force
             # the copy only counts when EVERY file of the new version is there (Planning.exe alone proves nothing:
             # the old one already exists)
             $problems = Find-MissingFiles $source $target
@@ -466,10 +483,6 @@ try {
     if ($copied) {
         $versionPath = Join-Path $target 'version.txt'
         $versionValue = @@VERSION@@
-        $versionTemp = Join-Path $target ('.version.' + $PID + '.tmp')
-        # without a byte-order mark: Set-Content -Encoding UTF8 of Windows PowerShell 5.1 writes one, and it ended up in the version text
-        [System.IO.File]::WriteAllText($versionTemp, ($versionValue + "`n"), (New-Object System.Text.UTF8Encoding($false)))
-        Move-Item -LiteralPath $versionTemp -Destination $versionPath -Force
         $writtenVersion = ([System.IO.File]::ReadAllText($versionPath)).Trim().TrimStart('v','V')
         if ($writtenVersion -ne $versionValue.Trim().TrimStart('v','V')) { throw "version.txt verification failed: '$writtenVersion'" }
         if (-not (Start-Planning)) { throw "Planning.exe could not be started after update" }
@@ -577,7 +590,11 @@ def install_update(zip_path: Path, install_dir: Path, new_version: str) -> None:
         source_dir = executables[0].parent
         _check_package_is_complete(source_dir)
 
-        script_path = stage_root.parent / f"Planning_Update_{os.getpid()}.ps1"
+        # The bootstrap is created before the old installation is touched and
+        # runs independently after this process exits.  It is deliberately
+        # not loaded from the new ZIP: replacing updater.py cannot repair the
+        # transaction that is already in flight.
+        script_path = stage_root.parent / f"Planning_UpdateBootstrap_{os.getpid()}.ps1"
         exe_path = install_dir / "Planning.exe"
         # A sibling of install_dir, not inside it, so clearing/restoring
         # install_dir during a rollback never touches the backup itself.
