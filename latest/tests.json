@@ -1,10 +1,10 @@
 {
   "workflow": "tests",
   "conclusion": "failure",
-  "sha": "2271c2e",
+  "sha": "ee8665e",
   "branch": "main",
-  "url": "https://github.com/bibo-crypto/Planning/actions/runs/44902116830",
-  "written": "2026-11-21 12:10 UTC",
+  "url": "https://github.com/bibo-crypto/Planning/actions/runs/44912317664",
+  "written": "2026-11-21 14:13 UTC",
   "jobs": [
     {
       "name": "pytest (3.14)",
@@ -23,17 +23,17 @@
   ],
   "pytest": {
     "pytest-log-py3.12": {
-      "summary": "4 failed, 972 passed, 9 skipped in 220.73s (0:03:40)",
+      "summary": "4 failed, 978 passed, 9 skipped in 227.94s (0:03:47)",
       "counts": {
         "failed": 4,
-        "passed": 972,
+        "passed": 978,
         "skipped": 9
       },
       "failed": [
-        "FAILED tests/test_update_script.py::test_a_new_version_that_never_starts_is_rolled_back_and_the_old_one_relaunched - AssertionError: assert ('never started running' in '2026-11-21T12:09:15  Backup of the current version copied and verified.\\r\\n2026-11-21T12:09:15  Copy attempt 1: 1 fil...ts -- rolli",
-        "FAILED tests/test_update_script.py::test_a_stage_folder_reached_through_its_short_8_3_name_is_verified_correctly - AssertionError: 2026-11-21T12:09:17  Backup of the current version copied and verified.",
-        "FAILED tests/test_update_script.py::test_a_stage_folder_with_spaces_and_odd_spellings_is_verified_on_the_first_attempt - AssertionError: assert ('not in place yet' not in '2026-11-21T...rified).\\r\\n'",
-        "FAILED tests/test_update_script.py::test_a_rolled_back_update_leaves_a_note_for_the_program - AssertionError: assert ('version=9.9.9' in 'version=9.9.9\\ntime=2026-11-21T12:09:19\\nlog=C:\\\\Users\\\\runneradmin\\\\AppData\\\\Local\\\\Temp\\\\pytest-of-runneradmin\\\\pyt... be copied completely: 1 file(s) of the ne"
+        "FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_detaches_helper_from_any_job_object - RuntimeError: The update ZIP must contain version.txt.",
+        "FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_elevates_when_install_dir_unwritable - RuntimeError: The update ZIP must contain version.txt.",
+        "FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_generates_backup_and_rollback_script - RuntimeError: The update ZIP must contain version.txt.",
+        "FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_relaunches_de_elevated - RuntimeError: The update ZIP must contain version.txt."
       ],
       "skipped": [
         "SKIPPED [1] tests\\test_ci_report.py:131: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)",
@@ -44,21 +44,21 @@
         "SKIPPED [1] tests\\test_regressions.py:1452: win32com is available in this environment",
         "SKIPPED [1] tests\\test_update_script.py:120: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh",
         "SKIPPED [1] tests\\test_update_script.py:149: needs an unprivileged user: permissions do not bind root (verified by hand with runuser)",
-        "SKIPPED [1] tests\\test_update_script.py:349: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh"
+        "SKIPPED [1] tests\\test_update_script.py:376: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh"
       ]
     },
     "pytest-log-py3.14": {
-      "summary": "4 failed, 972 passed, 9 skipped in 254.29s (0:04:14)",
+      "summary": "4 failed, 978 passed, 9 skipped in 192.21s (0:03:12)",
       "counts": {
         "failed": 4,
-        "passed": 972,
+        "passed": 978,
         "skipped": 9
       },
       "failed": [
-        "FAILED tests/test_update_script.py::test_a_new_version_that_never_starts_is_rolled_back_and_the_old_one_relaunched - AssertionError: assert ('never started running' in '2026-11-21T12:10:05  Backup of the current version copied and verified.\\r\\n2026-11-21T12:10:05  Copy attempt 1: 1 fil...ts -- rolli",
-        "FAILED tests/test_update_script.py::test_a_stage_folder_reached_through_its_short_8_3_name_is_verified_correctly - AssertionError: 2026-11-21T12:10:07  Backup of the current version copied and verified.",
-        "FAILED tests/test_update_script.py::test_a_stage_folder_with_spaces_and_odd_spellings_is_verified_on_the_first_attempt - AssertionError: assert ('not in place yet' not in '2026-11-21T...rified).\\r\\n'",
-        "FAILED tests/test_update_script.py::test_a_rolled_back_update_leaves_a_note_for_the_program - AssertionError: assert ('version=9.9.9' in 'version=9.9.9\\ntime=2026-11-21T12:10:09\\nlog=C:\\\\Users\\\\runneradmin\\\\AppData\\\\Local\\\\Temp\\\\pytest-of-runneradmin\\\\pyt... be copied completely: 1 file(s) of the ne"
+        "FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_detaches_helper_from_any_job_object - RuntimeError: The update ZIP must contain version.txt.",
+        "FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_elevates_when_install_dir_unwritable - RuntimeError: The update ZIP must contain version.txt.",
+        "FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_generates_backup_and_rollback_script - RuntimeError: The update ZIP must contain version.txt.",
+        "FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_relaunches_de_elevated - RuntimeError: The update ZIP must contain version.txt."
       ],
       "skipped": [
         "SKIPPED [1] tests\\test_ci_report.py:131: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)",
@@ -69,19 +69,19 @@
         "SKIPPED [1] tests\\test_regressions.py:1452: win32com is available in this environment",
         "SKIPPED [1] tests\\test_update_script.py:120: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh",
         "SKIPPED [1] tests\\test_update_script.py:149: needs an unprivileged user: permissions do not bind root (verified by hand with runuser)",
-        "SKIPPED [1] tests\\test_update_script.py:349: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh"
+        "SKIPPED [1] tests\\test_update_script.py:376: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh"
       ]
     }
   },
   "failed_tests": [
-    "pytest-log-py3.12: FAILED tests/test_update_script.py::test_a_new_version_that_never_starts_is_rolled_back_and_the_old_one_relaunched - AssertionError: assert ('never started running' in '2026-11-21T12:09:15  Backup of the current version copied and verified.\\r\\n2026-11-21T12:09:15  Copy attempt 1: 1 fil...ts -- rolli",
-    "pytest-log-py3.12: FAILED tests/test_update_script.py::test_a_stage_folder_reached_through_its_short_8_3_name_is_verified_correctly - AssertionError: 2026-11-21T12:09:17  Backup of the current version copied and verified.",
-    "pytest-log-py3.12: FAILED tests/test_update_script.py::test_a_stage_folder_with_spaces_and_odd_spellings_is_verified_on_the_first_attempt - AssertionError: assert ('not in place yet' not in '2026-11-21T...rified).\\r\\n'",
-    "pytest-log-py3.12: FAILED tests/test_update_script.py::test_a_rolled_back_update_leaves_a_note_for_the_program - AssertionError: assert ('version=9.9.9' in 'version=9.9.9\\ntime=2026-11-21T12:09:19\\nlog=C:\\\\Users\\\\runneradmin\\\\AppData\\\\Local\\\\Temp\\\\pytest-of-runneradmin\\\\pyt... be copied completely: 1 file(s) of the ne",
-    "pytest-log-py3.14: FAILED tests/test_update_script.py::test_a_new_version_that_never_starts_is_rolled_back_and_the_old_one_relaunched - AssertionError: assert ('never started running' in '2026-11-21T12:10:05  Backup of the current version copied and verified.\\r\\n2026-11-21T12:10:05  Copy attempt 1: 1 fil...ts -- rolli",
-    "pytest-log-py3.14: FAILED tests/test_update_script.py::test_a_stage_folder_reached_through_its_short_8_3_name_is_verified_correctly - AssertionError: 2026-11-21T12:10:07  Backup of the current version copied and verified.",
-    "pytest-log-py3.14: FAILED tests/test_update_script.py::test_a_stage_folder_with_spaces_and_odd_spellings_is_verified_on_the_first_attempt - AssertionError: assert ('not in place yet' not in '2026-11-21T...rified).\\r\\n'",
-    "pytest-log-py3.14: FAILED tests/test_update_script.py::test_a_rolled_back_update_leaves_a_note_for_the_program - AssertionError: assert ('version=9.9.9' in 'version=9.9.9\\ntime=2026-11-21T12:10:09\\nlog=C:\\\\Users\\\\runneradmin\\\\AppData\\\\Local\\\\Temp\\\\pytest-of-runneradmin\\\\pyt... be copied completely: 1 file(s) of the ne"
+    "pytest-log-py3.12: FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_detaches_helper_from_any_job_object - RuntimeError: The update ZIP must contain version.txt.",
+    "pytest-log-py3.12: FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_elevates_when_install_dir_unwritable - RuntimeError: The update ZIP must contain version.txt.",
+    "pytest-log-py3.12: FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_generates_backup_and_rollback_script - RuntimeError: The update ZIP must contain version.txt.",
+    "pytest-log-py3.12: FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_relaunches_de_elevated - RuntimeError: The update ZIP must contain version.txt.",
+    "pytest-log-py3.14: FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_detaches_helper_from_any_job_object - RuntimeError: The update ZIP must contain version.txt.",
+    "pytest-log-py3.14: FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_elevates_when_install_dir_unwritable - RuntimeError: The update ZIP must contain version.txt.",
+    "pytest-log-py3.14: FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_generates_backup_and_rollback_script - RuntimeError: The update ZIP must contain version.txt.",
+    "pytest-log-py3.14: FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_relaunches_de_elevated - RuntimeError: The update ZIP must contain version.txt."
   ],
   "exe_smoke": null
 }
