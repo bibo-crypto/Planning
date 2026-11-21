@@ -1,26 +1,19 @@
-# tests — FAILURE
+# tests — SUCCESS
 
-- commit: `ee8665e` on `main` — fix(updater): canonicalize staged version metadata
-- run: https://github.com/bibo-crypto/Planning/actions/runs/44912317664
-- event: push   |   report written: 2026-11-21 14:13 UTC
+- commit: `b5ed9f8` on `main` — fix(updater): preserve legacy packages without version marker
+- run: https://github.com/bibo-crypto/Planning/actions/runs/44912870125
+- event: push   |   report written: 2026-11-21 14:19 UTC
 
 ## Jobs
 
 | job | result | failed steps |
 |---|---|---|
-| pytest (3.14) | failure | Run the test suite |
-| pytest (3.12) | failure | Run the test suite |
+| pytest (3.12) | success | - |
+| pytest (3.14) | success | - |
 
 ## pytest — pytest-log-py3.12
 
-`4 failed, 978 passed, 9 skipped in 227.94s (0:03:47)`
-
-Failed / errored:
-
-- `FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_detaches_helper_from_any_job_object - RuntimeError: The update ZIP must contain version.txt.`
-- `FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_elevates_when_install_dir_unwritable - RuntimeError: The update ZIP must contain version.txt.`
-- `FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_generates_backup_and_rollback_script - RuntimeError: The update ZIP must contain version.txt.`
-- `FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_relaunches_de_elevated - RuntimeError: The update ZIP must contain version.txt.`
+`982 passed, 9 skipped in 253.76s (0:04:13)`
 
 Skipped (reason):
 
@@ -36,14 +29,7 @@ Skipped (reason):
 
 ## pytest — pytest-log-py3.14
 
-`4 failed, 978 passed, 9 skipped in 192.21s (0:03:12)`
-
-Failed / errored:
-
-- `FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_detaches_helper_from_any_job_object - RuntimeError: The update ZIP must contain version.txt.`
-- `FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_elevates_when_install_dir_unwritable - RuntimeError: The update ZIP must contain version.txt.`
-- `FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_generates_backup_and_rollback_script - RuntimeError: The update ZIP must contain version.txt.`
-- `FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_relaunches_de_elevated - RuntimeError: The update ZIP must contain version.txt.`
+`982 passed, 9 skipped in 240.02s (0:04:00)`
 
 Skipped (reason):
 
