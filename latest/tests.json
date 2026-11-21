@@ -1,15 +1,17 @@
 {
   "workflow": "tests",
   "conclusion": "failure",
-  "sha": "b5ed9f8",
-  "branch": "v1.3.1",
-  "url": "https://github.com/bibo-crypto/Planning/actions/runs/44932782768",
-  "written": "2026-11-21 18:02 UTC",
+  "sha": "fdf2934",
+  "branch": "main",
+  "url": "https://github.com/bibo-crypto/Planning/actions/runs/44953133211",
+  "written": "2026-11-21 21:49 UTC",
   "jobs": [
     {
       "name": "pytest (3.14)",
-      "conclusion": "success",
-      "failed_steps": []
+      "conclusion": "failure",
+      "failed_steps": [
+        "Run the test suite"
+      ]
     },
     {
       "name": "pytest (3.12)",
@@ -21,14 +23,17 @@
   ],
   "pytest": {
     "pytest-log-py3.12": {
-      "summary": "1 failed, 981 passed, 9 skipped in 275.59s (0:04:35)",
+      "summary": "4 failed, 979 passed, 9 skipped in 206.13s (0:03:26)",
       "counts": {
-        "failed": 1,
-        "passed": 981,
+        "failed": 4,
+        "passed": 979,
         "skipped": 9
       },
       "failed": [
-        "FAILED tests/test_machine_timeline_layout.py::test_buttons_and_files_share_one_row_and_nothing_is_cut[1366] - _tkinter.TclError: Can't find a usable init.tcl in the following directories: "
+        "FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_detaches_helper_from_any_job_object - RuntimeError: The update package is incomplete (the Python DLL is missing from _internal), so it was not installed.",
+        "FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_elevates_when_install_dir_unwritable - RuntimeError: The update package is incomplete (the Python DLL is missing from _internal), so it was not installed.",
+        "FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_generates_backup_and_rollback_script - RuntimeError: The update package is incomplete (the Python DLL is missing from _internal), so it was not installed.",
+        "FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_relaunches_de_elevated - RuntimeError: The update package is incomplete (the Python DLL is missing from _internal), so it was not installed."
       ],
       "skipped": [
         "SKIPPED [1] tests\\test_ci_report.py:131: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)",
@@ -39,16 +44,22 @@
         "SKIPPED [1] tests\\test_regressions.py:1452: win32com is available in this environment",
         "SKIPPED [1] tests\\test_update_script.py:120: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh",
         "SKIPPED [1] tests\\test_update_script.py:149: needs an unprivileged user: permissions do not bind root (verified by hand with runuser)",
-        "SKIPPED [1] tests\\test_update_script.py:376: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh"
+        "SKIPPED [1] tests\\test_update_script.py:390: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh"
       ]
     },
     "pytest-log-py3.14": {
-      "summary": "982 passed, 9 skipped in 250.89s (0:04:10)",
+      "summary": "4 failed, 979 passed, 9 skipped in 191.80s (0:03:11)",
       "counts": {
-        "passed": 982,
+        "failed": 4,
+        "passed": 979,
         "skipped": 9
       },
-      "failed": [],
+      "failed": [
+        "FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_detaches_helper_from_any_job_object - RuntimeError: The update package is incomplete (the Python DLL is missing from _internal), so it was not installed.",
+        "FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_elevates_when_install_dir_unwritable - RuntimeError: The update package is incomplete (the Python DLL is missing from _internal), so it was not installed.",
+        "FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_generates_backup_and_rollback_script - RuntimeError: The update package is incomplete (the Python DLL is missing from _internal), so it was not installed.",
+        "FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_relaunches_de_elevated - RuntimeError: The update package is incomplete (the Python DLL is missing from _internal), so it was not installed."
+      ],
       "skipped": [
         "SKIPPED [1] tests\\test_ci_report.py:131: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)",
         "SKIPPED [1] tests\\test_ci_report.py:138: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)",
@@ -58,12 +69,19 @@
         "SKIPPED [1] tests\\test_regressions.py:1452: win32com is available in this environment",
         "SKIPPED [1] tests\\test_update_script.py:120: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh",
         "SKIPPED [1] tests\\test_update_script.py:149: needs an unprivileged user: permissions do not bind root (verified by hand with runuser)",
-        "SKIPPED [1] tests\\test_update_script.py:376: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh"
+        "SKIPPED [1] tests\\test_update_script.py:390: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh"
       ]
     }
   },
   "failed_tests": [
-    "pytest-log-py3.12: FAILED tests/test_machine_timeline_layout.py::test_buttons_and_files_share_one_row_and_nothing_is_cut[1366] - _tkinter.TclError: Can't find a usable init.tcl in the following directories: "
+    "pytest-log-py3.12: FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_detaches_helper_from_any_job_object - RuntimeError: The update package is incomplete (the Python DLL is missing from _internal), so it was not installed.",
+    "pytest-log-py3.12: FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_elevates_when_install_dir_unwritable - RuntimeError: The update package is incomplete (the Python DLL is missing from _internal), so it was not installed.",
+    "pytest-log-py3.12: FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_generates_backup_and_rollback_script - RuntimeError: The update package is incomplete (the Python DLL is missing from _internal), so it was not installed.",
+    "pytest-log-py3.12: FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_relaunches_de_elevated - RuntimeError: The update package is incomplete (the Python DLL is missing from _internal), so it was not installed.",
+    "pytest-log-py3.14: FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_detaches_helper_from_any_job_object - RuntimeError: The update package is incomplete (the Python DLL is missing from _internal), so it was not installed.",
+    "pytest-log-py3.14: FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_elevates_when_install_dir_unwritable - RuntimeError: The update package is incomplete (the Python DLL is missing from _internal), so it was not installed.",
+    "pytest-log-py3.14: FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_generates_backup_and_rollback_script - RuntimeError: The update package is incomplete (the Python DLL is missing from _internal), so it was not installed.",
+    "pytest-log-py3.14: FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_relaunches_de_elevated - RuntimeError: The update package is incomplete (the Python DLL is missing from _internal), so it was not installed."
   ],
   "exe_smoke": null
 }
