@@ -1,30 +1,35 @@
 {
   "workflow": "tests",
-  "conclusion": "success",
+  "conclusion": "failure",
   "sha": "b5ed9f8",
-  "branch": "main",
-  "url": "https://github.com/bibo-crypto/Planning/actions/runs/44912870125",
-  "written": "2026-11-21 14:19 UTC",
+  "branch": "v1.3.1",
+  "url": "https://github.com/bibo-crypto/Planning/actions/runs/44932782768",
+  "written": "2026-11-21 18:02 UTC",
   "jobs": [
-    {
-      "name": "pytest (3.12)",
-      "conclusion": "success",
-      "failed_steps": []
-    },
     {
       "name": "pytest (3.14)",
       "conclusion": "success",
       "failed_steps": []
+    },
+    {
+      "name": "pytest (3.12)",
+      "conclusion": "failure",
+      "failed_steps": [
+        "Run the test suite"
+      ]
     }
   ],
   "pytest": {
     "pytest-log-py3.12": {
-      "summary": "982 passed, 9 skipped in 253.76s (0:04:13)",
+      "summary": "1 failed, 981 passed, 9 skipped in 275.59s (0:04:35)",
       "counts": {
-        "passed": 982,
+        "failed": 1,
+        "passed": 981,
         "skipped": 9
       },
-      "failed": [],
+      "failed": [
+        "FAILED tests/test_machine_timeline_layout.py::test_buttons_and_files_share_one_row_and_nothing_is_cut[1366] - _tkinter.TclError: Can't find a usable init.tcl in the following directories: "
+      ],
       "skipped": [
         "SKIPPED [1] tests\\test_ci_report.py:131: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)",
         "SKIPPED [1] tests\\test_ci_report.py:138: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)",
@@ -38,7 +43,7 @@
       ]
     },
     "pytest-log-py3.14": {
-      "summary": "982 passed, 9 skipped in 240.02s (0:04:00)",
+      "summary": "982 passed, 9 skipped in 250.89s (0:04:10)",
       "counts": {
         "passed": 982,
         "skipped": 9
@@ -57,6 +62,8 @@
       ]
     }
   },
-  "failed_tests": [],
+  "failed_tests": [
+    "pytest-log-py3.12: FAILED tests/test_machine_timeline_layout.py::test_buttons_and_files_share_one_row_and_nothing_is_cut[1366] - _tkinter.TclError: Can't find a usable init.tcl in the following directories: "
+  ],
   "exe_smoke": null
 }

@@ -1,19 +1,23 @@
-# tests — SUCCESS
+# tests — FAILURE
 
-- commit: `b5ed9f8` on `main` — fix(updater): preserve legacy packages without version marker
-- run: https://github.com/bibo-crypto/Planning/actions/runs/44912870125
-- event: push   |   report written: 2026-11-21 14:19 UTC
+- commit: `b5ed9f8` on `v1.3.1` — fix(updater): preserve legacy packages without version marker
+- run: https://github.com/bibo-crypto/Planning/actions/runs/44932782768
+- event: push   |   report written: 2026-11-21 18:02 UTC
 
 ## Jobs
 
 | job | result | failed steps |
 |---|---|---|
-| pytest (3.12) | success | - |
 | pytest (3.14) | success | - |
+| pytest (3.12) | failure | Run the test suite |
 
 ## pytest — pytest-log-py3.12
 
-`982 passed, 9 skipped in 253.76s (0:04:13)`
+`1 failed, 981 passed, 9 skipped in 275.59s (0:04:35)`
+
+Failed / errored:
+
+- `FAILED tests/test_machine_timeline_layout.py::test_buttons_and_files_share_one_row_and_nothing_is_cut[1366] - _tkinter.TclError: Can't find a usable init.tcl in the following directories: `
 
 Skipped (reason):
 
@@ -29,7 +33,7 @@ Skipped (reason):
 
 ## pytest — pytest-log-py3.14
 
-`982 passed, 9 skipped in 240.02s (0:04:00)`
+`982 passed, 9 skipped in 250.89s (0:04:10)`
 
 Skipped (reason):
 
