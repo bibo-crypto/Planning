@@ -222,6 +222,32 @@ def test_an_update_package_without_the_python_dll_is_refused_before_anything_cha
     assert launched == [] and tree(install) == original
 
 
+@pytest.mark.parametrize(
+    "raw",
+    [
+        b"1.3.0",
+        b"1.3.0\n",
+        b"1.3.0\r\n",
+        b"\xef\xbb\xbf1.3.0",
+        b"\xef\xbb\xbf1.3.0\r\n",
+    ],
+    ids=["no-newline", "lf", "crlf", "bom-no-newline", "bom-crlf"],
+)
+def test_staged_version_file_is_canonicalized_to_exact_utf8_lf_bytes(tmp_path, raw):
+    path = tmp_path / "version.txt"
+    path.write_bytes(raw)
+    updater._canonicalize_staged_version_file(path, "1.3.0")
+    assert path.read_bytes() == b"1.3.0\n"
+
+
+def test_staged_version_file_rejects_a_release_version_mismatch(tmp_path):
+    path = tmp_path / "version.txt"
+    path.write_bytes(b"1.2.9\r\n")
+    with pytest.raises(RuntimeError, match="does not match"):
+        updater._canonicalize_staged_version_file(path, "1.3.0")
+    assert path.read_bytes() == b"1.2.9\r\n"
+
+
 def test_a_complete_package_is_accepted_and_the_script_is_started(tmp_path, monkeypatch):
     _frozen(monkeypatch)
     started = []
@@ -251,6 +277,7 @@ def test_a_complete_package_is_accepted_and_the_script_is_started(tmp_path, monk
     script_path, script = written[0]
     assert script_path.suffix == ".ps1" and script_path.parent != install.parent
     assert "Find-MissingFiles" in script and "Get-FileHash" in script and "$script:backupVerified = $true" in script
+    assert "WriteAllText($versionTemp" not in script
 
 
 # ------------------------------------------------------------------ the update that never completed on a real machine

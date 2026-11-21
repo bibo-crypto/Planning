@@ -276,7 +276,7 @@ def consume_update_failure_notice(path: Path | None = None) -> str | None:
     return message
 
 
-def _check_package_is_complete(source_dir: Path) -> None:
+def _check_package_is_complete(source_dir: Path, expected_version: str | None = None) -> None:
     """Refuse a package that could not start, before anything of the installed version is touched.
 
     A PyInstaller build keeps the Python DLL in ``_internal``; an update ZIP without it would replace a working
@@ -285,9 +285,41 @@ def _check_package_is_complete(source_dir: Path) -> None:
     exe = source_dir / "Planning.exe"
     if not exe.is_file() or exe.stat().st_size == 0:
         raise RuntimeError("The update ZIP must contain Planning.exe.")
+    version_path = source_dir / "version.txt"
+    if not version_path.is_file():
+        raise RuntimeError("The update ZIP must contain version.txt.")
+    _canonicalize_staged_version_file(version_path, expected_version)
     internal = source_dir / "_internal"
     if internal.is_dir() and not any(internal.glob("python3*.dll")):
         raise RuntimeError("The update package is incomplete (the Python DLL is missing from _internal), so it was not installed.")
+
+
+def _canonicalize_staged_version_file(path: Path, expected_version: str | None = None) -> None:
+    """Make the staged version marker deterministic before the manifest is read.
+
+    Release ZIPs can be produced by Git, PowerShell or different editors, so
+    the input may contain no final newline, LF, CRLF, or a UTF-8 BOM.  The
+    updater must compare the exact bytes it will copy, not a separately
+    generated approximation.  Canonical form is UTF-8 without BOM and one LF
+    terminator.  The semantic value is checked by the same version rules used
+    by the application before the bytes are replaced.
+    """
+    try:
+        raw = path.read_bytes()
+        value = raw.decode("utf-8-sig").replace("\r\n", "\n").replace("\r", "\n").strip()
+    except (OSError, UnicodeDecodeError) as exc:
+        raise RuntimeError("The update package contains an unreadable version.txt.") from exc
+    value = value.lstrip("vV")
+    if not value or not all(part.isdigit() for part in value.split(".")):
+        raise RuntimeError("The update package contains an invalid version.txt.")
+    if expected_version is not None and value != str(expected_version).strip().lstrip("vV"):
+        raise RuntimeError(
+            f"The update package version ({value}) does not match the requested update ({expected_version})."
+        )
+    try:
+        path.write_bytes((value + "\n").encode("utf-8"))
+    except OSError as exc:
+        raise RuntimeError("The staged update version.txt could not be normalized.") from exc
 
 
 # The PowerShell helper.  Plain text with @@NAME@@ placeholders (not an f-string: PowerShell is full of braces).
@@ -455,14 +487,6 @@ try {
             Get-ChildItem -LiteralPath $source -Force | ForEach-Object {
                 Copy-Item -LiteralPath $_.FullName -Destination $target -Recurse -Force -ErrorAction Stop
             }
-            # version.txt is part of the package and changes on every release.
-            # Write it before digest verification so it is compared against
-            # the new package value rather than the old installed marker.
-            $versionPath = Join-Path $target 'version.txt'
-            $versionValue = @@VERSION@@
-            $versionTemp = Join-Path $target ('.version.' + $PID + '.tmp')
-            [System.IO.File]::WriteAllText($versionTemp, ($versionValue + "`n"), (New-Object System.Text.UTF8Encoding($false)))
-            Move-Item -LiteralPath $versionTemp -Destination $versionPath -Force
             # the copy only counts when EVERY file of the new version is there (Planning.exe alone proves nothing:
             # the old one already exists)
             $problems = Find-MissingFiles $source $target
@@ -588,7 +612,7 @@ def install_update(zip_path: Path, install_dir: Path, new_version: str) -> None:
         # Accept all common ZIP layouts: Planning.exe at the root, inside a
         # Planning folder, or inside an archived dist/Planning folder.
         source_dir = executables[0].parent
-        _check_package_is_complete(source_dir)
+        _check_package_is_complete(source_dir, new_version)
 
         # The bootstrap is created before the old installation is touched and
         # runs independently after this process exits.  It is deliberately
