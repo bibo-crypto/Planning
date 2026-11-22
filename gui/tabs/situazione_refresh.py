@@ -214,7 +214,7 @@ class SituationRefreshMixin:
             try:
                 suggestions = build_suggestions(self.current_df, max_extra_percent=0.20)
             except Exception as exc:  # noqa: BLE001
-                logger.error("Situazione: Da abbinare check failed: %s", exc)
+                logger.error("Situazione: Da abbinare check failed: %s", exc, exc_info=True)
                 return
         if suggestions is None or suggestions.empty:
             notifications.resolve("situazione-abbina-pending")
@@ -245,7 +245,7 @@ class SituationRefreshMixin:
                 self.current_df, magazino_summary, lotti_summary
             )
         except Exception as exc:  # noqa: BLE001
-            logger.error("Situazione: raw yarn auto-match failed: %s", exc)
+            logger.error("Situazione: raw yarn auto-match failed: %s", exc, exc_info=True)
             return
         self._notify_raw_yarn_available()
     def refresh_raw_yarn_match(self) -> None:
@@ -354,7 +354,7 @@ class SituationRefreshMixin:
             try:
                 price_lookup, _source = biglietti_exporter.load_prezzo_lookup()
             except Exception as exc:  # noqa: BLE001
-                logger.warning("Situazione: Prezzo lookup failed: %s", exc)
+                logger.warning("Situazione: Prezzo lookup failed: %s", exc, exc_info=True)
                 price_lookup = {}
         densita_map: dict[int, dict] = {}
         try:
@@ -363,7 +363,7 @@ class SituationRefreshMixin:
             if path and Path(path).is_file():
                 densita_map, _errors = biglietti_exporter.load_densita_query(Path(path))
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Situazione: Densita' Query lookup failed: %s", exc)
+            logger.warning("Situazione: Densita' Query lookup failed: %s", exc, exc_info=True)
 
         def _prezzo_row(row):
             """Check one row's price against Listini and prepare its notification.

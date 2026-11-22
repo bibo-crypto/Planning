@@ -91,7 +91,7 @@ class SituationSourcesMixin:
         try:
             self._on_refresh(preserve_comment_history=True)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Situazione: SQLite startup refresh failed: %s", exc)
+            logger.warning("Situazione: SQLite startup refresh failed: %s", exc, exc_info=True)
 
     def _auto_restore_saved_files(self):
         """Restore normalized source data from SQLite first.
@@ -255,7 +255,7 @@ class SituationSourcesMixin:
                 try:
                     prod_result = data_loaders.load_data_prod(prod_path)
                 except Exception as exc:  # noqa: BLE001
-                    logger.warning("Could not restore shared Produzione file: %s", exc)
+                    logger.warning("Could not restore shared Produzione file: %s", exc, exc_info=True)
 
             def apply_result():
                 self._shared_syncing = False
@@ -347,7 +347,7 @@ class SituationSourcesMixin:
                 self._on_shared_cache_changed()
             logger.info("DFM imported into SQLite: %s", counts)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Could not update shared DFM reference: %s", exc)
+            logger.warning("Could not update shared DFM reference: %s", exc, exc_info=True)
 
     def sync_shared_prod(self):
         """Load the Produzione file selected in either page from the shared cache."""
@@ -361,7 +361,7 @@ class SituationSourcesMixin:
         try:
             df, errors = data_loaders.load_data_prod(str(source_path))
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Could not restore shared Produzione file: %s", exc)
+            logger.warning("Could not restore shared Produzione file: %s", exc, exc_info=True)
             return
         if errors or df is None or df.empty:
             return
@@ -380,7 +380,7 @@ class SituationSourcesMixin:
             if self._on_shared_cache_changed:
                 self._on_shared_cache_changed()
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Could not update shared Produzione reference: %s", exc)
+            logger.warning("Could not update shared Produzione reference: %s", exc, exc_info=True)
     def _queue_handle_upload(self, key, path):
         """Parse and persist large source uploads off the Tk event loop."""
         row = self.source_rows.get(key)
@@ -505,7 +505,7 @@ class SituationSourcesMixin:
                     from utility.source_manager import save as save_source_frame
                     save_source_frame("articoli_marca", pd.DataFrame({"articolo": list(marca_map), "marca": list(marca_map.values())}), path)
             except Exception as exc:
-                logger.warning("Could not refresh Articoli Marca index: %s", exc)
+                logger.warning("Could not refresh Articoli Marca index: %s", exc, exc_info=True)
         threading.Thread(target=update_marca, daemon=True, name="planning-articoli-marca").start()
 
     def _queue_listini_upload(self, key, path):
@@ -579,7 +579,7 @@ class SituationSourcesMixin:
             if not changed:
                 logger.info("Situazione: %s upload is identical to the SQLite snapshot", key)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Could not cache %s in SQLite: %s", key, exc)
+            logger.warning("Could not cache %s in SQLite: %s", key, exc, exc_info=True)
         if key == "copertura":
             self._copertura_revision += 1
         msg = f"✅ {len(df)} rows - {os.path.basename(display_path)}"
@@ -614,7 +614,7 @@ class SituationSourcesMixin:
             changed = db.save_frame_cache("codes", df, source_path=display_path)
         except Exception as exc:
             changed = True
-            logger.warning("Could not cache Articoli in SQLite: %s", exc)
+            logger.warning("Could not cache Articoli in SQLite: %s", exc, exc_info=True)
         save_source("articoli", display_path)
         msg = f"✅ Saved ({len(df)} codes) - {os.path.basename(display_path)}"
         self.codes_row.set_status(True, msg)
@@ -662,7 +662,7 @@ class SituationSourcesMixin:
             changed = db.save_frame_cache("listini", df, source_path=display_path)
         except Exception as exc:
             changed = True
-            logger.warning("Could not cache Listini in SQLite: %s", exc)
+            logger.warning("Could not cache Listini in SQLite: %s", exc, exc_info=True)
         save_source("listini", display_path)
         msg = f"✅ Saved ({len(df)} rows) - {os.path.basename(display_path)}"
         self.listini_row.set_status(True, msg)

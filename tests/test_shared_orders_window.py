@@ -9,10 +9,10 @@ from datetime import datetime
 from tkinter import messagebox, ttk
 
 import pytest
-from tests.conftest import create_tk_root
 
 from exporters.biglietti.records import OrderRecord
 from gui.tabs.shared_orders_window import SharedOrdersWindowMixin
+from tests.tk_helpers import create_tk_root
 
 
 def record(partita, customer="Acme", article="C101", **fields):

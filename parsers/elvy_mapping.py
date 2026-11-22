@@ -52,7 +52,7 @@ def load_elvy_mapping() -> dict[str, str]:
         save_elvy_mapping(DEFAULT_ELVY_MAPPING.copy())
         return DEFAULT_ELVY_MAPPING.copy()
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Could not load Elvy mapping: %s", exc)
+        logger.warning("Could not load Elvy mapping: %s", exc, exc_info=True)
     return {}
 
 
@@ -62,7 +62,7 @@ def save_elvy_mapping(mapping: dict[str, str]) -> None:
         from utility.atomic import atomic_write_text
         atomic_write_text(MAPPING_FILE, json.dumps(mapping, indent=2, ensure_ascii=False, sort_keys=True))
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Could not save Elvy mapping: %s", exc)
+        logger.warning("Could not save Elvy mapping: %s", exc, exc_info=True)
 
 
 def add_elvy_mapping(articolo_elvy: str, articolo_delta: str) -> dict[str, str]:

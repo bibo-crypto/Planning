@@ -2,13 +2,13 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+import os
 from pathlib import Path
 import re
 import shutil
 import sqlite3
 import tempfile
 import zipfile
-import os
 
 from utility.utils import APP_DATA_DIR, logger
 
@@ -138,13 +138,83 @@ def _is_healthy_sqlite(path: Path) -> bool:
         return False
 
 
+_RESTORE_NEW_SUFFIX = ".restore-new"     # the restored copy, written next to its target before anything is replaced
+_RESTORE_OLD_SUFFIX = ".restore-old"     # what was there before, kept until every file is in place
+
+
+def _install_files(files: list[tuple[Path, Path]]) -> int:
+    """Put every (extracted file, target) pair in place, all or nothing; return how many files were installed.
+
+    1. Each file is first copied to ``<target>.restore-new`` in the target's own folder.  If a copy fails (disk full,
+       a locked folder) nothing has been replaced yet.
+    2. Each target is then swapped with ``os.replace`` (atomic on one volume); the file that was there is kept as
+       ``<target>.restore-old`` and, for a database, so are its -wal/-shm files (they would be replayed onto the
+       restored file).  If any swap fails, everything already swapped is put back and the error is raised.
+    3. Only when every file is in place are the ``.restore-old`` copies deleted.
+    """
+    staged: list[tuple[Path, Path]] = []                       # (staged copy, target)
+    try:
+        for source, target in files:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            copy = target.with_name(target.name + _RESTORE_NEW_SUFFIX)
+            staged.append((copy, target))          # listed before the copy: a half-written copy is removed too
+            shutil.copy2(source, copy)
+    except BaseException:
+        _remove_quietly(copy for copy, _ in staged)
+        raise
+    undo: list[tuple[str, Path, Path | None]] = []             # ("restore", kept copy, original) / ("remove", installed file, None)
+    try:
+        for copy, target in staged:
+            if target.suffix.lower() in _SQLITE_SUFFIXES:
+                for suffix in _SQLITE_SIDECARS:
+                    _set_aside(target.with_name(target.name + suffix), undo)
+            _set_aside(target, undo)
+            os.replace(copy, target)
+            undo.append(("remove", target, None))
+    except BaseException:
+        _roll_back(undo)
+        _remove_quietly(copy for copy, _ in staged)
+        raise
+    _remove_quietly(kept for action, kept, _ in undo if action == "restore")
+    return len(staged)
+
+
+def _set_aside(path: Path, undo: list) -> None:
+    """Move an existing *path* to ``<path>.restore-old`` and note how to move it back."""
+    if path.exists():
+        kept = path.with_name(path.name + _RESTORE_OLD_SUFFIX)
+        os.replace(path, kept)
+        undo.append(("restore", kept, path))
+
+
+def _roll_back(undo: list) -> None:
+    """Undo, newest first, what _install_files had done; a step that cannot be undone is logged and the rest goes on."""
+    for action, path, original in reversed(undo):
+        try:
+            if action == "remove":
+                path.unlink()
+            else:
+                os.replace(path, original)
+        except OSError:
+            logger.error("Restore: could not roll back %s (%s) -- the previous copy is %s", original or path, action, path, exc_info=True)
+
+
+def _remove_quietly(paths) -> None:
+    for path in paths:
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+        except OSError:
+            logger.warning("Restore: could not delete the temporary file %s", path, exc_info=True)
+
+
 def restore_backup(source: str | Path) -> int:
     """Safely restore a backup into APP_DATA_DIR; return restored file count."""
     source = Path(source)
     if not source.is_file() or not zipfile.is_zipfile(source):
         raise ValueError("The selected file is not a valid Planning backup.")
     APP_DATA_DIR.mkdir(parents=True, exist_ok=True)
-    restored = 0
     with tempfile.TemporaryDirectory(prefix="planning-restore-") as temp:
         temp_root = Path(temp)
         with zipfile.ZipFile(source) as archive:
@@ -159,49 +229,7 @@ def restore_backup(source: str | Path) -> int:
                    if path.is_file() and path.suffix.lower() in _SQLITE_SUFFIXES and not _is_healthy_sqlite(path)]
         if damaged:
             raise ValueError(f"The backup contains a damaged database ({', '.join(damaged)}); nothing was restored.")
-        replaced: list[tuple[Path, Path | None, Path | None]] = []
-        try:
-            for path in temp_root.rglob("*"):
-                if not path.is_file():
-                    continue
-                target = APP_DATA_DIR / path.relative_to(temp_root)
-                target.parent.mkdir(parents=True, exist_ok=True)
-                old_backup: Path | None = None
-                if target.exists():
-                    fd, old_name = tempfile.mkstemp(prefix=f".{target.name}.planning-old-", dir=target.parent)
-                    os.close(fd)
-                    old_backup = Path(old_name)
-                    shutil.copy2(target, old_backup)
-
-                if target.suffix.lower() in _SQLITE_SUFFIXES:
-                    for suffix in _SQLITE_SIDECARS:
-                        sidecar = target.with_name(target.name + suffix)
-                        try:
-                            sidecar.unlink()
-                        except FileNotFoundError:
-                            pass
-
-                fd, tmp_name = tempfile.mkstemp(prefix=f".{target.name}.planning-new-", dir=target.parent)
-                os.close(fd)
-                temporary = Path(tmp_name)
-                try:
-                    shutil.copy2(path, temporary)
-                    os.replace(temporary, target)
-                    replaced.append((target, old_backup, temporary))
-                finally:
-                    temporary.unlink(missing_ok=True)
-        except Exception:
-            for target, old_backup, _temporary in reversed(replaced):
-                if old_backup is not None:
-                    os.replace(old_backup, target)
-                else:
-                    target.unlink(missing_ok=True)
-                if old_backup is not None:
-                    old_backup.unlink(missing_ok=True)
-            raise
-        finally:
-            for _target, old_backup, _temporary in replaced:
-                if old_backup is not None:
-                    old_backup.unlink(missing_ok=True)
-        restored = len(replaced)
+        staged_files = [(path, APP_DATA_DIR / path.relative_to(temp_root))
+                        for path in sorted(temp_root.rglob("*")) if path.is_file()]
+        restored = _install_files(staged_files)
     return restored

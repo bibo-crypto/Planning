@@ -59,7 +59,56 @@ def test_a_failing_on_dropped_is_logged_and_never_raised(caplog):
     assert any("on_dropped" in r.getMessage() and r.exc_info for r in caplog.records)
 
 
+# ------------------------------------------------------------------ post_to_ui(retry_for=...)
+class NotInMainLoop:
+    """A widget whose ``after`` raises "main thread is not in main loop" for the first *failures* calls."""
+
+    def __init__(self, failures, error=None):
+        self.failures, self.calls, self.scheduled, self.error = failures, 0, [], error
+
+    def after(self, delay, callback, *args):
+        self.calls += 1
+        if self.calls <= self.failures:
+            raise self.error or RuntimeError("main thread is not in main loop")
+        self.scheduled.append((callback, args))
+
+
+def test_post_to_ui_retry_for_delivers_when_the_modal_closes_in_time(monkeypatch):
+    monkeypatch.setattr("utility.ui_thread.RETRY_INTERVAL_SECONDS", 0.001)
+    widget, dropped = NotInMainLoop(failures=5), []
+    assert post_to_ui(widget, print, "x", on_dropped=lambda: dropped.append(1), retry_for=5) is True
+    assert widget.calls == 6 and widget.scheduled == [(print, ("x",))] and dropped == []
+
+
+def test_post_to_ui_retry_for_gives_up_after_the_time_and_then_calls_on_dropped(monkeypatch):
+    monkeypatch.setattr("utility.ui_thread.RETRY_INTERVAL_SECONDS", 0.001)
+    widget, dropped = NotInMainLoop(failures=10 ** 9), []
+    started = time.monotonic()
+    assert post_to_ui(widget, print, on_dropped=lambda: dropped.append(1), retry_for=0.2) is False
+    assert 0.2 <= time.monotonic() - started < 2 and dropped == [1] and widget.calls > 1
+
+
+def test_post_to_ui_default_does_not_retry():
+    widget = NotInMainLoop(failures=10 ** 9)
+    assert post_to_ui(widget, print) is False and widget.calls == 1
+
+
+def test_post_to_ui_never_retries_a_destroyed_ui(monkeypatch):
+    monkeypatch.setattr("utility.ui_thread.RETRY_INTERVAL_SECONDS", 0.001)
+    widget, dropped = NotInMainLoop(failures=10 ** 9, error=tk.TclError("application has been destroyed")), []
+    assert post_to_ui(widget, print, on_dropped=lambda: dropped.append(1), retry_for=5) is False
+    assert widget.calls == 1 and dropped == [1]
+
+
 # ------------------------------------------------------------------ the operations
+@pytest.fixture
+def results_are_dropped_not_retried(monkeypatch):
+    """The tests below drop the first result ON PURPOSE (to prove the flag is released by on_dropped), so the retry window
+    of the shared-orders workers is switched off for them.  The delivery-after-the-modal behaviour is tested further down."""
+    import gui.tabs.shared_order_actions as actions
+    monkeypatch.setattr(actions, "RESULT_RETRY_SECONDS", 0)
+
+
 def stall(root, seconds=3.5):
     """The main thread is busy outside mainloop (inside a modal dialog): workers cannot post anything."""
     end = time.time() + seconds
@@ -81,7 +130,7 @@ KEEP = []          # Tk variables must be released on the main thread, not by a 
 STOCK = pd.DataFrame([{"articolo": "G101", "partita": "159001", "mag_rocche": 40.0, "mag_peso": 80.0, "lotto": ""}])
 
 
-def test_a_pgx_partita_save_is_not_ignored_after_its_result_was_dropped(root, monkeypatch, shared):
+def test_a_pgx_partita_save_is_not_ignored_after_its_result_was_dropped(root, monkeypatch, shared, results_are_dropped_not_retried):
     """The first run wrote the assignment (only its message was lost); the repeated click must answer, not do nothing."""
     dialogs = Quiet(monkeypatch)
     host = UploadHost(root, shared, STOCK)
@@ -90,12 +139,11 @@ def test_a_pgx_partita_save_is_not_ignored_after_its_result_was_dropped(root, mo
     args = (root, "5", "159001", {"Orders": [], "PG-X": []}, calls.refresh, calls.rebuild, calls.var)
     host._save_pg_x_in_background(*args)
     stall(root)
-    assert pump_until(root, lambda: host._pg_x_saving is False)
+    assert host._pg_x_saving is False
     assert "5" in keys(shared, "Orders") and "5" not in keys(shared, "PG-X")           # the first run did save
     host._save_pg_x_in_background(*args)                                              # the same click again is NOT ignored ...
-    assert pump_until(root, lambda: host._pg_x_saving is False)
     assert pump_until(root, lambda: dialogs.infos or dialogs.errors)
-    assert dialogs.infos or dialogs.errors
+    assert dialogs.errors == [("PG-X Save Error", "Partita Col '5' was not found in PG-X.")]       # ... it says what happened
 
 
 def test_a_pgx_partita_save_works_normally_when_the_result_is_delivered(root, monkeypatch, shared):
@@ -109,7 +157,7 @@ def test_a_pgx_partita_save_works_normally_when_the_result_is_delivered(root, mo
     assert host._pg_x_saving is False and calls.rebuilt == [True] and calls.var.get() == ""
 
 
-def test_the_pgx_editor_save_can_be_repeated_after_its_result_was_dropped(root, monkeypatch, shared):
+def test_the_pgx_editor_save_can_be_repeated_after_its_result_was_dropped(root, monkeypatch, shared, results_are_dropped_not_retried):
     dialogs = Quiet(monkeypatch)
     host = UploadHost(root, shared, STOCK)
     calls = Calls()
@@ -118,14 +166,14 @@ def test_the_pgx_editor_save_can_be_repeated_after_its_result_was_dropped(root, 
     args = (root, "5", values, {"Orders": [], "PG-X": []}, calls.refresh, calls.rebuild, calls.var)
     host._save_pg_x_details_in_background(*args)
     stall(root)
-    assert pump_until(root, lambda: host._pg_x_saving is False)
+    assert host._pg_x_saving is False
     host._save_pg_x_details_in_background(*args)
     assert pump_until(root, lambda: dialogs.infos or dialogs.errors)
     assert dialogs.errors == [], dialogs.errors
     assert row_of(shared, "PG-X", "5")["Bagno"] == "B9"
 
 
-def test_a_row_action_can_be_repeated_after_its_result_was_dropped(root, monkeypatch, shared):
+def test_a_row_action_can_be_repeated_after_its_result_was_dropped(root, monkeypatch, shared, results_are_dropped_not_retried):
     dialogs = Quiet(monkeypatch)
     host = UploadHost(root, shared, STOCK)
     calls = Calls()
@@ -133,14 +181,14 @@ def test_a_row_action_can_be_repeated_after_its_result_was_dropped(root, monkeyp
     args = (root, "delete", ["5"], "PG-X", {"Orders": [], "PG-X": []}, calls.refresh, calls.rebuild)
     host._pg_x_row_action_in_background(*args)
     stall(root)
-    assert pump_until(root, lambda: host._pg_x_action_running is False)
+    assert host._pg_x_action_running is False
     host._pg_x_row_action_in_background(*args)                                        # deleted by the first run already: 0 rows now
     assert pump_until(root, lambda: dialogs.infos or dialogs.errors)
-    assert dialogs.infos[-1][0] == "PG-X"
+    assert dialogs.infos[-1] == ("PG-X", "0 row(s) deleted.")
     assert "5" not in keys(shared, "PG-X")
 
 
-def test_delete_shipped_colours_can_be_repeated_after_its_result_was_dropped(root, monkeypatch, shared):
+def test_delete_shipped_colours_can_be_repeated_after_its_result_was_dropped(root, monkeypatch, shared, results_are_dropped_not_retried):
     import gui.tabs.shared_order_actions as actions
     import parsers.situazione_loaders as loaders
     dialogs = Quiet(monkeypatch)
@@ -154,8 +202,36 @@ def test_delete_shipped_colours_can_be_repeated_after_its_result_was_dropped(roo
     args = (root, "PG-X", records, sheets, {"Orders": [], "PG-X": []}, calls.refresh, calls.rebuild)
     host._delete_shipped_colors(*args)
     stall(root)
-    assert pump_until(root, lambda: host._delete_shipped_running is False)
+    assert host._delete_shipped_running is False
     host._delete_shipped_colors(*args)
     assert pump_until(root, lambda: dialogs.infos or dialogs.errors)
     assert dialogs.errors == [], dialogs.errors
     assert dialogs.asked and "have already been shipped" in dialogs.asked[0][1]
+
+
+# ------------------------------------------------------------------ the result is delivered after the modal closes
+def test_a_pgx_partita_save_result_is_delivered_once_the_modal_dialog_is_closed(root, monkeypatch, shared):
+    dialogs = Quiet(monkeypatch)
+    host = UploadHost(root, shared, STOCK)
+    calls = Calls()
+    KEEP.append(calls)
+    host._save_pg_x_in_background(root, "5", "159001", {"Orders": [], "PG-X": []}, calls.refresh, calls.rebuild, calls.var)
+    stall(root)                                                  # a modal dialog is open: the worker cannot post its result
+    assert dialogs.infos == [] and host._pg_x_saving is True      # not lost, not shown yet, operation still "running"
+    assert pump_until(root, lambda: dialogs.infos or dialogs.errors)      # the dialog is closed: the result arrives
+    assert dialogs.errors == [] and dialogs.infos[-1][0] == "PG-X Saved"
+    assert host._pg_x_saving is False and calls.rebuilt == [True]
+    assert "5" in keys(shared, "Orders")
+
+
+def test_a_row_action_result_is_delivered_once_the_modal_dialog_is_closed(root, monkeypatch, shared):
+    dialogs = Quiet(monkeypatch)
+    host = UploadHost(root, shared, STOCK)
+    calls = Calls()
+    KEEP.append(calls)
+    host._pg_x_row_action_in_background(root, "delete", ["5"], "PG-X", {"Orders": [], "PG-X": []}, calls.refresh, calls.rebuild)
+    stall(root)
+    assert dialogs.infos == [] and host._pg_x_action_running is True
+    assert pump_until(root, lambda: dialogs.infos or dialogs.errors)
+    assert dialogs.infos[-1] == ("PG-X", "1 row(s) deleted.")
+    assert host._pg_x_action_running is False

@@ -1595,6 +1595,7 @@ class PlanningRegressionTests(unittest.TestCase):
             zip_path = temp_dir / "update.zip"
             with zipfile.ZipFile(zip_path, "w") as zf:
                 zf.writestr("Planning/Planning.exe", "fake exe bytes")
+                zf.writestr("Planning/_internal/python312.dll", "fake python dll")   # a real PyInstaller build always has it; install_update refuses a package without
             install_dir = temp_dir / "install"
             install_dir.mkdir()
 
@@ -1645,6 +1646,7 @@ class PlanningRegressionTests(unittest.TestCase):
             zip_path = temp_dir / "update.zip"
             with zipfile.ZipFile(zip_path, "w") as zf:
                 zf.writestr("Planning/Planning.exe", "fake exe bytes")
+                zf.writestr("Planning/_internal/python312.dll", "fake python dll")   # a real PyInstaller build always has it; install_update refuses a package without
             install_dir = temp_dir / "install"
             install_dir.mkdir()
 
@@ -1693,6 +1695,7 @@ class PlanningRegressionTests(unittest.TestCase):
             zip_path = temp_dir / "update.zip"
             with zipfile.ZipFile(zip_path, "w") as zf:
                 zf.writestr("Planning/Planning.exe", "fake exe bytes")
+                zf.writestr("Planning/_internal/python312.dll", "fake python dll")   # a real PyInstaller build always has it; install_update refuses a package without
             install_dir = temp_dir / "install"
             install_dir.mkdir()
 
@@ -1754,6 +1757,7 @@ class PlanningRegressionTests(unittest.TestCase):
             zip_path = temp_dir / "update.zip"
             with zipfile.ZipFile(zip_path, "w") as zf:
                 zf.writestr("Planning/Planning.exe", "fake exe bytes")
+                zf.writestr("Planning/_internal/python312.dll", "fake python dll")   # a real PyInstaller build always has it; install_update refuses a package without
             install_dir = temp_dir / "install"
             install_dir.mkdir()
 

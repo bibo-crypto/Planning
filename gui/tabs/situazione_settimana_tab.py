@@ -175,7 +175,7 @@ class SettimanaTab(ttk.Frame):
         try:
             df, errors = data_loaders.load_dfm(str(source_path_obj))
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Could not restore shared DFM file: %s", exc)
+            logger.warning("Could not restore shared DFM file: %s", exc, exc_info=True)
             return
         if errors or df is None or df.empty:
             return
@@ -214,12 +214,12 @@ class SettimanaTab(ttk.Frame):
                 try:
                     dfm_result = data_loaders.load_dfm(dfm_path)
                 except Exception as exc:  # noqa: BLE001
-                    logger.warning("Could not restore shared DFM file: %s", exc)
+                    logger.warning("Could not restore shared DFM file: %s", exc, exc_info=True)
             if needs_prod:
                 try:
                     prod_result = data_loaders.load_produzione(prod_path)
                 except Exception as exc:  # noqa: BLE001
-                    logger.warning("Could not restore shared Produzione file: %s", exc)
+                    logger.warning("Could not restore shared Produzione file: %s", exc, exc_info=True)
 
             def apply_result():
                 self._shared_syncing = False
@@ -247,7 +247,7 @@ class SettimanaTab(ttk.Frame):
                 self._on_shared_cache_changed()
             logger.info("DFM imported into SQLite: %s", counts)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Could not update shared DFM reference: %s", exc)
+            logger.warning("Could not update shared DFM reference: %s", exc, exc_info=True)
 
     def sync_shared_prod(self):
         """Load the Produzione file selected in either page from the shared cache."""
@@ -259,7 +259,7 @@ class SettimanaTab(ttk.Frame):
         try:
             df, errors = data_loaders.load_produzione(str(source_path_obj))
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Could not restore shared Produzione file: %s", exc)
+            logger.warning("Could not restore shared Produzione file: %s", exc, exc_info=True)
             return
         if errors or df is None or df.empty:
             return
@@ -276,7 +276,7 @@ class SettimanaTab(ttk.Frame):
             if self._on_shared_cache_changed:
                 self._on_shared_cache_changed()
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Could not update shared Produzione reference: %s", exc)
+            logger.warning("Could not update shared Produzione reference: %s", exc, exc_info=True)
 
     def _auto_calculate_if_ready(self):
         """Recalculate automatically without blocking startup or the UI."""

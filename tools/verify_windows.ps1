@@ -23,9 +23,6 @@ Set-Location $project
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $out = Join-Path $project "verify_logs\$stamp"
 New-Item -ItemType Directory -Path $out -Force | Out-Null
-$pytest_temp = Join-Path $env:TEMP "planning_verify_$stamp"
-Remove-Item -Recurse -Force $pytest_temp -ErrorAction SilentlyContinue
-New-Item -ItemType Directory -Path $pytest_temp -Force | Out-Null
 
 $python = Join-Path $project 'venv\Scripts\python.exe'
 if (-not (Test-Path $python)) { $python = 'python' }
@@ -49,9 +46,25 @@ function Invoke-Step([string]$name, [scriptblock]$body) {
 "Version: $(Get-Content (Join-Path $project 'version.txt') -Raw)" | Tee-Object -FilePath (Join-Path $out 'environment.txt') -Append
 
 Invoke-Step 'dependencies' { & $python -m pip install -r requirements-dev.txt }
+# pytest's scratch folder (--basetemp).  The default one (%TEMP%\pytest-of-<user>) is not writable by pytest on some user
+# profiles, so a fresh folder is used.  It goes under %TEMP% -- OUTSIDE the project: the project is a Git repository, and a
+# scratch folder inside it made "is this folder a Git repository?" tests find the project's own .git (tests/conftest.py now
+# also stops git at the scratch folder, so even the fallback below is safe).
+$baseTemp = Join-Path $env:TEMP "planning_verify_$stamp"
+try {
+    New-Item -ItemType Directory -Path $baseTemp -Force -ErrorAction Stop | Out-Null
+    $probe = Join-Path $baseTemp 'write_probe.tmp'
+    Set-Content -Path $probe -Value 'ok' -ErrorAction Stop
+    Remove-Item -Path $probe -Force -ErrorAction Stop
+} catch {
+    Write-Host "WARNING: cannot write to $baseTemp ($($_.Exception.Message)); using $out\pytest_tmp instead" -ForegroundColor Yellow
+    $baseTemp = Join-Path $out 'pytest_tmp'
+}
+"pytest basetemp: $baseTemp" | Tee-Object -FilePath (Join-Path $out 'environment.txt') -Append
+
 Invoke-Step 'tests' {
-    # --basetemp on the project drive: the default temp folder of some user profiles is not writable by pytest
-    & $python -m pytest -q -rfEs --tb=short --basetemp $pytest_temp --junitxml (Join-Path $out 'junit.xml')
+    # pytest deletes and re-creates the --basetemp folder itself, so it must be a folder that is used for nothing else.
+    & $python -m pytest -q -rfEs --tb=short --basetemp $baseTemp --junitxml (Join-Path $out 'junit.xml')
 }
 Invoke-Step 'build' { & $python -m PyInstaller main.spec --noconfirm }
 Invoke-Step 'package' {

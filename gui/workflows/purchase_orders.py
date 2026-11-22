@@ -365,7 +365,7 @@ class PurchaseOrderWorkflowMixin:
                 export_prezzi_po(output_dir, po_rows, titolo_lookup, hidden_columns=hidden_columns.get("Prezzi"))
             except Exception as exc:  # noqa: BLE001
                 msg = f"Error saving Prezzi-PO file: {exc}"
-                logger.error(msg)
+                logger.error(msg, exc_info=True)
                 errors.append(msg)
 
         magazino_summary = None
@@ -401,7 +401,7 @@ class PurchaseOrderWorkflowMixin:
                                 len(magazino_summary), raw_yarn_path.name)
             except Exception as exc:  # noqa: BLE001
                 msg = f"Error loading raw yarn file: {exc}"
-                logger.error(msg)
+                logger.error(msg, exc_info=True)
                 errors.append(msg)
         # Lotti (partita <-> lotto) lets a row's customer lot be looked up in Magazino Filato.
         # It is read from the shared snapshot saved when the Lotti file was uploaded.
@@ -477,7 +477,7 @@ class PurchaseOrderWorkflowMixin:
                 write_prezzi_po(merged_rows)
             except Exception as exc:  # noqa: BLE001
                 msg = f"Error saving merged Excel: {exc}"
-                logger.error(msg)
+                logger.error(msg, exc_info=True)
                 errors.append(msg)
 
         # Extract both ERP files into their saved folders, if configured --
@@ -500,7 +500,7 @@ class PurchaseOrderWorkflowMixin:
                     logger.info("Extracted ERP file: %s (%d rows)", ordini_path.name, n)
                 except Exception as exc:  # noqa: BLE001
                     msg = f"Error extracting {ordini_path.name}: {exc}"
-                    logger.error(msg)
+                    logger.error(msg, exc_info=True)
                     errors.append(msg)
 
         if update_filato_file and all_rows:
@@ -517,7 +517,7 @@ class PurchaseOrderWorkflowMixin:
                     logger.info("Extracted Filato x Tinturia file: %s (%d rows)", filato_path.name, n2)
                 except Exception as exc:  # noqa: BLE001
                     msg = f"Error extracting {filato_path.name}: {exc}"
-                    logger.error(msg)
+                    logger.error(msg, exc_info=True)
                     errors.append(msg)
 
         self._po_last_export_path = last_export_path

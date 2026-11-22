@@ -3,6 +3,48 @@
 Review date: 2026-11-16. Basis: the project as pushed in commit `8cb47a1` (main) plus the changes listed in section 3.
 Nothing in this review was pushed or merged: the result is a complete project folder for testing on a Windows machine first.
 
+## Merge round (2026-11-22): the repository (1.3.3) + the round-2 fixes + speed
+
+Base: the repository at `a3172dd`. Version stays 1.3.3 (choosing a new version is a release decision).
+
+**Why the 4 failing tests failed, and the fix.** `test_regressions.py::test_install_update_*` built fake update ZIPs containing only
+`Planning.exe`. Since `fdf2934` the updater (deliberately: the published v1.3.2 ZIP held only `Planning.exe`) refuses a package without
+`_internal/python3*.dll`, so those four tests hit that refusal. The updater is right; the four fixtures now add a fake
+`Planning/_internal/python312.dll`. `tests/test_update_script.py` still proves an exe-only package is refused.
+
+**Kept from the repository:** the whole updater (SHA-256 manifests, canonical `version.txt`, expected version), version 1.3.3 files,
+the `build.bat` ZIP-content check, `docs/RELEASE_DEPENDENCIES.md`, `constraints-release.txt`, lint cleanups, `sqlite_retry.py`
+(`connect_with_retry` / `run_with_sqlite_retry`) and `situazione_db.get_conn`.
+
+**Taken from the round-2 work (each has a test):**
+* `orders_db` / `prezzi_db`: creating the table is inside the retry and a half-open connection is closed. The repository had added
+  `PRAGMA busy_timeout=5000` after `timeout=10` (waiting for a lock dropped from 10 s to 5 s) and made `prezzi_db` return `sqlite3.Row`;
+  both were **not** kept (no reason stated; `prezzi_db` reads rows by index only).
+* `restore_backup`: all-or-nothing, the database's `-wal`/`-shm` files are put back too, no leftover temporary files.
+* `post_to_ui(retry_for=)`: not retried after the UI was destroyed. Window: **`RESULT_RETRY_SECONDS = 10.0`** (shorter, as requested).
+  A result that is not deliverable within 10 s (a modal dialog open longer) is dropped and its "running" flag released, as before.
+* Auto-Assign after a failure re-reads the workbook on the worker thread, only if a row was saved.
+* `partita_sort_key`: `nan` and `inf` sort as text. `exc_info=True` on 45 handlers. Tests: Tk helper, SQLite open retry (38),
+  restore (5), tracebacks (4), constraints. The repository's weaker assertions in the flag-release tests were replaced by the exact ones.
+* Not touched, flagged for the owner: `kamal_tab` now loads the C170 DFM cache (`KAMAL_ARTICLE_PREFIX`) instead of the default prefix.
+
+**Speed (measured, same output).** The cost was openpyxl hashing a style object for every cell (`cell.alignment = ...`):
+
+| Operation | Before | After |
+|---|---|---|
+| Shared workbook, 1500 rows: add rows / edit a row / save PG-X partita | 10.4 s / 15.9 s / 16.2 s | 1.8 s / 1.8 s / 2.4 s |
+| `style_sheet` on a loaded 400-row sheet | 0.27 s | 0.006 s |
+| PDF-to-Excel export (`write_data`), 300 rows | 0.08 s | 0.02 s (600 rows: about 6.7 s under the profiler before) |
+
+(`style_sheet` is also used by the Ordine MED, Prezzi and Biglietti exports.) The files are the same: cell by cell comparison in
+`tests/test_style_sheet_equivalence.py` and `tests/test_excel_exporter_fast_styles.py`; `styles.xml` differs only in the numbering of
+two custom number formats. Startup was measured too: importing the GUI takes 0.07 s and building all pages 0.04 s on Linux with an
+empty profile (pandas/openpyxl load in the background), so no startup change was made. **Not measured:** the real Situazione/PDF
+workloads of the user's data and the packaged EXE on Windows.
+
+**Tests (executed, Linux, virtual display, PowerShell 7.4.6):** Python 3.12.3 **1067 passed, 2 skipped**; Python 3.14.10 **1067 passed,
+2 skipped**. Skipped: 8.3 short-path test (Windows only) and the non-root permission test. Windows: **not verified** (no Windows here).
+
 ## Release preparation 1.3.3 (2026-11-22)
 
 * Version metadata is synchronized at 1.3.3 in `version.txt`, `installer.iss`, and `utility/updater.py`.

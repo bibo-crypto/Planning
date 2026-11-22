@@ -5,15 +5,14 @@ Regression for the release that stayed on "Loading application pages..." for eve
 windowed EXE showed nothing.  These tests start the real ``ConverterApp`` (isolated data folder from
 ``conftest.py``) and pump its event loop exactly like ``mainloop`` does.
 """
+import os
+import sys
 import time
 import tkinter as tk
 import traceback
-import os
-import sys
 from tkinter import messagebox, ttk
 
 import pytest
-from tests.conftest import create_tk_root
 
 from gui import gui as gui_module
 from gui.gui import ConverterApp
@@ -30,14 +29,13 @@ def start_app(monkeypatch):
     apps = []
     errors = []
     shown = []
-    warnings = []
     monkeypatch.setattr(messagebox, "showerror", lambda *a, **k: shown.append(a))
-    monkeypatch.setattr(messagebox, "showwarning", lambda *a, **k: warnings.append(a))
     monkeypatch.setattr(gui_module.ConverterApp, "_check_for_updates", lambda self: None)
 
     def start(timeout=60):
+        app = None
         last_error = None
-        for attempt in range(5):
+        for attempt in range(5):                       # a transient "init.tcl" failure of Tk is retried, not skipped
             try:
                 app = ConverterApp()
                 break
@@ -58,7 +56,6 @@ def start_app(monkeypatch):
             if errors or label is None or not label.winfo_exists():
                 break
             time.sleep(0.02)
-        app._test_startup_warnings = warnings
         return app, errors, shown
 
     yield start
@@ -115,13 +112,43 @@ def test_a_page_that_fails_to_build_is_logged_shown_and_not_swallowed(start_app,
     assert any(r.exc_info and r.exc_info[0] is TypeError for r in caplog.records)
 
 
-def test_update_failure_notice_is_shown_once_and_only_when_present(start_app, monkeypatch):
-    monkeypatch.setattr(
-        gui_module,
-        "consume_update_failure_notice",
-        lambda: "The update was not installed.",
-    )
-    app, errors, shown = start_app(timeout=10)
-    warnings = getattr(app, "_test_startup_warnings", [])
-    assert warnings and warnings[0][0] == "Update not installed"
-    assert not errors
+# --- "Update not installed": the note the update helper leaves when it had to roll back -------------------------
+
+def _record_update_notice_warnings(monkeypatch, notice_file):
+    """Point the notice at *notice_file* and record every messagebox.showwarning call of the application."""
+    from utility import updater
+
+    monkeypatch.setattr(updater, "UPDATE_FAILURE_NOTICE", notice_file)
+    warnings = []
+    monkeypatch.setattr(messagebox, "showwarning", lambda *a, **k: warnings.append((a, k)))
+    return warnings
+
+
+def test_start_shows_the_update_not_installed_message_once_and_removes_the_note(start_app, monkeypatch, tmp_path):
+    note = tmp_path / "update_failed.txt"
+    note.write_text("version=9.9.9\nreason=the copy never succeeded\nlog=C:\\Temp\\Planning_Update.log\n", encoding="utf-8")
+    warnings = _record_update_notice_warnings(monkeypatch, note)
+
+    app, errors, shown = start_app()
+
+    assert errors == [], errors[0][2] if errors else ""
+    assert len(warnings) == 1
+    (title, text), kwargs = warnings[0]
+    assert title == "Update not installed"
+    assert "9.9.9" in text and "was NOT installed" in text and "the copy never succeeded" in text
+    assert "Planning_Update.log" in text
+    assert kwargs.get("parent") is app
+    assert not note.exists(), "the note must be removed so the message appears once"
+
+    # the same note is not shown again by a second look (the next start finds no file)
+    app._show_update_failure_notice()
+    assert len(warnings) == 1
+
+
+def test_start_shows_no_update_message_when_there_is_no_note(start_app, monkeypatch, tmp_path):
+    warnings = _record_update_notice_warnings(monkeypatch, tmp_path / "update_failed.txt")   # file does not exist
+
+    app, errors, shown = start_app()
+
+    assert errors == [], errors[0][2] if errors else ""
+    assert warnings == []

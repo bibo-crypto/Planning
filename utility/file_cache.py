@@ -49,7 +49,7 @@ def save_file_cache(cache_key: str, source_path: Path | str, extra: dict[str, An
             payload.update(extra)
         _cache_path(cache_key).write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Could not save %s file cache: %s", cache_key, exc)
+        logger.warning("Could not save %s file cache: %s", cache_key, exc, exc_info=True)
 
 
 def load_file_cache(cache_key: str) -> dict[str, Any]:
@@ -62,5 +62,5 @@ def load_file_cache(cache_key: str) -> dict[str, Any]:
             if isinstance(value, dict):
                 return value
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Could not load %s file cache: %s", cache_key, exc)
+        logger.warning("Could not load %s file cache: %s", cache_key, exc, exc_info=True)
     return empty

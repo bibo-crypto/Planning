@@ -9,6 +9,7 @@ import functools
 import threading
 
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.styles.cell_style import StyleArray
 
 from exporters.biglietti.fields import _clean
 
@@ -48,13 +49,25 @@ def style_sheet(
     thin = Side(style="thin", color="000000")
     border = Border(left=thin, right=thin, top=thin, bottom=thin)
     band_fill = PatternFill("solid", fgColor="FFDCE6F1")
+    # The style of EVERY cell is set below.  ``cell.alignment = ...`` makes openpyxl hash and compare the style
+    # object once per cell (about 60 of the 90 seconds a 1500-row workbook used to take), although only three
+    # distinct styles exist.  They are registered once in the workbook and their index is written straight
+    # into each cell's style array -- exactly what the descriptors do, minus the repeated hashing.
+    workbook = ws.parent
+    alignment_id = workbook._alignments.add(Alignment(horizontal="center", vertical="center", wrap_text=False))
+    header_alignment_id = workbook._alignments.add(Alignment(horizontal="center", vertical="center", wrap_text=True))
+    border_id = workbook._borders.add(border)
+    band_fill_id = workbook._fills.add(band_fill)
     for row in ws.iter_rows():
         banded = row[0].row > 1 and (row[0].row % 2 == 0)
         for cell in row:
-            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=(cell.row == 1))
-            cell.border = border
+            style = cell._style
+            if not style:                       # a cell nobody styled yet has no style array (the descriptors do the same)
+                style = cell._style = StyleArray()
+            style.alignmentId = header_alignment_id if cell.row == 1 else alignment_id
+            style.borderId = border_id
             if banded:
-                cell.fill = band_fill
+                style.fillId = band_fill_id
     for cell in ws[1]:
         cell.font = Font(bold=True, color="FFFFFF")
         cell.fill = fill

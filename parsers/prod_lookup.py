@@ -29,7 +29,7 @@ def save_prod_cache(source_path: Path | str) -> None:
         }
         CACHE_FILE.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Could not save Produzione file cache: %s", exc)
+        logger.warning("Could not save Produzione file cache: %s", exc, exc_info=True)
 
     try:
         from utility.path_manager import save_source
@@ -54,7 +54,7 @@ def load_prod_cache() -> dict[str, Any]:
                 if sp and Path(sp).is_file():
                     return data
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Could not load Produzione file cache: %s", exc)
+        logger.warning("Could not load Produzione file cache: %s", exc, exc_info=True)
 
     # Fallback 1: check centralized path_manager
     try:

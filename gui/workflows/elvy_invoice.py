@@ -206,7 +206,7 @@ class ElvyInvoiceWorkflowMixin:
                 logger.info("Merged export saved: %s", out_path.name)
             except Exception as exc:  # noqa: BLE001
                 msg = f"Error saving merged Excel: {exc}"
-                logger.error(msg)
+                logger.error(msg, exc_info=True)
                 errors.append(msg)
 
         post_to_ui(self, self._on_einv_conversion_done, errors, total)

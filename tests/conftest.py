@@ -1,42 +1,25 @@
-import pytest
 import os
-import sys
-import time
-import tkinter as tk
-from pathlib import Path
-import tempfile
+
+import pytest
 
 from tests.git_helpers import git, write
 
 
-def create_tk_root():
-    """Create Tk with retries; only an absent display may skip the test."""
-    if sys.platform.startswith("linux") and not os.environ.get("DISPLAY"):
-        pytest.skip("no display available for Tk")
-    last_error = None
-    for attempt in range(5):
-        try:
-            return tk.Tk()
-        except tk.TclError as exc:
-            last_error = exc
-            if attempt < 4:
-                time.sleep(0.5)
-    raise last_error
+@pytest.fixture(autouse=True, scope="session")
+def git_never_looks_above_the_pytest_basetemp(tmp_path_factory):
+    """Stop git from searching for a repository above pytest's base temp folder.
 
-
-@pytest.fixture(scope="session", autouse=True)
-def git_ceiling_for_pytest_basetemp(pytestconfig):
-    """Keep git discovery below pytest's basetemp, even if basetemp is inside a repository."""
-    basetemp = pytestconfig.getoption("basetemp")
-    if not basetemp:
-        basetemp = str(Path(tempfile.gettempdir()) / "planning-pytest")
-    previous = os.environ.get("GIT_CEILING_DIRECTORIES")
-    os.environ["GIT_CEILING_DIRECTORIES"] = basetemp
-    yield
-    if previous is None:
-        os.environ.pop("GIT_CEILING_DIRECTORIES", None)
-    else:
-        os.environ["GIT_CEILING_DIRECTORIES"] = previous
+    The "not a Git repository" tests create a plain folder under ``tmp_path``.  When ``--basetemp`` points inside a
+    folder that is itself a Git repository (for instance ``E:\\Planning\\verify_logs\\...`` while the project is a
+    repo), git walked up from the plain folder, found that outer ``.git`` and the tests failed -- only on machines
+    where the base temp folder happened to sit inside a repository.  ``GIT_CEILING_DIRECTORIES`` makes the result
+    independent of where the base temp is.  Repositories the tests create themselves live *below* the ceiling, so
+    they are still found normally.
+    """
+    ceiling = os.path.realpath(str(tmp_path_factory.getbasetemp()))
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("GIT_CEILING_DIRECTORIES", ceiling)
+        yield
 
 
 @pytest.fixture(autouse=True)

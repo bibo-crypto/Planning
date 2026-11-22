@@ -76,7 +76,7 @@ class MagazinoFilatoTab(ttk.Frame):
                     self._recompute()
                     return
         except Exception as exc:
-            logger.warning("Could not restore Magazino from SQLite: %s", exc)
+            logger.warning("Could not restore Magazino from SQLite: %s", exc, exc_info=True)
 
         # Legacy cache fallback for installations created before SQLite snapshots.
         cache = load_magazino_cache()
@@ -94,7 +94,7 @@ class MagazinoFilatoTab(ttk.Frame):
                 self._data_revision += 1
                 self._recompute()
         except Exception as exc:
-            logger.warning("Could not restore legacy Magazino summary cache: %s", exc)
+            logger.warning("Could not restore legacy Magazino summary cache: %s", exc, exc_info=True)
 
     def _restore_shared_lotti(self):
         """Reload the last Lotti file saved in the cache (when it still exists and nothing is loaded yet)."""

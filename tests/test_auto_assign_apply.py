@@ -67,8 +67,7 @@ def test_a_suggestion_of_the_wrong_raw_article_is_never_accepted(root, monkeypat
     assert "does not belong to article G101" in dialogs.errors[0][1]
     assert row_of(shared, "PG-X", "5")["Partita GG"] in (None, "")                                    # nothing was saved
     assert notified and notified[0][0] == "pgx-save-error" and notified[0][3] == "Shared Orders"    # the planner is also notified
-    assert len(calls.refreshed) == 1 and set(calls.refreshed[0]) == {"Orders", "PG-X"}
-    assert calls.rebuilt == [True] and toplevels(root) == []
+    assert calls.refreshed == [] and toplevels(root) == []
 
 
 def test_a_workbook_that_is_open_in_excel_gives_a_clear_message(root, monkeypatch, shared):
@@ -98,3 +97,27 @@ def test_when_a_later_suggestion_fails_the_earlier_ones_stay_saved(root, monkeyp
     assert pump_until(root, lambda: dialogs.infos or dialogs.errors)
     assert dialogs.errors and "does not belong to article" in dialogs.errors[0][1]
     assert row_of(shared, "PG-X", "5")["Partita GG"] == "159001" and row_of(shared, "PG-X", "6")["Partita GG"] in (None, "")
+
+
+def test_when_a_later_suggestion_fails_the_table_is_refreshed_with_the_rows_already_assigned(root, monkeypatch, shared):
+    """The earlier rows stay assigned in the workbook; the table (refresh_records) must show them, not the stale state."""
+    dialogs = Quiet(monkeypatch)
+    host = UploadHost(root, shared, STOCK)
+    calls = run(root, host, [suggestion("5", "159001"), suggestion("6", "159003")])                  # the second one is the wrong article
+    assert pump_until(root, lambda: dialogs.infos or dialogs.errors)
+    assert dialogs.errors and "does not belong to article" in dialogs.errors[0][1]
+    assert len(calls.refreshed) == 1 and calls.rebuilt == [True] and calls.var.get() == ""
+    pgx = {r.colored_batch: r for r in calls.refreshed[0]["PG-X"]}
+    assert pgx["5"].raw_batch == "159001" and not pgx["6"].raw_batch                                 # the table shows row 5 as assigned
+    assert toplevels(root) == []
+
+
+def test_the_result_is_delivered_and_the_assigning_window_closed_once_the_modal_dialog_is_closed(root, monkeypatch, shared):
+    dialogs = Quiet(monkeypatch)
+    host = UploadHost(root, shared, STOCK)
+    calls = run(root, host, [suggestion("5", "159001")])
+    stall(root)                                              # a modal dialog is open when the worker is ready
+    assert dialogs.infos == [] and len(toplevels(root)) == 1          # the window waits ...
+    assert pump_until(root, lambda: dialogs.infos or dialogs.errors)  # ... and is not left behind: the dialog is closed
+    assert dialogs.infos[-1][0] == "Auto-Assign Complete" and toplevels(root) == []
+    assert len(calls.refreshed) == 1 and calls.rebuilt == [True]

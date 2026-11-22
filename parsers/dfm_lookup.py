@@ -273,7 +273,7 @@ def save_dfm_workbook(
             f"DFM imported: {counts}", file_path=str(source_path),
         )
     except Exception as exc:
-        logger.warning("Could not persist DFM upload metadata: %s", exc)
+        logger.warning("Could not persist DFM upload metadata: %s", exc, exc_info=True)
     return counts
 
 
@@ -288,7 +288,7 @@ def save_dfm_pairs(pairs: set[tuple[str, str]], source_path: Path | None = None)
         frame = pd.DataFrame(ordered, columns=["articolo", "coloredfm"])
         return bool(db.save_frame_cache(_PAIRS_SNAPSHOT, frame, source_path=source_path))
     except Exception as exc:
-        logger.warning("Could not persist DFM Articolo/Colore pairs: %s", exc)
+        logger.warning("Could not persist DFM Articolo/Colore pairs: %s", exc, exc_info=True)
         return True
 
 
@@ -314,7 +314,7 @@ def load_dfm_pairs() -> set[tuple[str, str]]:
             }
             return _ACTIVE_DFM_PAIRS
     except Exception as exc:
-        logger.warning("Could not restore DFM Articolo/Colore pairs: %s", exc)
+        logger.warning("Could not restore DFM Articolo/Colore pairs: %s", exc, exc_info=True)
     return {
         (clean_text(e.get("articolo")).upper(), clean_text(e.get("coloredfm")))
         for prefix in SUPPORTED_DFM_PREFIXES for e in load_dfm_entries_by_prefix(prefix)
@@ -365,7 +365,7 @@ def save_dfm_cache(
             _ACTIVE_DFM_PAIRS = None
         changed = bool(db.save_frame_cache(_dfm_snapshot_name(prefix), _entries_frame(entries), source_path=source_path))
     except Exception as exc:
-        logger.warning("Could not persist DFM snapshot for %s: %s", prefix, exc)
+        logger.warning("Could not persist DFM snapshot for %s: %s", prefix, exc, exc_info=True)
     # Remove legacy JSON caches so there is one persistence authority.
     try:
         legacy = _cache_file_for(prefix)
@@ -404,7 +404,7 @@ def load_dfm_cache(prefix: str = ELVY_ARTICLE_PREFIX) -> dict[str, Any]:
             _ACTIVE_DFM_CACHE[prefix] = payload
             return payload
     except Exception as exc:
-        logger.warning("Could not restore DFM snapshot for %s: %s", prefix, exc)
+        logger.warning("Could not restore DFM snapshot for %s: %s", prefix, exc, exc_info=True)
     return {"source_file": "", "source_path": "", "loaded_at": "", "entries": []}
 
 

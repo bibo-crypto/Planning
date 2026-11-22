@@ -403,7 +403,7 @@ def _load_articoli_marca_lookup() -> dict[str, str]:
             _ARTICOLI_MARCA_CACHE = (*key, result)
             return result
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Prezzi: SQLite Articoli Marca lookup failed: %s", exc)
+        logger.warning("Prezzi: SQLite Articoli Marca lookup failed: %s", exc, exc_info=True)
     try:
         from utility.articoli_cache import load_articoli_cache
         cache = load_articoli_cache()
@@ -420,7 +420,7 @@ def _load_articoli_marca_lookup() -> dict[str, str]:
         _ARTICOLI_MARCA_CACHE = (*key, result)
         return result
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Prezzi: could not load legacy Articoli Marca lookup: %s", exc)
+        logger.warning("Prezzi: could not load legacy Articoli Marca lookup: %s", exc, exc_info=True)
         return {}
 
 
@@ -686,7 +686,7 @@ def load_prezzi(path: str | Path) -> tuple[pd.DataFrame | None, list[str]]:
             from utility.prezzi_db import save_prezzi_frame
             save_prezzi_frame(fingerprint, result[0])
         except Exception as exc:  # noqa: BLE001 -- cache failures must not block the loaded data
-            logger.warning("Prezzi: could not save SQLite cache: %s", exc)
+            logger.warning("Prezzi: could not save SQLite cache: %s", exc, exc_info=True)
     return result
 
 

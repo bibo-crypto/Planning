@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import sqlite3
 import time
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable
 from typing import Any
 
 from utility.utils import logger

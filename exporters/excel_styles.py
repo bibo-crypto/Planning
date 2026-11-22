@@ -20,3 +20,40 @@ CELL_BORDER = Border(
 )
 
 NUMBER_FORMAT = "#,##0.00"
+
+
+# --------------------------------------------------------------------------- fast per-cell styling
+# ``cell.font = ...`` / ``cell.alignment = ...`` make openpyxl hash and compare the style object for EVERY cell
+# (about 80 microseconds each; a 600-row export spent ~5 s on it) although a sheet only ever uses a handful of
+# distinct styles.  ``register_style`` registers a combination once in the workbook and ``apply_style`` writes the
+# resulting indices straight into a cell's style array -- exactly what the descriptors do, without the repeated hashing.
+def register_style(workbook, font=None, border=None, fill=None, alignment=None, number_format=None) -> tuple:
+    """Register the given style parts in *workbook* once; the result is passed to ``apply_style`` for every cell."""
+    from openpyxl.styles.numbers import BUILTIN_FORMATS_MAX_SIZE, BUILTIN_FORMATS_REVERSE
+
+    ids = []
+    if font is not None:
+        ids.append(("fontId", workbook._fonts.add(font)))
+    if border is not None:
+        ids.append(("borderId", workbook._borders.add(border)))
+    if fill is not None:
+        ids.append(("fillId", workbook._fills.add(fill)))
+    if alignment is not None:
+        ids.append(("alignmentId", workbook._alignments.add(alignment)))
+    if number_format is not None:
+        if number_format in BUILTIN_FORMATS_REVERSE:
+            ids.append(("numFmtId", BUILTIN_FORMATS_REVERSE[number_format]))
+        else:
+            ids.append(("numFmtId", workbook._number_formats.add(number_format) + BUILTIN_FORMATS_MAX_SIZE))
+    return tuple(ids)
+
+
+def apply_style(cell, registered: tuple) -> None:
+    """Give *cell* the style parts of a ``register_style`` result; the parts it does not name are left as they are."""
+    from openpyxl.styles.cell_style import StyleArray
+
+    style = cell._style
+    if not style:                      # a cell nobody styled yet has no style array (the descriptors do the same)
+        style = cell._style = StyleArray()
+    for key, index in registered:
+        setattr(style, key, index)

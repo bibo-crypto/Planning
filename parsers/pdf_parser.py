@@ -201,7 +201,7 @@ class PDFParser:
         try:
             return self._parse_pdf()
         except Exception as exc:
-            logger.error("Failed to parse %s: %s", self.pdf_path.name, exc)
+            logger.error("Failed to parse %s: %s", self.pdf_path.name, exc, exc_info=True)
             raise RuntimeError(
                 f"Could not parse {self.pdf_path.name}: {exc}"
             ) from exc

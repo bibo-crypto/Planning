@@ -6,6 +6,7 @@ they could only be exercised by opening the whole window.  They are moved here u
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from datetime import date, datetime
 
@@ -72,15 +73,19 @@ def order_row_values(record, is_selected: bool, columns=ORDER_TABLE_COLUMNS) -> 
 
 
 def partita_sort_key(colored_batch):
-    """Sort key for Partita Col: numbers first (ascending as numbers), then text (case-insensitive)."""
+    """Sort key for Partita Col: numbers first (ascending as numbers), then text (case-insensitive).
+
+    ``float()`` also accepts the words "nan" and "inf"; a NaN key is not comparable (every comparison is False), which
+    made ``sorted`` order depend on the input order.  A batch text that is not a finite number is therefore text.
+    """
     value = str(colored_batch or "").strip().replace(",", ".")
     try:
         number = float(value)
-        if str(number).lower() == "nan" or number != number:
-            return (True, 0, "nan")
-        return (False, number, "")
     except ValueError:
         return (True, 0, value.casefold())
+    if not math.isfinite(number):
+        return (True, 0, value.casefold())
+    return (False, number, "")
 
 
 def normal_partita(value) -> str:

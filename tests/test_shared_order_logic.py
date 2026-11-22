@@ -5,6 +5,7 @@ the move (only the closure variables became parameters).  Every new function mus
 a wide spread of inputs, so the move cannot have changed behaviour.
 """
 import itertools
+import math
 import random
 from datetime import date, datetime
 from types import SimpleNamespace
@@ -67,6 +68,13 @@ def _original_partita_sort_key(pair):
         return (False, number, "")
     except ValueError:
         return (True, 0, value.casefold())
+
+
+def _is_non_finite_word(value):
+    try:
+        return not math.isfinite(float(str(value or "").strip().replace(",", ".")))
+    except ValueError:
+        return False
 
 
 def _original_normal_partita(value):
@@ -195,16 +203,30 @@ def test_polmon_is_taken_only_from_med_orders(code, extra, expected):
 def test_partita_sort_key_matches_the_original_and_orders_numbers_before_text():
     rng = random.Random(3)
     for value in PARTITAS:
-        if str(value).strip().casefold() == "nan":
-            continue
+        if _is_non_finite_word(value):
+            continue    # DELIBERATE difference: the original keyed "nan"/"inf" as numbers (a NaN key breaks sorting); see the test below
         record = SimpleNamespace(colored_batch=value)
-        # repr(): a batch text like "nan" gives a NaN key in both versions, and nan != nan
-        assert repr(logic.partita_sort_key(value)) == repr(_original_partita_sort_key((None, record)))
+        assert logic.partita_sort_key(value) == _original_partita_sort_key((None, record))
     batches = ["10", "9", "abc", "2,5", "B2", "", "100"]
     ordered = sorted(batches, key=logic.partita_sort_key)
     assert ordered == ["2,5", "9", "10", "100", "", "abc", "B2"]       # numbers as numbers first, then text
     rng.shuffle(batches)
     assert sorted(batches, key=logic.partita_sort_key) == ordered
+
+
+@pytest.mark.parametrize("word", ["nan", "NaN", " nan ", "inf", "-inf", "Infinity"])
+def test_a_batch_text_that_float_reads_as_nan_or_inf_sorts_as_text(word):
+    key = logic.partita_sort_key(word)
+    assert key[0] is True and key[2] == word.strip().casefold()
+    batches = ["10", "2", word, "abc", "", "100"]
+    expected = ["2", "10", "100", "", "abc"] + [word] if word.strip().casefold() > "abc" else ["2", "10", "100", "", word, "abc"]
+    # whatever the input order, the result is the same (with a NaN key it depended on the order)
+    results = set()
+    rng = random.Random(7)
+    for _ in range(30):
+        rng.shuffle(batches)
+        results.add(tuple(sorted(batches, key=logic.partita_sort_key)))
+    assert results == {tuple(expected)}
 
 
 @pytest.mark.parametrize("value", PARTITAS + ["  Lot 5 ", "1,0", "0.50"])

@@ -10,27 +10,32 @@ import pandas as pd
 
 from utility.orders_db import DB_PATH
 from utility.utils import logger
-from utility.sqlite_retry import connect_with_retry
+from utility.sqlite_retry import run_with_sqlite_retry
 
 
 _NUMERIC_COLUMNS = ("LIVELLOLPZ", "PREZZOLPZ")
 
 
 def _connect(db_path: Path | None = None) -> sqlite3.Connection:
+    """Open the SQLite database holding the Listini cache; a transient "disk I/O error" / "database is locked" while
+    connecting or creating the table is retried (utility/sqlite_retry.py)."""
     path = Path(db_path or DB_PATH)
     path.parent.mkdir(parents=True, exist_ok=True)
-    connection = connect_with_retry(
-        path,
-        timeout=10,
-        row_factory=sqlite3.Row,
-        pragmas=("PRAGMA busy_timeout=5000",),
-    )
-    connection.execute("""CREATE TABLE IF NOT EXISTS prezzi_frame_cache (
-        cache_key TEXT PRIMARY KEY,
-        fingerprint TEXT NOT NULL,
-        payload TEXT NOT NULL,
-        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    )""")
+    return run_with_sqlite_retry(lambda: _open_once(path))
+
+
+def _open_once(path: Path) -> sqlite3.Connection:
+    connection = sqlite3.connect(path, timeout=10)
+    try:
+        connection.execute("""CREATE TABLE IF NOT EXISTS prezzi_frame_cache (
+            cache_key TEXT PRIMARY KEY,
+            fingerprint TEXT NOT NULL,
+            payload TEXT NOT NULL,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""")
+    except BaseException:
+        connection.close()
+        raise
     return connection
 
 

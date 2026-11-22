@@ -11,11 +11,11 @@ from tkinter import filedialog, messagebox
 import pandas as pd
 import pytest
 from openpyxl import Workbook, load_workbook
-from tests.conftest import create_tk_root
 
 from exporters.biglietti import shared_workbook as sw
 from gui.tabs.shared_order_actions import SharedOrdersActionsMixin
 from tests.test_shared_workbook_scenarios import keys, rec, row_of
+from tests.tk_helpers import create_tk_root
 
 
 class UploadHost(SharedOrdersActionsMixin, tk.Frame):
@@ -208,16 +208,35 @@ def test_closing_the_page_during_an_upload_does_not_block_later_uploads(root, mo
     assert pump_until(root, lambda: host._pgx_upload_running is False, timeout=8), "the upload flag stayed set after the page was closed"
 
 
+def test_an_upload_result_is_delivered_once_the_modal_dialog_is_closed(root, monkeypatch, tmp_path, shared):
+    """With the retry window (default) the result is not lost while a modal dialog is open: it arrives when it closes."""
+    upload = make_upload(tmp_path, [(5, 159001)])
+    dialogs = Dialogs(monkeypatch, upload)
+    host = UploadHost(root, shared, STOCK)
+    calls = run_upload(root, host)
+    end = time.time() + 3.5
+    while time.time() < end:                                                            # update(), not mainloop(): nothing can be posted
+        root.update()
+        time.sleep(0.02)
+    assert host._pgx_upload_running is True and dialogs.infos == [] and calls.refreshed == []      # waiting, not lost
+    assert pump_until(root, lambda: dialogs.infos or dialogs.errors)                  # the dialog closed: the result arrives
+    assert host._pgx_upload_running is False and len(calls.refreshed) == 1
+
+
 def test_a_result_that_cannot_be_delivered_to_the_ui_releases_the_upload_flag(root, monkeypatch, tmp_path, shared):
     """While the main thread is inside a modal dialog (not in mainloop) a worker cannot call widget.after(): tkinter raises
     "main thread is not in main loop".  The upload used to stay marked as running for ever, blocking every later upload."""
+    import gui.tabs.shared_order_actions as actions
+    monkeypatch.setattr(actions, "RESULT_RETRY_SECONDS", 0)       # this test drops the result on purpose (no retry window)
     upload = make_upload(tmp_path, [(5, 159001)])
     dialogs = Dialogs(monkeypatch, upload)
     host = UploadHost(root, shared, STOCK)
     run_upload(root, host)
-    assert pump_until(root, lambda: host._pgx_upload_running is False, timeout=12), (
-        "the flag stayed set although the result could never reach the UI"
-    )
+    end = time.time() + 5
+    while time.time() < end:                                                            # update(), not mainloop(): nothing can be posted
+        root.update()
+        time.sleep(0.02)
+    assert host._pgx_upload_running is False, "the flag stayed set although the result could never reach the UI"
     # and a new upload is accepted afterwards
     run_upload(root, host)
     assert pump_until(root, lambda: dialogs.infos or dialogs.errors)

@@ -13,34 +13,42 @@ from pathlib import Path
 from typing import Iterable, Any
 
 from utility.utils import APP_DATA_DIR
-from utility.sqlite_retry import connect_with_retry
+from utility.sqlite_retry import run_with_sqlite_retry
 
 DB_PATH = APP_DATA_DIR / "data" / "planning_orders.sqlite3"
 
 
 def _connect(path: Path = DB_PATH) -> sqlite3.Connection:
-    """Open the orders SQLite database (creating the folder and the orders table when missing) with rows accessible by name."""
+    """Open the orders SQLite database (creating the folder and the orders table when missing) with rows accessible by name.
+
+    A transient "disk I/O error" / "database is locked" -- while connecting or while creating the table -- is retried
+    (utility/sqlite_retry.py); the half-opened connection is closed before each retry.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    conn = connect_with_retry(
-        path,
-        timeout=10,
-        row_factory=sqlite3.Row,
-        pragmas=("PRAGMA busy_timeout=5000",),
-    )
-    conn.execute("""CREATE TABLE IF NOT EXISTS orders (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        source_file TEXT NOT NULL,
-        sheet_name TEXT NOT NULL,
-        partita_col TEXT NOT NULL,
-        order_json TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'open',
-        archived_reason TEXT,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        archived_at TEXT
-    )""")
-    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_orders_key ON orders(source_file, sheet_name, partita_col)")
-    conn.commit()
+    return run_with_sqlite_retry(lambda: _open_once(path))
+
+
+def _open_once(path: Path) -> sqlite3.Connection:
+    conn = sqlite3.connect(path, timeout=10)
+    try:
+        conn.row_factory = sqlite3.Row
+        conn.execute("""CREATE TABLE IF NOT EXISTS orders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_file TEXT NOT NULL,
+            sheet_name TEXT NOT NULL,
+            partita_col TEXT NOT NULL,
+            order_json TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'open',
+            archived_reason TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            archived_at TEXT
+        )""")
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_orders_key ON orders(source_file, sheet_name, partita_col)")
+        conn.commit()
+    except BaseException:
+        conn.close()
+        raise
     return conn
 
 

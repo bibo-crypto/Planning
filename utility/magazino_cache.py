@@ -22,7 +22,7 @@ def save_magazino_cache(source_path: Path | str, summary=None) -> None:
             # to_json converts pandas/numpy scalar values to JSON-safe types.
             extra = {"summary_rows": json.loads(summary.to_json(orient="records"))}
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Could not include Magazino summary in cache: %s", exc)
+            logger.warning("Could not include Magazino summary in cache: %s", exc, exc_info=True)
     save_file_cache(_KEY, source_path, extra=extra)
 
 

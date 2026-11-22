@@ -10,20 +10,17 @@ mid-task ends quietly instead of printing a stack trace.
 """
 from __future__ import annotations
 
+import time
 import tkinter as tk
 from typing import Any, Callable
-import time
 
 from utility.utils import logger
 
+RETRY_INTERVAL_SECONDS = 0.05      # how often post_to_ui(retry_for=...) tries again while the main thread is not in mainloop
 
-def post_to_ui(
-    widget: tk.Misc,
-    callback: Callable[..., Any],
-    *args: Any,
-    on_dropped: Callable[[], Any] | None = None,
-    retry_for: float = 0,
-) -> bool:
+
+def post_to_ui(widget: tk.Misc, callback: Callable[..., Any], *args: Any,
+               on_dropped: Callable[[], Any] | None = None, retry_for: float = 0.0) -> bool:
     """Run ``callback(*args)`` on the UI thread as soon as possible.
 
     ``widget`` is any live Tk widget (it only supplies the event loop).
@@ -35,20 +32,30 @@ def post_to_ui(
     "main thread is not in main loop").  A worker that marked an operation as "running" releases that flag in its
     callback, so a dropped callback would leave the operation blocked for ever: pass ``on_dropped`` (it runs on the
     calling thread, only when nothing was scheduled) to release it.
+
+    ``retry_for`` (seconds, default 0 = the behaviour above) is for a worker whose result matters even if a modal
+    dialog is open for a while: while the main thread is "not in main loop" the call is repeated from the calling
+    thread every ``RETRY_INTERVAL_SECONDS`` until it works or *retry_for* seconds have passed (only then is the
+    callback dropped).  It blocks the CALLING thread, so use it from a worker thread only.  A destroyed UI
+    (``TclError``) is final and is never retried.
     """
-    deadline = time.monotonic() + max(0.0, float(retry_for))
+    deadline = time.monotonic() + retry_for
     while True:
         try:
             widget.after(0, callback, *args)
             return True
-        except (tk.TclError, RuntimeError) as exc:
+        except RuntimeError as exc:
             if time.monotonic() < deadline:
-                time.sleep(0.1)
+                time.sleep(RETRY_INTERVAL_SECONDS)
                 continue
-            logger.debug("UI is gone; dropped %s: %s", getattr(callback, "__name__", callback), exc)
-            if on_dropped is not None:
-                try:
-                    on_dropped()
-                except Exception:  # noqa: BLE001 -- must not turn a dropped result into a crashing worker
-                    logger.warning("on_dropped of %s failed", getattr(callback, "__name__", callback), exc_info=True)
-            return False
+            error = exc
+        except tk.TclError as exc:
+            error = exc
+        break
+    logger.debug("UI is gone; dropped %s: %s", getattr(callback, "__name__", callback), error)
+    if on_dropped is not None:
+        try:
+            on_dropped()
+        except Exception:  # noqa: BLE001 -- must not turn a dropped result into a crashing worker
+            logger.warning("on_dropped of %s failed", getattr(callback, "__name__", callback), exc_info=True)
+    return False

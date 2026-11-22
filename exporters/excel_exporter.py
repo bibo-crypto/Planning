@@ -93,6 +93,7 @@ FILATO_TINTURIA_COLUMNS: list[tuple[str, str, str]] = [
 
 # Styling constants: shared with the other table exporters (exporters/excel_styles.py)
 from exporters.excel_styles import (
+    apply_style, register_style,
     BODY_FONT, CELL_BORDER, HEADER_FILL, HEADER_FONT, NUMBER_FORMAT,
 )
 GENERAL_FORMAT = "General"
@@ -165,63 +166,55 @@ def write_data(
         None,
     )
 
+    # Every distinct style is registered once (see excel_styles.register_style) instead of once per cell.
+    workbook = ws.parent
+    base = dict(font=BODY_FONT, border=CELL_BORDER)
+    left_wrap = register_style(workbook, **base, number_format=TEXT_FORMAT, alignment=Alignment(horizontal="left", vertical="top", wrap_text=True))
+    left = register_style(workbook, **base, number_format=TEXT_FORMAT, alignment=Alignment(horizontal="left", vertical="center"))
+    integer = register_style(workbook, **base, number_format=INTEGER_FORMAT, alignment=Alignment(horizontal="center", vertical="center"))
+    number = register_style(workbook, **base, number_format=NUMBER_FORMAT, alignment=Alignment(horizontal="right", vertical="center"))
+    general = register_style(workbook, **base, number_format=GENERAL_FORMAT, alignment=Alignment(horizontal="right", vertical="center"))
+    date_real = register_style(workbook, **base, number_format="DD/MM/YYYY", alignment=Alignment(horizontal="center", vertical="center"))
+    date_text = register_style(workbook, **base, number_format=TEXT_FORMAT, alignment=Alignment(horizontal="center", vertical="center"))
+    font_border_only = register_style(workbook, **base)       # a column type that matches none of the branches below
+
     for row_idx, order_row in enumerate(rows, start=2):
         for col_idx, (_, attr, dtype) in enumerate(columns, start=1):
             raw_value = getattr(order_row, attr, "")
             cell = ws.cell(row=row_idx, column=col_idx)
 
-            cell.font = BODY_FONT
-            cell.border = CELL_BORDER
-
             if dtype == "text":
                 cell.value = str(raw_value) if raw_value not in (None, "") else None
-                cell.number_format = TEXT_FORMAT
-                if col_idx == description_col_idx:
-                    cell.alignment = Alignment(
-                        horizontal="left", vertical="top", wrap_text=True
-                    )
-                else:
-                    cell.alignment = Alignment(
-                        horizontal="left", vertical="center"
-                    )
+                apply_style(cell, left_wrap if col_idx == description_col_idx else left)
 
             elif dtype == "integer":
                 # Excel integer columns may receive values parsed from
                 # PDF/Excel text, including a decimal-looking string.
                 cell.value = _as_integer(raw_value)
-                cell.number_format = INTEGER_FORMAT
-                cell.alignment = Alignment(
-                    horizontal="center", vertical="center"
-                )
+                apply_style(cell, integer)
 
             elif dtype == "number":
                 cell.value = _as_float(raw_value)
-                cell.number_format = NUMBER_FORMAT
-                cell.alignment = Alignment(
-                    horizontal="right", vertical="center"
-                )
+                apply_style(cell, number)
 
             elif dtype == "general":
                 cell.value = _as_float(raw_value)
-                cell.number_format = GENERAL_FORMAT
-                cell.alignment = Alignment(
-                    horizontal="right", vertical="center"
-                )
+                apply_style(cell, general)
 
             elif dtype == "date":
                 if isinstance(raw_value, datetime):
                     # A real date we generated ourselves (e.g. Ordini
                     # ELVY's CONSEGNA) — write as an actual Excel date.
                     cell.value = raw_value
-                    cell.number_format = "DD/MM/YYYY"
+                    apply_style(cell, date_real)
                 else:
                     # Store as text; Excel will display as-is (dates
                     # from PDFs vary too much to parse reliably)
                     cell.value = str(raw_value) if raw_value not in (None, "") else ""
-                    cell.number_format = TEXT_FORMAT
-                cell.alignment = Alignment(
-                    horizontal="center", vertical="center"
-                )
+                    apply_style(cell, date_text)
+
+            else:
+                apply_style(cell, font_border_only)
 
         # Taller rows for wrapped description text
         if description_col_idx:

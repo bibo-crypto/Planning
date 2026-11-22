@@ -4,10 +4,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 
 import pytest
-from tests.conftest import create_tk_root
 
 from gui.notifications_window import NOTIFICATION_COLUMNS, NotificationsWindow, build_resolve_warning
 from tests.test_startup_pages import start_app  # noqa: F401  (fixture used by the last test)
+from tests.tk_helpers import create_tk_root
 from utility import notifications as notifications_module
 
 PRICE = "situazione-price-mismatch:A:1:P1 (C1):4.0:7.0"

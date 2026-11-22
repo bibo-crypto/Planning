@@ -198,7 +198,7 @@ class PrezziTab(ttk.Frame):
                 # rules may have changed since (a category assigned in Master Data).
                 cached = logic.enrich_categories(cached)
             except Exception as exc:  # noqa: BLE001
-                logger.warning("Prezzi: couldn't re-apply category rules to the saved Listini: %s", exc)
+                logger.warning("Prezzi: couldn't re-apply category rules to the saved Listini: %s", exc, exc_info=True)
             self._base_df = cached.copy(deep=True)
             self.prezzi_df = self._base_df
             self._loaded_source_path = "sqlite://listini"
