@@ -1,8 +1,8 @@
 # tests — SUCCESS
 
-- commit: `08ecf2b` on `main` — chore(release): bump version to 1.3.3
-- run: https://github.com/bibo-crypto/Planning/actions/runs/45066326246
-- event: push   |   report written: 2026-11-22 20:29 UTC
+- commit: `08ecf2b` on `v1.3.5` — chore(release): bump version to 1.3.3
+- run: https://github.com/bibo-crypto/Planning/actions/runs/45067191060
+- event: push   |   report written: 2026-11-22 20:39 UTC
 
 ## Jobs
 
@@ -13,7 +13,7 @@
 
 ## pytest — pytest-log-py3.12
 
-`1060 passed, 9 skipped in 218.20s (0:03:38)`
+`1060 passed, 9 skipped in 194.84s (0:03:14)`
 
 Skipped (reason):
 
@@ -29,7 +29,7 @@ Skipped (reason):
 
 ## pytest — pytest-log-py3.14
 
-`1060 passed, 9 skipped in 194.37s (0:03:14)`
+`1060 passed, 9 skipped in 227.02s (0:03:47)`
 
 Skipped (reason):
 
