@@ -1,3 +1,5 @@
+ADDED /docs/RELEASE_STEPS.md
+ADDED /tests/test_check_release_zip.py
 ADDED /tests/test_excel_exporter_fast_styles.py
 ADDED /tests/test_release_constraints.py
 ADDED /tests/test_restore_all_or_nothing.py
@@ -7,12 +9,14 @@ ADDED /tests/test_tk_helpers.py
 ADDED /tests/test_warmup.py
 ADDED /tests/test_warnings_keep_the_traceback.py
 ADDED /tests/tk_helpers.py
+ADDED /tools/check_release_zip.py
 ADDED /utility/warmup.py
 CHANGED REVIEW_REPORT.md
 CHANGED calculate/prezzi.py
 CHANGED exporters/biglietti/workbook_io.py
 CHANGED exporters/excel_exporter.py
 CHANGED exporters/excel_styles.py
+CHANGED gui/gui.py
 CHANGED gui/tabs/magazino_filato_tab.py
 CHANGED gui/tabs/prezzi_tab.py
 CHANGED gui/tabs/shared_order_actions.py
@@ -23,6 +27,7 @@ CHANGED gui/tabs/situazione_sources.py
 CHANGED gui/workflows/bolla.py
 CHANGED gui/workflows/elvy_invoice.py
 CHANGED gui/workflows/purchase_orders.py
+CHANGED installer.iss
 CHANGED main.py
 CHANGED parsers/dfm_lookup.py
 CHANGED parsers/elvy_mapping.py
@@ -38,6 +43,7 @@ CHANGED tests/test_shared_order_logic.py
 CHANGED tests/test_shared_orders_window.py
 CHANGED tests/test_startup_pages.py
 CHANGED tests/test_upload_gg_scenarios.py
+CHANGED tests/test_version_consistency.py
 CHANGED tools/verify_windows.ps1
 CHANGED utility/backup.py
 CHANGED utility/file_cache.py
@@ -46,3 +52,5 @@ CHANGED utility/orders_db.py
 CHANGED utility/prezzi_db.py
 CHANGED utility/sqlite_retry.py
 CHANGED utility/ui_thread.py
+CHANGED utility/updater.py
+CHANGED version.txt

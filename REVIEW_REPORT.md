@@ -3,6 +3,24 @@
 Review date: 2026-11-16. Basis: the project as pushed in commit `8cb47a1` (main) plus the changes listed in section 3.
 Nothing in this review was pushed or merged: the result is a complete project folder for testing on a Windows machine first.
 
+## Update failure "the Python DLL is missing from _internal" (2026-11-22) - cause and fix
+
+The message is shown by the application BEFORE the helper runs, so there is no new `Planning_Update.log` (the uploaded one is from 18 and
+21 Nov: the `bj\planning.exe` / `ut\planning.exe` lines are the 8.3 short-path defect that is already fixed; the second part of that file
+is the output of a test in `planning_verify_*`, not a real update). **Cause, measured on the real asset:** `releases/download/v1.3.5/Planning.zip`
+(SHA-256 `2c958c37...`) holds ONE file, `Planning.exe` (14.5 MB); no `_internal`, no Python DLL, no `version.txt`. The updater is right to
+refuse: installing it would leave a program that cannot start. `build.bat zip` produces the correct ZIP (`dist\Planning_vX.zip`); the
+asset on GitHub was not made from it (the same happened with v1.3.2). **Second problem found:** tags `v1.3.4` and `v1.3.5` point to source
+whose `version.txt` is 1.3.3, and the updater also requires the package's `version.txt` to equal the tag - so even the right ZIP would fail
+with "does not match the requested update".
+Fixes: source version bumped to **1.3.6** (so a release `v1.3.6` can be built from it; 4 places, test updated); the refusal message now says
+what to upload; `tools/check_release_zip.py` (+ 8 tests) tells before and after uploading whether the updater will accept a ZIP (it reports
+exactly this defect on the real v1.3.5 asset); `docs/RELEASE_STEPS.md` lists the steps. **Not verified:** a real update on Windows.
+
+Start-up: new log line `Startup timing: database .. | page imports .. | widgets .. | total ..` written when the pages are built. In a
+run here the page imports were 4.42 s of 4.83 s (pandas/openpyxl), so that is where the user's 4-11 s goes; read the line in his next
+`converter.log` to see the split on his PC.
+
 ## Merge round (2026-11-22): the repository (1.3.3) + the round-2 fixes + speed
 
 Base: the repository at `a3172dd`. Version stays 1.3.3 (choosing a new version is a release decision).

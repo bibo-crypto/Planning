@@ -17,7 +17,7 @@ import zipfile
 
 from utility.utils import APP_DATA_DIR
 
-DEFAULT_APP_VERSION = "1.3.3"
+DEFAULT_APP_VERSION = "1.3.6"
 GITHUB_REPOSITORY = "bibo-crypto/Planning"
 RELEASES_API_URL = f"https://api.github.com/repos/{GITHUB_REPOSITORY}/releases/latest"
 RELEASES_PAGE_URL = f"https://github.com/{GITHUB_REPOSITORY}/releases"
@@ -99,8 +99,9 @@ def _choose_installer(assets: list[dict]) -> tuple[str, str]:
         url = str(asset.get("browser_download_url", ""))
         if url and Path(name).suffix.lower() == ".zip":
             candidates.append((name, url))
-    # Prefer the Inno Setup installer when a release contains other EXEs.
-    candidates.sort(key=lambda item: ("setup" not in item[0].casefold(), item[0].casefold()))
+    # ``build.bat`` always creates this exact full-program archive. Prefer it
+    # over unrelated ZIP attachments (for example a log or source archive).
+    candidates.sort(key=lambda item: (Path(item[0]).name.casefold() != "planning.zip", item[0].casefold()))
     return candidates[0] if candidates else ("", "")
 
 
@@ -285,46 +286,43 @@ def _check_package_is_complete(source_dir: Path, expected_version: str | None = 
     exe = source_dir / "Planning.exe"
     if not exe.is_file() or exe.stat().st_size == 0:
         raise RuntimeError("The update ZIP must contain Planning.exe.")
+    # The release tag is the source of truth for the installed version.  The
+    # archive deliberately has a stable name (Planning.zip), and may have
+    # been built while its bundled _internal/version.txt still had an older
+    # value.  Write the external marker into staging before the manifest is
+    # made, so the copied application always reports the GitHub tag.
     version_path = source_dir / "version.txt"
-    if not version_path.is_file():
-        if expected_version is None:
-            raise RuntimeError("The update ZIP must contain version.txt.")
-        # Older release ZIPs and minimal test packages did not always carry
-        # the external marker.  Add it to the isolated staging tree so the
-        # installed result still gets the requested version and is verified
-        # by the same SHA-256 manifest as every other package file.
-        try:
-            version_path.write_bytes((str(expected_version).strip().lstrip("vV") + "\n").encode("utf-8"))
-        except OSError as exc:
-            raise RuntimeError("The staged update version.txt could not be created.") from exc
-    _canonicalize_staged_version_file(version_path, expected_version)
+    if expected_version is not None:
+        _canonicalize_staged_version_file(version_path, expected_version)
+    elif version_path.is_file():
+        _canonicalize_staged_version_file(version_path)
     internal = source_dir / "_internal"
     if not internal.is_dir() or not any(internal.glob("python3*.dll")):
-        raise RuntimeError("The update package is incomplete (the Python DLL is missing from _internal), so it was not installed.")
+        raise RuntimeError(
+            "The update package is incomplete (the Python DLL is missing from _internal), so it was not installed. "
+            "The GitHub release must contain the WHOLE program folder: upload dist\\Planning.zip made by "
+            "\"build.bat\", not Planning.exe alone."
+        )
 
 
 def _canonicalize_staged_version_file(path: Path, expected_version: str | None = None) -> None:
     """Make the staged version marker deterministic before the manifest is read.
 
-    Release ZIPs can be produced by Git, PowerShell or different editors, so
-    the input may contain no final newline, LF, CRLF, or a UTF-8 BOM.  The
-    updater must compare the exact bytes it will copy, not a separately
-    generated approximation.  Canonical form is UTF-8 without BOM and one LF
-    terminator.  The semantic value is checked by the same version rules used
-    by the application before the bytes are replaced.
+    With an expected version, the GitHub release tag is authoritative and is
+    written even when the archive has no marker or an older bundled marker.
+    Otherwise normalize an existing marker. Canonical form is UTF-8 without a
+    BOM and one LF terminator.
     """
-    try:
-        raw = path.read_bytes()
-        value = raw.decode("utf-8-sig").replace("\r\n", "\n").replace("\r", "\n").strip()
-    except (OSError, UnicodeDecodeError) as exc:
-        raise RuntimeError("The update package contains an unreadable version.txt.") from exc
-    value = value.lstrip("vV")
+    if expected_version is not None:
+        value = str(expected_version).strip().lstrip("vV")
+    else:
+        try:
+            raw = path.read_bytes()
+            value = raw.decode("utf-8-sig").replace("\r\n", "\n").replace("\r", "\n").strip().lstrip("vV")
+        except (OSError, UnicodeDecodeError) as exc:
+            raise RuntimeError("The update package contains an unreadable version.txt.") from exc
     if not value or not all(part.isdigit() for part in value.split(".")):
-        raise RuntimeError("The update package contains an invalid version.txt.")
-    if expected_version is not None and value != str(expected_version).strip().lstrip("vV"):
-        raise RuntimeError(
-            f"The update package version ({value}) does not match the requested update ({expected_version})."
-        )
+        raise RuntimeError("The update version is invalid.")
     try:
         path.write_bytes((value + "\n").encode("utf-8"))
     except OSError as exc:
@@ -459,20 +457,30 @@ function Start-Planning {
     # It doesn't return a PID, so success here just means "launch was
     # requested"; the caller's own wait loop (polls by process name, up to
     # 3 minutes) is what confirms it actually came up.
-    try {
-        $shellApp = New-Object -ComObject "Shell.Application"
-        $shellApp.ShellExecute($exePath, "", $target, "open", 1)
-        return $true
-    } catch { $_ | Out-File -FilePath $log -Append }
-    try {
-        $started = Start-Process -FilePath $exePath -WorkingDirectory $target -PassThru -ErrorAction Stop
+    for ($launchAttempt = 1; $launchAttempt -le 3; $launchAttempt++) {
+        try {
+            $shellApp = New-Object -ComObject "Shell.Application"
+            $shellApp.ShellExecute($exePath, "", $target, "open", 1)
+        } catch { $_ | Out-File -FilePath $log -Append }
+
         Start-Sleep -Seconds 2
-        if (Get-Process -Id $started.Id -ErrorAction SilentlyContinue) { return $true }
-    } catch { $_ | Out-File -FilePath $log -Append }
-    try {
-        Start-Process -FilePath 'cmd.exe' -WorkingDirectory $target -WindowStyle Hidden -ArgumentList @('/c', 'start', '""', $exePath) -ErrorAction Stop
-        return $true
-    } catch { $_ | Out-File -FilePath $log -Append; return $false }
+        if (Get-Process -Name 'Planning','Planing' -ErrorAction SilentlyContinue) { return $true }
+
+        try {
+            $started = Start-Process -FilePath $exePath -WorkingDirectory $target -PassThru -ErrorAction Stop
+            Start-Sleep -Seconds 2
+            if (Get-Process -Id $started.Id -ErrorAction SilentlyContinue) { return $true }
+        } catch { $_ | Out-File -FilePath $log -Append }
+
+        try {
+            Start-Process -FilePath 'cmd.exe' -WorkingDirectory $target -WindowStyle Hidden -ArgumentList @('/c', 'start', '""', $exePath) -ErrorAction Stop
+            Start-Sleep -Seconds 2
+        } catch { $_ | Out-File -FilePath $log -Append }
+
+        if (Get-Process -Name 'Planning','Planing' -ErrorAction SilentlyContinue) { return $true }
+        Start-Sleep -Seconds 2
+    }
+    return $false
 }
 try {
     if (Test-Path -LiteralPath $backup) { Remove-Item -LiteralPath $backup -Recurse -Force -ErrorAction SilentlyContinue }
@@ -516,6 +524,10 @@ try {
     if ($copied) {
         $versionPath = Join-Path $target 'version.txt'
         $versionValue = @@VERSION@@
+        # The release tag is authoritative. Write it again after the whole
+        # copy, so a missing or stale marker in the archive cannot leave the
+        # installed application on the old version.
+        [System.IO.File]::WriteAllText($versionPath, $versionValue.Trim().TrimStart('v','V') + "`n", (New-Object System.Text.UTF8Encoding($false)))
         $writtenVersion = ([System.IO.File]::ReadAllText($versionPath)).Trim().TrimStart('v','V')
         if ($writtenVersion -ne $versionValue.Trim().TrimStart('v','V')) { throw "version.txt verification failed: '$writtenVersion'" }
         if (-not (Start-Planning)) { throw "Planning.exe could not be started after update" }

@@ -126,27 +126,25 @@ for %%D in (cache settings logs backups situazione) do (
 for /r "dist\Planning" %%F in (*.db *.sqlite *.sqlite3 *.pkl) do del /q "%%F"
 for /r "dist\Planning" %%F in (*.db-* *.sqlite-* *.sqlite3-*) do del /q "%%F"
 
-:: -- Release ZIP: only on request  (build.bat zip) -------------------------------
-:: The in-app updater downloads a release ZIP from GitHub, so one is needed when a
-:: release is published -- but not for everyday builds, and Compress-Archive is slow.
-set "ZIP_NOTE="
-if /i "%~1"=="zip" (
-    for /f "usebackq tokens=*" %%V in ("version.txt") do set "PLANNING_VERSION=%%V"
-    echo         Creating release ZIP ^(only because "zip" was requested^)...
-    powershell -NoProfile -ExecutionPolicy Bypass -Command "Compress-Archive -Path 'dist\Planning\*' -DestinationPath 'dist\Planning_v!PLANNING_VERSION!.zip' -Force"
-    if errorlevel 1 (
-        echo  [ERROR] Could not create the release ZIP.
-        if not defined PLANNING_NO_PAUSE pause
-        exit /b 1
-    )
-    "%VENV_PY%" -c "import sys, zipfile; p=r'dist\Planning_v!PLANNING_VERSION!.zip'; z=zipfile.ZipFile(p); names=set(z.namelist()); dll=any(n.replace('\\','/').lower().startswith('_internal/python3') and n.lower().endswith('.dll') for n in names); ok='Planning.exe' in names and '_internal/version.txt' in names and dll; print('Release ZIP contents: ' + ('OK' if ok else 'INCOMPLETE')); sys.exit(0 if ok else 1)"
-    if errorlevel 1 (
-        echo  [ERROR] Release ZIP must contain Planning.exe, _internal\version.txt, and _internal\python3*.dll.
-        if not defined PLANNING_NO_PAUSE pause
-        exit /b 1
-    )
-    set "ZIP_NOTE=   Release ZIP:   dist\Planning_v!PLANNING_VERSION!.zip"
+:: -- Release ZIP ---------------------------------------------------------------
+:: Always create the exact file that must be uploaded to GitHub.  It lives next
+:: to (not inside) dist\Planning, so it cannot accidentally be included in the
+:: next ZIP.  The file name is deliberately stable: its installed version comes
+:: from the GitHub release tag, not from the archive name.
+echo         Creating release ZIP...
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Compress-Archive -Path 'dist\Planning\*' -DestinationPath 'dist\Planning.zip' -Force"
+if errorlevel 1 (
+    echo  [ERROR] Could not create the release ZIP.
+    if not defined PLANNING_NO_PAUSE pause
+    exit /b 1
 )
+"%VENV_PY%" -c "import sys, zipfile; p=r'dist\Planning.zip'; z=zipfile.ZipFile(p); names=set(z.namelist()); dll=any(n.replace('\\','/').lower().startswith('_internal/python3') and n.lower().endswith('.dll') for n in names); ok='Planning.exe' in names and dll; print('Release ZIP contents: ' + ('OK' if ok else 'INCOMPLETE')); sys.exit(0 if ok else 1)"
+if errorlevel 1 (
+    echo  [ERROR] Release ZIP must contain Planning.exe and _internal\python3*.dll.
+    if not defined PLANNING_NO_PAUSE pause
+    exit /b 1
+)
+set "ZIP_NOTE=   Release ZIP:   dist\Planning.zip"
 echo.
 echo  ================================================
 echo    Build Complete!

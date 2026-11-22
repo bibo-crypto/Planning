@@ -32,6 +32,7 @@ import os
 import queue
 import sys
 import threading
+import time
 import tkinter as tk
 from datetime import datetime
 from pathlib import Path
@@ -501,8 +502,10 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
         # SQLite must be initialized before any tab tries to restore runtime
         # state. A clean installation has no database file yet, so every
         # schema used by the UI must exist before Situazione/DFM are created.
+        marks = {"start": time.perf_counter()}          # step timings, written to converter.log once the pages are built
         from utility import situazione_db
         situazione_db.init_db()
+        marks["database"] = time.perf_counter()
 
         # Only the pages needed for the landing dashboard are imported on the
         # critical startup path. Heavy order/conversion pages import their
@@ -511,6 +514,8 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
         from gui.tabs.overview_tab import OverviewTab
         from gui.tabs.prezzi_tab import PrezziTab
         from gui.tabs.situazione_tab import SituazioneTab
+
+        marks["tab_imports"] = time.perf_counter()
 
         def startup_step(text: str) -> None:
             self._startup_label.config(text=text)
@@ -917,6 +922,13 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
         bind_notebook_events(self)
         _on_any_tab_changed()
         self._restore_saved_paths()
+        marks["end"] = time.perf_counter()
+        # Where the start-up time goes (the log of one real installation showed 4-11 s): read this line in converter.log.
+        logger.info(
+            "Startup timing: database %.2f s | page imports %.2f s | widgets %.2f s | total %.2f s",
+            marks["database"] - marks["start"], marks["tab_imports"] - marks["database"],
+            marks["end"] - marks["tab_imports"], marks["end"] - marks["start"],
+        )
 
     def _focus_page_text_input(self, notebook: ttk.Notebook) -> None:
         """Place the caret in the first editable input on the active page."""

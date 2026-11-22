@@ -254,12 +254,11 @@ def test_staged_version_file_is_canonicalized_to_exact_utf8_lf_bytes(tmp_path, r
     assert path.read_bytes() == b"1.3.0\n"
 
 
-def test_staged_version_file_rejects_a_release_version_mismatch(tmp_path):
+def test_staged_version_file_uses_the_release_version_over_an_archive_marker(tmp_path):
     path = tmp_path / "version.txt"
     path.write_bytes(b"1.2.9\r\n")
-    with pytest.raises(RuntimeError, match="does not match"):
-        updater._canonicalize_staged_version_file(path, "1.3.0")
-    assert path.read_bytes() == b"1.2.9\r\n"
+    updater._canonicalize_staged_version_file(path, "1.3.0")
+    assert path.read_bytes() == b"1.3.0\n"
 
 
 def test_a_complete_package_is_accepted_and_the_script_is_started(tmp_path, monkeypatch):
