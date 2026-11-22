@@ -4,8 +4,10 @@ ADDED /tests/test_restore_all_or_nothing.py
 ADDED /tests/test_sqlite_open_retry.py
 ADDED /tests/test_style_sheet_equivalence.py
 ADDED /tests/test_tk_helpers.py
+ADDED /tests/test_warmup.py
 ADDED /tests/test_warnings_keep_the_traceback.py
 ADDED /tests/tk_helpers.py
+ADDED /utility/warmup.py
 CHANGED REVIEW_REPORT.md
 CHANGED calculate/prezzi.py
 CHANGED exporters/biglietti/workbook_io.py
@@ -21,6 +23,7 @@ CHANGED gui/tabs/situazione_sources.py
 CHANGED gui/workflows/bolla.py
 CHANGED gui/workflows/elvy_invoice.py
 CHANGED gui/workflows/purchase_orders.py
+CHANGED main.py
 CHANGED parsers/dfm_lookup.py
 CHANGED parsers/elvy_mapping.py
 CHANGED parsers/pdf_parser.py

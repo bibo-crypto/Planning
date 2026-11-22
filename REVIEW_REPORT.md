@@ -42,7 +42,23 @@ two custom number formats. Startup was measured too: importing the GUI takes 0.0
 empty profile (pandas/openpyxl load in the background), so no startup change was made. **Not measured:** the real Situazione/PDF
 workloads of the user's data and the packaged EXE on Windows.
 
-**Tests (executed, Linux, virtual display, PowerShell 7.4.6):** Python 3.12.3 **1067 passed, 2 skipped**; Python 3.14.10 **1067 passed,
+**What the user's `converter.log` (1287 lines, up to 2026-11-22) shows.**
+* Start-up: 26 starts, "Planning vX starting" -> "all pages built" took **4-11 s, average 7.5 s**, in every version. The window builds all
+  pages on the main thread and nearly all of that is importing pandas/numpy and openpyxl/lxml/Pillow one after the other.
+  New `utility/warmup.py` (called first thing in `main()`): two background threads import `numpy, pandas` and `lxml.etree, openpyxl` while the
+  window is built; the main thread still runs the same `import` lines and finds them done (or waits for the thread - import locks make it
+  safe); any error is swallowed so the normal import reports it as before; `PLANNING_NO_WARMUP=1` switches it off. **Benefit NOT measured:**
+  this sandbox has one CPU core (0.78 s without vs 0.75 s with, i.e. no harm), so the overlap can only be confirmed on the user's PC - compare the
+  "starting" -> "all pages built" times in the next log.
+* `disk I/O error` (5 times: 19 Oct restore at start-up, 19 Oct DFM snapshot, 12 Nov copertura cache, 13 Nov, 14 Nov in `snapshot_fingerprint`
+  -> `get_conn`) - the same signature the retry in `get_conn` / `orders_db` / `prezzi_db` now covers while opening. Only the 14 Nov one has a
+  traceback (those handlers had none: `exc_info` was added), so the exact statement of the others is unknown.
+* Versions in the log: `1.2.5 -> 1.2.6 -> 1.2.7 -> 1.0.2 (21 Nov) -> 1.3.0 -> 1.3.3`. The 1.0.2 build is a downgrade (a build whose `version.txt` said 1.0.2).
+  Up to 1.2.7 the version text carries an invisible BOM character (`v<U+FEFF>1.2.7`, 28 lines) - the repository's canonical `version.txt` fixes that.
+  The updater's own log (`%TEMP%\Planning_Update.log`) is NOT in `converter.log`, so why a given update failed cannot be read from this file.
+* Kamal: confirmed by the owner that Kamal's colour articles start with C170, so the repository's `KAMAL_ARTICLE_PREFIX` change is right and kept.
+
+**Tests (executed, Linux, virtual display, PowerShell 7.4.6):** Python 3.12.3 **1072 passed, 2 skipped**; Python 3.14.10 **1072 passed,
 2 skipped**. Skipped: 8.3 short-path test (Windows only) and the non-root permission test. Windows: **not verified** (no Windows here).
 
 ## Release preparation 1.3.3 (2026-11-22)

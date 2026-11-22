@@ -35,6 +35,11 @@ def _write_startup_error() -> Path | None:
 
 
 def main() -> None:
+    # Start importing pandas / openpyxl in the background NOW; the window is built meanwhile (utility/warmup.py).
+    from utility.warmup import start_import_warmup
+
+    start_import_warmup()
+
     from gui import ConverterApp
 
     app = ConverterApp()
