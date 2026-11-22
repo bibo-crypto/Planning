@@ -2,9 +2,9 @@
   "workflow": "tests",
   "conclusion": "success",
   "sha": "3b365ca",
-  "branch": "v1.3.6",
-  "url": "https://github.com/bibo-crypto/Planning/actions/runs/45072656808",
-  "written": "2026-11-22 21:38 UTC",
+  "branch": "v1.3.7",
+  "url": "https://github.com/bibo-crypto/Planning/actions/runs/45074201484",
+  "written": "2026-11-22 21:55 UTC",
   "jobs": [
     {
       "name": "pytest (3.12)",
@@ -19,7 +19,7 @@
   ],
   "pytest": {
     "pytest-log-py3.12": {
-      "summary": "1065 passed, 9 skipped in 272.32s (0:04:32)",
+      "summary": "1065 passed, 9 skipped in 313.05s (0:05:13)",
       "counts": {
         "passed": 1065,
         "skipped": 9
@@ -38,7 +38,7 @@
       ]
     },
     "pytest-log-py3.14": {
-      "summary": "1065 passed, 9 skipped in 274.38s (0:04:34)",
+      "summary": "1065 passed, 9 skipped in 238.12s (0:03:58)",
       "counts": {
         "passed": 1065,
         "skipped": 9
