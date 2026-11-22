@@ -2,9 +2,9 @@
   "workflow": "windows-exe",
   "conclusion": "success",
   "sha": "3b365ca",
-  "branch": "main",
-  "url": "https://github.com/bibo-crypto/Planning/actions/runs/45069399186",
-  "written": "2026-11-22 21:00 UTC",
+  "branch": "v1.3.6",
+  "url": "https://github.com/bibo-crypto/Planning/actions/runs/45072656824",
+  "written": "2026-11-22 21:34 UTC",
   "jobs": [
     {
       "name": "build-and-smoke-test",
