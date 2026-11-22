@@ -1,10 +1,10 @@
 {
   "workflow": "tests",
   "conclusion": "success",
-  "sha": "08ecf2b",
-  "branch": "v1.3.5",
-  "url": "https://github.com/bibo-crypto/Planning/actions/runs/45067191060",
-  "written": "2026-11-22 20:39 UTC",
+  "sha": "3b365ca",
+  "branch": "main",
+  "url": "https://github.com/bibo-crypto/Planning/actions/runs/45069399220",
+  "written": "2026-11-22 21:03 UTC",
   "jobs": [
     {
       "name": "pytest (3.14)",
@@ -19,10 +19,10 @@
   ],
   "pytest": {
     "pytest-log-py3.12": {
-      "summary": "1060 passed, 9 skipped in 194.84s (0:03:14)",
+      "summary": "1064 passed, 10 skipped in 212.92s (0:03:32)",
       "counts": {
-        "passed": 1060,
-        "skipped": 9
+        "passed": 1064,
+        "skipped": 10
       },
       "failed": [],
       "skipped": [
@@ -31,6 +31,7 @@
         "SKIPPED [1] tests\\test_ci_report.py:149: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)",
         "SKIPPED [1] tests\\test_ci_report.py:160: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)",
         "SKIPPED [1] tests\\test_ci_report.py:171: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)",
+        "SKIPPED [1] tests\\test_elvy_conversion_prezzi.py:80: no display",
         "SKIPPED [1] tests\\test_regressions.py:1452: win32com is available in this environment",
         "SKIPPED [1] tests\\test_update_script.py:120: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh",
         "SKIPPED [1] tests\\test_update_script.py:149: needs an unprivileged user: permissions do not bind root (verified by hand with runuser)",
@@ -38,9 +39,9 @@
       ]
     },
     "pytest-log-py3.14": {
-      "summary": "1060 passed, 9 skipped in 227.02s (0:03:47)",
+      "summary": "1065 passed, 9 skipped in 240.02s (0:04:00)",
       "counts": {
-        "passed": 1060,
+        "passed": 1065,
         "skipped": 9
       },
       "failed": [],
