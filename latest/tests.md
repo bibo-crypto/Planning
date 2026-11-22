@@ -1,26 +1,19 @@
-# tests — FAILURE
+# tests — SUCCESS
 
-- commit: `a3172dd` on `v1.3.4` — chore(release): bump version to 1.3.3
-- run: https://github.com/bibo-crypto/Planning/actions/runs/44957017843
-- event: push   |   report written: 2026-11-21 22:34 UTC
+- commit: `08ecf2b` on `main` — chore(release): bump version to 1.3.3
+- run: https://github.com/bibo-crypto/Planning/actions/runs/45066326246
+- event: push   |   report written: 2026-11-22 20:29 UTC
 
 ## Jobs
 
 | job | result | failed steps |
 |---|---|---|
-| pytest (3.14) | failure | Run the test suite |
-| pytest (3.12) | failure | Run the test suite |
+| pytest (3.14) | success | - |
+| pytest (3.12) | success | - |
 
 ## pytest — pytest-log-py3.12
 
-`4 failed, 979 passed, 9 skipped in 212.14s (0:03:32)`
-
-Failed / errored:
-
-- `FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_detaches_helper_from_any_job_object - RuntimeError: The update package is incomplete (the Python DLL is missing from _internal), so it was not installed.`
-- `FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_elevates_when_install_dir_unwritable - RuntimeError: The update package is incomplete (the Python DLL is missing from _internal), so it was not installed.`
-- `FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_generates_backup_and_rollback_script - RuntimeError: The update package is incomplete (the Python DLL is missing from _internal), so it was not installed.`
-- `FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_relaunches_de_elevated - RuntimeError: The update package is incomplete (the Python DLL is missing from _internal), so it was not installed.`
+`1060 passed, 9 skipped in 218.20s (0:03:38)`
 
 Skipped (reason):
 
@@ -36,14 +29,7 @@ Skipped (reason):
 
 ## pytest — pytest-log-py3.14
 
-`4 failed, 979 passed, 9 skipped in 190.23s (0:03:10)`
-
-Failed / errored:
-
-- `FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_detaches_helper_from_any_job_object - RuntimeError: The update package is incomplete (the Python DLL is missing from _internal), so it was not installed.`
-- `FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_elevates_when_install_dir_unwritable - RuntimeError: The update package is incomplete (the Python DLL is missing from _internal), so it was not installed.`
-- `FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_generates_backup_and_rollback_script - RuntimeError: The update package is incomplete (the Python DLL is missing from _internal), so it was not installed.`
-- `FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_relaunches_de_elevated - RuntimeError: The update package is incomplete (the Python DLL is missing from _internal), so it was not installed.`
+`1060 passed, 9 skipped in 194.37s (0:03:14)`
 
 Skipped (reason):
 
