@@ -1,8 +1,8 @@
 # windows-exe — SUCCESS
 
-- commit: `08ecf2b` on `v1.3.5` — chore(release): bump version to 1.3.3
-- run: https://github.com/bibo-crypto/Planning/actions/runs/45067191044
-- event: push   |   report written: 2026-11-22 20:36 UTC
+- commit: `3b365ca` on `main` — feat(warmup, docs, app): add test_warmup.py and warmup.py and update …
+- run: https://github.com/bibo-crypto/Planning/actions/runs/45069399186
+- event: push   |   report written: 2026-11-22 21:00 UTC
 
 ## Jobs
 
@@ -19,8 +19,8 @@ No pytest.log artifact for this run.
 - result: **OK** — `Planning started` logged 2× (expected 2: empty profile, then restart)
 
 ```
-2026-11-22 20:36:15  INFO      Planning v1.3.3 starting (data folder: D:\a\_temp\planning-smoke\LocalAppData\Planning)
-2026-11-22 20:36:17  INFO      Planning started: all pages built (v1.3.3)
-2026-11-22 20:36:19  INFO      Planning v1.3.3 starting (data folder: D:\a\_temp\planning-smoke\LocalAppData\Planning)
-2026-11-22 20:36:20  INFO      Planning started: all pages built (v1.3.3)
+2026-11-22 20:59:45  INFO      Planning v1.3.3 starting (data folder: D:\a\_temp\planning-smoke\LocalAppData\Planning)
+2026-11-22 20:59:47  INFO      Planning started: all pages built (v1.3.3)
+2026-11-22 20:59:49  INFO      Planning v1.3.3 starting (data folder: D:\a\_temp\planning-smoke\LocalAppData\Planning)
+2026-11-22 20:59:50  INFO      Planning started: all pages built (v1.3.3)
 ```
