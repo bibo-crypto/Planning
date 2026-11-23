@@ -3,6 +3,18 @@
 Review date: 2026-11-16. Basis: the project as pushed in commit `8cb47a1` (main) plus the changes listed in section 3.
 Nothing in this review was pushed or merged: the result is a complete project folder for testing on a Windows machine first.
 
+## Update stopped silently by antivirus / rollback with nothing said (2026-11-23)
+
+Owner's report: (1) an antivirus stops the update; (2) with it switched off the update seemed to roll back, with no message and the program not reopening.
+**Cause found by reading the code (no log was available, so this is a diagnosis, not a measurement):** `_finish_update` closed the program with `os._exit(0)` right after
+*launching* the helper, without knowing that the helper ran. If antivirus or a policy stops PowerShell or the script, the program simply vanishes and nothing happens; and even when the
+helper ran and rolled back, the only message was a note read at the NEXT start - useless if the old program was not reopened.
+**Fixes:** `UpdateLaunch` handshake (the helper writes `helper_started.txt` as its first act; the program waits 25 s / 180 s behind the Windows permission prompt before closing; otherwise it stays open,
+withdraws the update with `helper_cancel.txt` and explains); a late helper checks the withdrawal (twice) and changes nothing; the helper's log can no longer stop it; on rollback or error the helper
+shows a Windows message box (reason, whether the previous version runs, log path) after cleaning up. 12 tests in `tests/test_update_handoff.py` incl. the real helper; mutation checks: closing without waiting, and
+ignoring the cancel marker, make them fail. **Tests (executed, Linux, PowerShell 7.4.6):** Python 3.12.3 **1131 passed, 2 skipped**; Python 3.14.10 **1131 passed, 2 skipped** (updater test files ~6 min of that). **Not verified:** Windows PowerShell 5.1, the message box itself (replaced by a recorded text in tests), a real antivirus. The antivirus' own verdict and name are unknown:
+the helper is launched as `powershell -ExecutionPolicy Bypass -WindowStyle Hidden -File %TEMP%\...ps1`, a pattern some products flag; an exception for `powershell.exe` scripts in `%TEMP%` and for the install folder may be needed.
+
 ## Update: release tag = installed version (2026-11-23)
 
 Reviewed the owner's new logic (tag is authoritative; the ZIP name and its bundled `version.txt` do not matter). **Result of the review:**

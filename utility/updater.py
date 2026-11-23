@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from typing import Callable
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -336,12 +337,28 @@ def _canonicalize_staged_version_file(path: Path, expected_version: str | None =
 
 # The PowerShell helper.  Plain text with @@NAME@@ placeholders (not an f-string: PowerShell is full of braces).
 _UPDATE_SCRIPT_TEMPLATE = r"""$ErrorActionPreference = 'Stop'
+# FIRST thing: tell the program the helper is running (it waits for this before it closes itself).
+try { [System.IO.File]::WriteAllText(@@STARTED@@, 'started') } catch { }
 $log = Join-Path $env:TEMP 'Planning_Update.log'
 function Write-UpdateLog($message) {
-    ("{0}  {1}" -f (Get-Date -Format 's'), $message) | Out-File -FilePath $log -Append
+    # a log that cannot be written (full disk, antivirus) must never stop the update
+    try { ("{0}  {1}" -f (Get-Date -Format 's'), $message) | Out-File -FilePath $log -Append } catch { }
 }
 $script:clock = [System.Diagnostics.Stopwatch]::StartNew()
 Write-UpdateLog ("Update helper started: version {0}, installed in {1}" -f @@VERSION@@, @@TARGET@@)
+function Test-Cancelled {
+    # The program waited for the marker above, did not see it in time and withdrew the update: a helper that only now
+    # got started (a slow antivirus scan) must not touch the installation while the program is still open.
+    if (Test-Path -LiteralPath @@CANCEL@@) {
+        Write-UpdateLog 'The program withdrew this update (the helper started too late); nothing was changed.'
+        Remove-Item -LiteralPath @@ZIP@@ -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath @@STAGE@@ -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
+        return $true
+    }
+    return $false
+}
+if (Test-Cancelled) { exit 0 }
 # Give the old process time to fully exit and release its file locks, then
 # explicitly wait until no old Planning process remains before copying. The
 # fixed delay alone was not sufficient on slower machines/antivirus scans.
@@ -350,6 +367,7 @@ for ($check = 1; $check -le @@EXIT_CHECKS@@; $check++) {
     if (-not (Get-Process -Name 'Planning','Planing' -ErrorAction SilentlyContinue)) { break }
     Start-Sleep -Seconds @@EXIT_INTERVAL@@
 }
+if (Test-Cancelled) { exit 0 }
 $source = @@SOURCE@@
 $target = @@TARGET@@
 $backup = @@BACKUP@@
@@ -409,6 +427,22 @@ function Find-MissingFiles([string]$expectedRoot, [string]$actualRoot) {
 $newVersion = @@VERSION@@
 $notice = @@NOTICE@@
 Remove-Item -LiteralPath $notice -Force -ErrorAction SilentlyContinue
+$script:rolledBack = $false
+function Set-FinalMessage([string]$reason) {
+    # What the user is told in a Windows message box once everything else is done: why, and what state the installation is in.
+    $running = [bool](Get-Process -Name 'Planning','Planing' -ErrorAction SilentlyContinue)
+    if ($script:rolledBack -and $running) { $state = 'The previous version was restored and is running again.' }
+    elseif ($script:rolledBack) { $state = 'The previous version was restored, but it could not be started automatically - please start Planning yourself.' }
+    elseif (-not $script:backupVerified) { $state = 'The installation was left exactly as it was.' }
+    else { $state = "The previous version could NOT be restored completely; a full copy of it is in $backup" }
+    $script:finalMessage = "Planning could not be updated to $newVersion.`r`n`r`n$reason`r`n`r`n$state`r`n`r`nIf an antivirus program is blocking the update, allow Planning.exe and PowerShell scripts in $target and try again.`r`n`r`nDetails: $log"
+}
+function Show-UpdateMessage([string]$text) {
+    try {
+        Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop
+        [void][System.Windows.Forms.MessageBox]::Show($text, 'Planning update', 'OK', 'Warning')
+    } catch { Write-UpdateLog ('Could not show the message: ' + $_.Exception.Message) }
+}
 function Write-UpdateFailure([string]$reason) {
     # Leaves a note for the program: on its next start it tells the user the update was not installed, and why.
     try {
@@ -449,6 +483,7 @@ function Restore-Backup {
             }
         }
         Write-UpdateLog "Rolled back to the previous version (verified)."
+        $script:rolledBack = $true
     } catch { $_ | Out-File -FilePath $log -Append }
 }
 function Start-Planning {
@@ -565,12 +600,14 @@ try {
             Write-UpdateFailure 'The new version did not start, so the previous version was restored.'
             Restore-Backup
             Start-Planning | Out-Null
+            Set-FinalMessage 'The new version did not start (an antivirus program may have blocked it).'
         }
     } else {
         "Update copy never succeeded after @@ATTEMPTS@@ attempts -- rolling back to the previous version" | Out-File -FilePath $log -Append
         Write-UpdateFailure ('The new files could not be copied completely: ' + $lastProblem)
         Restore-Backup
         Start-Planning | Out-Null
+        Set-FinalMessage ('The new files could not be copied completely (an antivirus program may have removed or locked one): ' + $lastProblem)
     }
     } catch {
         $_ | Out-File -FilePath $log -Append
@@ -581,15 +618,18 @@ try {
         # update.
         Restore-Backup
         Start-Planning | Out-Null
+        Set-FinalMessage ([string]$_.Exception.Message)
     }
 Remove-Item -LiteralPath @@ZIP@@ -Force -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath @@STAGE@@ -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
+if ($script:finalMessage) { Show-UpdateMessage $script:finalMessage }
 """
 
 
 def build_update_script(*, source_dir: Path, install_dir: Path, backup_dir: Path, exe_path: Path, new_version: str,
-                        zip_path: Path, stage_root: Path, notice_path: Path | None = None, initial_delay: int = 5, exit_checks: int = 30,
+                        zip_path: Path, stage_root: Path, notice_path: Path | None = None, started_path: Path | None = None,
+                        cancel_path: Path | None = None, initial_delay: int = 5, exit_checks: int = 30,
                         exit_interval: int = 2, attempts: int = 20, retry_delay: int = 2,
                         start_checks: int = 36, start_interval: int = 5) -> str:
     """The text of the PowerShell helper that replaces the installed files once Planning has exited.
@@ -599,7 +639,8 @@ def build_update_script(*, source_dir: Path, install_dir: Path, backup_dir: Path
     values = {
         "SOURCE": _powershell_quote(source_dir), "TARGET": _powershell_quote(install_dir), "BACKUP": _powershell_quote(backup_dir),
         "EXE": _powershell_quote(exe_path), "VERSION": _powershell_quote(new_version), "ZIP": _powershell_quote(zip_path),
-        "STAGE": _powershell_quote(stage_root), "NOTICE": _powershell_quote(notice_path or UPDATE_FAILURE_NOTICE), "INITIAL_DELAY": str(int(initial_delay)), "EXIT_CHECKS": str(int(exit_checks)),
+        "STAGE": _powershell_quote(stage_root), "STARTED": _powershell_quote(started_path or stage_root / "helper_started.txt"),
+        "CANCEL": _powershell_quote(cancel_path or stage_root / "helper_cancel.txt"), "NOTICE": _powershell_quote(notice_path or UPDATE_FAILURE_NOTICE), "INITIAL_DELAY": str(int(initial_delay)), "EXIT_CHECKS": str(int(exit_checks)),
         "EXIT_INTERVAL": str(int(exit_interval)), "ATTEMPTS": str(int(attempts)), "RETRY_DELAY": str(int(retry_delay)),
         "START_CHECKS": str(int(start_checks)), "START_INTERVAL": str(int(start_interval)),
     }
@@ -609,7 +650,63 @@ def build_update_script(*, source_dir: Path, install_dir: Path, backup_dir: Path
     return script
 
 
-def install_update(zip_path: Path, install_dir: Path, new_version: str) -> None:
+# How long the program waits, before it closes itself, for the update helper to prove that it is running.  If antivirus or a
+# Windows policy stops PowerShell / the script, nothing else would ever tell the user: the program would simply disappear.
+HELPER_START_TIMEOUT_SECONDS = 25            # the helper starts hidden
+HELPER_START_TIMEOUT_ELEVATED_SECONDS = 180  # ... or behind the Windows "Do you want to allow this app" prompt, which waits for a click
+HELPER_POLL_SECONDS = 0.2
+
+
+@dataclass(frozen=True)
+class UpdateLaunch:
+    """What install_update started: the program waits for ``started_marker`` before it closes, and ``cancel`` withdraws the update."""
+
+    started_marker: Path
+    cancel_marker: Path
+    stage_root: Path
+    script_path: Path
+    elevated: bool
+
+    @property
+    def timeout(self) -> float:
+        return HELPER_START_TIMEOUT_ELEVATED_SECONDS if self.elevated else HELPER_START_TIMEOUT_SECONDS
+
+    def wait_until_started(self, pump: Callable[[], None] | None = None, *, timeout: float | None = None,
+                           sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic) -> bool:
+        """True as soon as the helper has written its marker (it is running and will take over), False after the timeout.
+
+        ``pump`` is called every poll (the window passes its ``update`` so it stays responsive while waiting).
+        """
+        deadline = clock() + (self.timeout if timeout is None else timeout)
+        while True:
+            if self.started_marker.exists():
+                return True
+            if clock() >= deadline:
+                return False
+            if pump is not None:
+                pump()
+            sleep(HELPER_POLL_SECONDS)
+
+    def cancel(self) -> None:
+        """The helper did not start in time: a helper that starts LATER must find this and leave everything as it is."""
+        try:
+            self.cancel_marker.write_text("cancelled by the program\n", encoding="utf-8")
+        except OSError:
+            _app_logger.warning("Update: could not write the cancel marker %s", self.cancel_marker, exc_info=True)
+
+
+def helper_not_started_message(launch: UpdateLaunch) -> str:
+    """The text for the user when the update helper never started (the program stays open, nothing was changed)."""
+    return (
+        "The update could not be started, so nothing was changed and Planning stays open.\n\n"
+        "Windows or an antivirus program most likely blocked the update helper (a PowerShell script that Planning writes to "
+        f"{launch.script_path.parent}). Allow it, or add an exception for that folder and for powershell.exe, then try again.\n\n"
+        + ("The Windows permission prompt was not approved in time. " if launch.elevated else "")
+        + f"Details: {Path(tempfile.gettempdir()) / 'Planning_Update.log'}"
+    )
+
+
+def install_update(zip_path: Path, install_dir: Path, new_version: str) -> UpdateLaunch:
     """Stage a ZIP update and start a hidden process that replaces files later.
 
     The running EXE cannot replace itself. The generated PowerShell helper
@@ -685,3 +782,4 @@ def install_update(zip_path: Path, install_dir: Path, new_version: str) -> None:
         shutil.rmtree(stage_root, ignore_errors=True)
         zip_path.unlink(missing_ok=True)
         raise
+    return UpdateLaunch(stage_root / "helper_started.txt", stage_root / "helper_cancel.txt", stage_root, script_path, elevated)

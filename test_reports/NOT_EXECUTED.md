@@ -1,5 +1,4 @@
 # Not executed / not verified
-- A real update on Windows (Windows PowerShell 5.1, antivirus, UAC, Program Files). The failure the owner saw after his tag change was NOT reproduced; its cause is unknown (no message was supplied).
-- The update logic WAS run on Linux with PowerShell 7 against the real published v1.3.7 asset (3364 files): staging, helper, installed version.txt = tag.
-- The 8.3 short-path test and the non-root permission test are skipped on Linux.
-- PyInstaller build, EXE smoke test.
+- Windows: the real update with Windows PowerShell 5.1, a real antivirus, the UAC prompt, the Windows message box (tests record its text instead).
+- The cause of the two incidents (antivirus stops the update; silent rollback) is a diagnosis from the code - no Planning_Update.log / message of those attempts was available.
+- 8.3 short-path test and non-root permission test: skipped on Linux. PyInstaller build and EXE smoke test.

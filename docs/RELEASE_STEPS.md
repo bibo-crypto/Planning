@@ -35,3 +35,14 @@ The updater downloads `Planning.zip` from the latest GitHub release, unpacks it,
    "New version copied and verified", "version.txt now says ...", "The new version is running". The last line present is where it stopped.
 3. `%LOCALAPPDATA%\Planning\update_failed.txt`, if it exists (the reason of a rollback).
 
+## What the user sees when something stops the update (pinned by `tests/test_update_handoff.py`)
+
+1. After the download the program starts the update helper (a PowerShell script written to `%TEMP%`) and **waits for it to prove it is
+   running** (25 s; 3 minutes when the Windows permission prompt is shown) before it closes. The helper's first act is to write
+   `helper_started.txt` in its stage folder.
+2. If the proof does not come (antivirus or a Windows policy stopped PowerShell or the script) the program **stays open**, withdraws the
+   update (`helper_cancel.txt`) and shows a message that says so. A helper that only starts later finds the withdrawal and changes nothing.
+3. If the helper itself fails or has to roll back, it shows a **Windows message box** with the reason, whether the previous version is
+   running again, and the log path - it no longer relies on the program being reopened to tell the user (the note `update_failed.txt` is
+   still written and shown at the next start).
+

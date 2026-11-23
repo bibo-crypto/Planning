@@ -1,5 +1,6 @@
-ADDED /tests/test_update_version_authority.py
+ADDED /tests/test_update_handoff.py
 CHANGED REVIEW_REPORT.md
 CHANGED docs/RELEASE_STEPS.md
+CHANGED gui/gui.py
 CHANGED tests/test_update_script.py
 CHANGED utility/updater.py

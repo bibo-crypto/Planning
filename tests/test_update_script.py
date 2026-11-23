@@ -71,7 +71,9 @@ class Run:
                   "start_checks": 2, "start_interval": 1, **timing}
         script = updater.build_update_script(source_dir=release, install_dir=install, backup_dir=self.backup,
                                              exe_path=install / "Planning.exe", new_version=new_version, zip_path=zip_path,
-                                             stage_root=release.parent, notice_path=notice_path or tmp_path / "update_failed.txt", **timing)
+                                             stage_root=release.parent, notice_path=notice_path or tmp_path / "update_failed.txt",
+                                             started_path=tmp_path / "started.txt", cancel_path=tmp_path / "cancel.txt", **timing)
+        self.started, self.cancel, self.message_file = tmp_path / "started.txt", tmp_path / "cancel.txt", tmp_path / "message.txt"
         # the script looks for the program by process name: use a name of its own so that tests running at the same
         # time (or a real Planning) cannot be mistaken for the program under test
         self.process_name = "pln" + uuid.uuid4().hex[:8]
@@ -87,6 +89,11 @@ class Run:
             fake.symlink_to(shutil.which("sleep"))
 
     def _stub_launcher(self, script, mode):
+        # the Windows message box cannot be shown here: the text it would show is recorded in message.txt instead
+        box = script.index("function Show-UpdateMessage")
+        box_end = script.index("\nfunction Write-UpdateFailure", box)
+        script = (script[:box] + f"function Show-UpdateMessage([string]$text) {{ Set-Content -LiteralPath '{self.tmp / 'message.txt'}' -Value $text }}"
+                  + script[box_end:])
         start = script.index("function Start-Planning {")
         end = script.index("\ntry {", start)
         launched, pidfile, fake = self.tmp / "launched.txt", self.tmp / "pid.txt", self.tmp / "bin" / self.process_name

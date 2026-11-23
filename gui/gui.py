@@ -41,7 +41,8 @@ from tkinter import filedialog, messagebox, ttk
 from utility.magazino_cache import load_magazino_cache
 from utility.utils import APP_DATA_DIR, load_settings, logger, save_settings
 from utility.updater import (
-    APP_VERSION, ReleaseInfo, check_for_updates_async, consume_update_failure_notice, download_installer, install_update,
+    APP_VERSION, ReleaseInfo, check_for_updates_async, consume_update_failure_notice, download_installer,
+    helper_not_started_message, install_update,
 )
 from utility import notifications
 from utility.backup import BACKUP_DIR, create_backup, daily_backup, restore_backup
@@ -445,11 +446,22 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
             self._update_status.config(text="Installing update…")
             self._update_progress_bar["value"] = 100
             self.update_idletasks()
-            install_update(
+            launch = install_update(
                 installer,
                 Path(sys.executable).resolve().parent,
                 self._pending_update_version,
             )
+            # Do not close until the helper has proved it is running: if antivirus or a Windows policy stops PowerShell or
+            # the script, closing now would make the program simply disappear with nothing changed and nothing said.
+            self._update_status.config(text="Starting the update… approve the Windows prompt if one appears.")
+            self.update_idletasks()
+            if not launch.wait_until_started(pump=self.update):
+                launch.cancel()
+                logger.error("Update: the helper did not start within %s s; the update was withdrawn (%s)", launch.timeout, launch.script_path)
+                if getattr(self, "_update_window", None) and self._update_window.winfo_exists():
+                    self._update_window.destroy()
+                messagebox.showerror("Planning update", helper_not_started_message(launch), parent=self)
+                return
             # self.destroy() alone stops mainloop() but does not guarantee
             # the OS process actually terminates -- if anything is still
             # holding a reference (a lingering thread, a live COM object
