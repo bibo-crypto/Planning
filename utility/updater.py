@@ -15,7 +15,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 import zipfile
 
-from utility.utils import APP_DATA_DIR
+from utility.utils import APP_DATA_DIR, logger as _app_logger
 
 DEFAULT_APP_VERSION = "1.3.6"
 GITHUB_REPOSITORY = "bibo-crypto/Planning"
@@ -294,6 +294,11 @@ def _check_package_is_complete(source_dir: Path, expected_version: str | None = 
     version_path = source_dir / "version.txt"
     if expected_version is not None:
         _canonicalize_staged_version_file(version_path, expected_version)
+        # A PyInstaller build also carries its own copy in _internal; the program reads the external one first and
+        # falls back to this one, so both must say the same thing or a stale value could surface later.
+        internal_version = source_dir / "_internal" / "version.txt"
+        if internal_version.is_file():
+            _canonicalize_staged_version_file(internal_version, expected_version)
     elif version_path.is_file():
         _canonicalize_staged_version_file(version_path)
     internal = source_dir / "_internal"
@@ -335,6 +340,8 @@ $log = Join-Path $env:TEMP 'Planning_Update.log'
 function Write-UpdateLog($message) {
     ("{0}  {1}" -f (Get-Date -Format 's'), $message) | Out-File -FilePath $log -Append
 }
+$script:clock = [System.Diagnostics.Stopwatch]::StartNew()
+Write-UpdateLog ("Update helper started: version {0}, installed in {1}" -f @@VERSION@@, @@TARGET@@)
 # Give the old process time to fully exit and release its file locks, then
 # explicitly wait until no old Planning process remains before copying. The
 # fixed delay alone was not sufficient on slower machines/antivirus scans.
@@ -495,7 +502,7 @@ try {
     }
     $script:previousFiles = $previous
     $script:backupVerified = $true
-    Write-UpdateLog "Backup of the current version copied and verified."
+    Write-UpdateLog ("Backup of the current version copied and verified ({0} file(s), {1:N0} s)." -f @($previous.Keys).Count, $script:clock.Elapsed.TotalSeconds)
 
     $copied = $false
     $lastProblem = ''
@@ -509,6 +516,7 @@ try {
             $problems = Find-MissingFiles $source $target
             if ($problems.Count -eq 0) {
                 $copied = $true
+                Write-UpdateLog ("New version copied and verified (attempt {0}, {1:N0} s since the start)." -f $attempt, $script:clock.Elapsed.TotalSeconds)
                 break
             }
             $lastProblem = ("{0} file(s) of the new version are not in place yet, for example {1}" -f $problems.Count, $problems[0])
@@ -530,6 +538,7 @@ try {
         [System.IO.File]::WriteAllText($versionPath, $versionValue.Trim().TrimStart('v','V') + "`n", (New-Object System.Text.UTF8Encoding($false)))
         $writtenVersion = ([System.IO.File]::ReadAllText($versionPath)).Trim().TrimStart('v','V')
         if ($writtenVersion -ne $versionValue.Trim().TrimStart('v','V')) { throw "version.txt verification failed: '$writtenVersion'" }
+        Write-UpdateLog ("version.txt now says {0}." -f $writtenVersion)
         if (-not (Start-Planning)) { throw "Planning.exe could not be started after update" }
         # Antivirus commonly intercepts a freshly-written, unsigned exe on
         # its first launch -- it can run its own scan/sandbox pass, kill
@@ -547,6 +556,7 @@ try {
             Start-Sleep -Seconds @@START_INTERVAL@@
             if (Get-Process -Name 'Planning','Planing' -ErrorAction SilentlyContinue) {
                 $sawRunning = $true
+                Write-UpdateLog ("The new version is running. Update finished ({0:N0} s)." -f $script:clock.Elapsed.TotalSeconds)
                 break
             }
         }
@@ -665,6 +675,10 @@ def install_update(zip_path: Path, install_dir: Path, new_version: str) -> None:
             getattr(subprocess, "CREATE_NO_WINDOW", 0)
             | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
             | getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0)
+        )
+        _app_logger.info(
+            "Update to %s: package checked (installed version will be the release tag), starting the helper%s; its log: %s",
+            new_version, " with administrator rights" if elevated else "", Path(tempfile.gettempdir()) / "Planning_Update.log",
         )
         _run_update_script(script_path, creation_flags, elevated)
     except Exception:

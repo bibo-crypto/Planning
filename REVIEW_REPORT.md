@@ -3,6 +3,32 @@
 Review date: 2026-11-16. Basis: the project as pushed in commit `8cb47a1` (main) plus the changes listed in section 3.
 Nothing in this review was pushed or merged: the result is a complete project folder for testing on a Windows machine first.
 
+## Update: release tag = installed version (2026-11-23)
+
+Reviewed the owner's new logic (tag is authoritative; the ZIP name and its bundled `version.txt` do not matter). **Result of the review:**
+* **Works on the real asset.** The published `v1.3.7/Planning.zip` (3364 entries, 82 MB, bundled `_internal/version.txt` = 1.3.6) was run through
+  `_safe_extract` -> `_check_package_is_complete(..., "1.3.7")` -> the real PowerShell helper (PowerShell 7, Linux; launcher stubbed):
+  the staged marker became `1.3.7`, 3343 files were installed, `version.txt` = `1.3.7`, the helper ended normally (44 s). Not run: Windows PowerShell 5.1 with
+  antivirus on the owner's machine - **the failure he reported could therefore not be reproduced here, and its cause is unknown** (his message was not
+  included). The helper now logs its phases with timings (see `docs/RELEASE_STEPS.md`, "When an update fails").
+* **Broken by that change: the test suite.** His new `Start-Planning` retry loop contains the process-name pattern four times; the harness asserted `== 2`,
+  so every `Run`-based helper test failed at the repository head (about 15 tests). Fixed (`>= 2`).
+* **Gap fixed:** only the external `version.txt` received the tag; `_internal/version.txt` kept the old number (the fallback the program reads if the
+  external one is missing). Both are now written.
+* `tools/check_release_zip.py` already matched the new rule (it no longer compares the bundled version with the tag).
+* **Test-environment accident (mine):** a manual simulation passed the helper a wrong `stage_root`; the helper deletes its stage folder when it finishes, so it
+  removed my sandbox temp folder. The real `install_update` always passes its own stage folder; nothing in the program is affected.
+
+New `tests/test_update_version_authority.py` (39 tests) pins the behaviour: staging for every combination of bundled markers (absent/same/older/newer/BOM+CRLF/garbage/stale `_internal`),
+every spelling of the tag, invalid tags refused without writing, an incomplete package never accepted, `install_update` for the flat / `Planning/` / `dist/Planning/` ZIP layouts,
+the real helper (the program reports the tag and offers only newer releases; two updates in a row; stale staged marker; rollback keeps the old marker), reading order of the two markers,
+the latest-release parsing (`Planning.zip` preferred), and the contract in `build.bat`, the helper template and `docs/RELEASE_STEPS.md`. Three deliberate breakages of the code
+(strict version match, `_internal` marker, final helper write) make these tests fail.
+
+**Tests (executed, Linux, virtual display, PowerShell 7.4.6):** Python 3.12.3 **1119 passed, 2 skipped**; Python 3.14.10 **1119 passed, 2 skipped**
+(the repository head had 1080 tests; about 15 of them failed there until the harness assertion was fixed). Skipped: 8.3 short-path test (Windows only) and the
+non-root permission test. The two updater test files take about 4.5 minutes of that. Windows: **not verified**.
+
 ## Update failure "the Python DLL is missing from _internal" (2026-11-22) - cause and fix
 
 The message is shown by the application BEFORE the helper runs, so there is no new `Planning_Update.log` (the uploaded one is from 18 and

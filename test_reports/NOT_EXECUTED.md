@@ -1,5 +1,5 @@
 # Not executed / not verified
-- Windows: real update (8.3 path, SHA-256 manifests, rollback message), verify_windows.ps1 as a whole, PyInstaller build, EXE smoke, Windows PowerShell 5.1.
+- A real update on Windows (Windows PowerShell 5.1, antivirus, UAC, Program Files). The failure the owner saw after his tag change was NOT reproduced; its cause is unknown (no message was supplied).
+- The update logic WAS run on Linux with PowerShell 7 against the real published v1.3.7 asset (3364 files): staging, helper, installed version.txt = tag.
 - The 8.3 short-path test and the non-root permission test are skipped on Linux.
-- Speed on the user's real data (Situazione, PDFs) and in the packaged EXE.
-- Result window of 10 s: a result that cannot be shown within 10 s (modal dialog open longer) is dropped (flag released) - by design.
+- PyInstaller build, EXE smoke test.

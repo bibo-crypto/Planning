@@ -62,7 +62,7 @@ def make_release(root: Path, with_dll: bool = True) -> Path:
 
 
 class Run:
-    def __init__(self, tmp_path, release, install, backup=None, mode="run", notice_path=None, **timing):
+    def __init__(self, tmp_path, release, install, backup=None, mode="run", notice_path=None, new_version="9.9.9", **timing):
         self.tmp, self.install = tmp_path, install
         self.backup = backup or install.parent / "Planning_Backup"
         zip_path = tmp_path / "release.zip"
@@ -70,13 +70,13 @@ class Run:
         timing = {"initial_delay": 0, "exit_checks": 1, "exit_interval": 0, "attempts": 2, "retry_delay": 0,
                   "start_checks": 2, "start_interval": 1, **timing}
         script = updater.build_update_script(source_dir=release, install_dir=install, backup_dir=self.backup,
-                                             exe_path=install / "Planning.exe", new_version="9.9.9", zip_path=zip_path,
+                                             exe_path=install / "Planning.exe", new_version=new_version, zip_path=zip_path,
                                              stage_root=release.parent, notice_path=notice_path or tmp_path / "update_failed.txt", **timing)
         # the script looks for the program by process name: use a name of its own so that tests running at the same
         # time (or a real Planning) cannot be mistaken for the program under test
         self.process_name = "pln" + uuid.uuid4().hex[:8]
         script, replaced = re.subn(r"Get-Process -Name '[^']*'(?:,'[^']*')*", f"Get-Process -Name '{self.process_name}'", script)
-        assert replaced == 2                                       # the wait for the old process to exit, and the start check
+        assert replaced >= 2                                       # the wait for the old process to exit, and every start check
         self.script = self._stub_launcher(script, mode)
         self.script_path = tmp_path / "update.ps1"
         self.script_path.write_text(self.script, encoding="utf-8")
