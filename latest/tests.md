@@ -1,38 +1,27 @@
-# tests — SUCCESS
+# tests — FAILURE
 
-- commit: `44b7285` on `main` — update(CHANGED-FILES-vs-repository, docs, updater): 1 added, 6 modifi…
-- run: https://github.com/bibo-crypto/Planning/actions/runs/45212083349
-- event: push   |   report written: 2026-11-23 16:09 UTC
+- commit: `fccdfb1` on `main` — update(updater, docs, gui): 1 added, 7 modified (+338/-12)
+- run: https://github.com/bibo-crypto/Planning/actions/runs/45272631471
+- event: push   |   report written: 2026-11-23 21:50 UTC
 
 ## Jobs
 
 | job | result | failed steps |
 |---|---|---|
-| pytest (3.14) | success | - |
-| pytest (3.12) | success | - |
+| pytest (3.12) | failure | Run the test suite |
+| pytest (3.14) | failure | Run the test suite |
 
 ## pytest — pytest-log-py3.12
 
-`1109 passed, 12 skipped in 241.70s (0:04:01)`
-
-Skipped (reason):
-
-- `SKIPPED [1] tests\test_ci_report.py:131: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)`
-- `SKIPPED [1] tests\test_ci_report.py:138: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)`
-- `SKIPPED [1] tests\test_ci_report.py:149: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)`
-- `SKIPPED [1] tests\test_ci_report.py:160: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)`
-- `SKIPPED [1] tests\test_ci_report.py:171: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)`
-- `SKIPPED [1] tests\test_regressions.py:1452: win32com is available in this environment`
-- `SKIPPED [1] tests\test_update_script.py:120: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh`
-- `SKIPPED [1] tests\test_update_script.py:149: needs an unprivileged user: permissions do not bind root (verified by hand with runuser)`
-- `SKIPPED [1] tests\test_update_script.py:389: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh`
-- `SKIPPED [1] tests\test_update_version_authority.py:110: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh`
-- `SKIPPED [1] tests\test_update_version_authority.py:127: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh`
-- `SKIPPED [1] tests\test_update_version_authority.py:137: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh`
+`no pytest summary line found`
 
 ## pytest — pytest-log-py3.14
 
-`1109 passed, 12 skipped in 281.09s (0:04:41)`
+`1 failed, 1119 passed, 13 skipped, 3 warnings in 282.01s (0:04:42)`
+
+Failed / errored:
+
+- `FAILED tests/test_update_handoff.py::test_an_unexpected_error_also_ends_with_a_message - FileNotFoundError: [Errno 2] No such file or directory: 'C:\\Users\\runneradmin\\AppData\\Local\\Temp\\pytest-of-runneradmin\\pytest-0\\test_an_unexpected_error_also_0\\message.txt'`
 
 Skipped (reason):
 
@@ -42,9 +31,10 @@ Skipped (reason):
 - `SKIPPED [1] tests\test_ci_report.py:160: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)`
 - `SKIPPED [1] tests\test_ci_report.py:171: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)`
 - `SKIPPED [1] tests\test_regressions.py:1452: win32com is available in this environment`
-- `SKIPPED [1] tests\test_update_script.py:120: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh`
-- `SKIPPED [1] tests\test_update_script.py:149: needs an unprivileged user: permissions do not bind root (verified by hand with runuser)`
-- `SKIPPED [1] tests\test_update_script.py:389: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh`
+- `SKIPPED [1] tests\test_update_handoff.py:99: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh`
+- `SKIPPED [1] tests\test_update_script.py:127: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh`
+- `SKIPPED [1] tests\test_update_script.py:156: needs an unprivileged user: permissions do not bind root (verified by hand with runuser)`
+- `SKIPPED [1] tests\test_update_script.py:396: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh`
 - `SKIPPED [1] tests\test_update_version_authority.py:110: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh`
 - `SKIPPED [1] tests\test_update_version_authority.py:127: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh`
 - `SKIPPED [1] tests\test_update_version_authority.py:137: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh`

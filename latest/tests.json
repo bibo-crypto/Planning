@@ -1,52 +1,44 @@
 {
   "workflow": "tests",
-  "conclusion": "success",
-  "sha": "44b7285",
+  "conclusion": "failure",
+  "sha": "fccdfb1",
   "branch": "main",
-  "url": "https://github.com/bibo-crypto/Planning/actions/runs/45212083349",
-  "written": "2026-11-23 16:09 UTC",
+  "url": "https://github.com/bibo-crypto/Planning/actions/runs/45272631471",
+  "written": "2026-11-23 21:50 UTC",
   "jobs": [
     {
-      "name": "pytest (3.14)",
-      "conclusion": "success",
-      "failed_steps": []
+      "name": "pytest (3.12)",
+      "conclusion": "failure",
+      "failed_steps": [
+        "Run the test suite"
+      ]
     },
     {
-      "name": "pytest (3.12)",
-      "conclusion": "success",
-      "failed_steps": []
+      "name": "pytest (3.14)",
+      "conclusion": "failure",
+      "failed_steps": [
+        "Run the test suite"
+      ]
     }
   ],
   "pytest": {
     "pytest-log-py3.12": {
-      "summary": "1109 passed, 12 skipped in 241.70s (0:04:01)",
-      "counts": {
-        "passed": 1109,
-        "skipped": 12
-      },
+      "summary": "no pytest summary line found",
+      "counts": {},
       "failed": [],
-      "skipped": [
-        "SKIPPED [1] tests\\test_ci_report.py:131: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)",
-        "SKIPPED [1] tests\\test_ci_report.py:138: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)",
-        "SKIPPED [1] tests\\test_ci_report.py:149: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)",
-        "SKIPPED [1] tests\\test_ci_report.py:160: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)",
-        "SKIPPED [1] tests\\test_ci_report.py:171: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)",
-        "SKIPPED [1] tests\\test_regressions.py:1452: win32com is available in this environment",
-        "SKIPPED [1] tests\\test_update_script.py:120: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh",
-        "SKIPPED [1] tests\\test_update_script.py:149: needs an unprivileged user: permissions do not bind root (verified by hand with runuser)",
-        "SKIPPED [1] tests\\test_update_script.py:389: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh",
-        "SKIPPED [1] tests\\test_update_version_authority.py:110: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh",
-        "SKIPPED [1] tests\\test_update_version_authority.py:127: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh",
-        "SKIPPED [1] tests\\test_update_version_authority.py:137: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh"
-      ]
+      "skipped": []
     },
     "pytest-log-py3.14": {
-      "summary": "1109 passed, 12 skipped in 281.09s (0:04:41)",
+      "summary": "1 failed, 1119 passed, 13 skipped, 3 warnings in 282.01s (0:04:42)",
       "counts": {
-        "passed": 1109,
-        "skipped": 12
+        "failed": 1,
+        "passed": 1119,
+        "skipped": 13,
+        "warning": 3
       },
-      "failed": [],
+      "failed": [
+        "FAILED tests/test_update_handoff.py::test_an_unexpected_error_also_ends_with_a_message - FileNotFoundError: [Errno 2] No such file or directory: 'C:\\\\Users\\\\runneradmin\\\\AppData\\\\Local\\\\Temp\\\\pytest-of-runneradmin\\\\pytest-0\\\\test_an_unexpected_error_also_0\\\\message.txt'"
+      ],
       "skipped": [
         "SKIPPED [1] tests\\test_ci_report.py:131: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)",
         "SKIPPED [1] tests\\test_ci_report.py:138: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)",
@@ -54,15 +46,18 @@
         "SKIPPED [1] tests\\test_ci_report.py:160: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)",
         "SKIPPED [1] tests\\test_ci_report.py:171: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)",
         "SKIPPED [1] tests\\test_regressions.py:1452: win32com is available in this environment",
-        "SKIPPED [1] tests\\test_update_script.py:120: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh",
-        "SKIPPED [1] tests\\test_update_script.py:149: needs an unprivileged user: permissions do not bind root (verified by hand with runuser)",
-        "SKIPPED [1] tests\\test_update_script.py:389: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh",
+        "SKIPPED [1] tests\\test_update_handoff.py:99: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh",
+        "SKIPPED [1] tests\\test_update_script.py:127: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh",
+        "SKIPPED [1] tests\\test_update_script.py:156: needs an unprivileged user: permissions do not bind root (verified by hand with runuser)",
+        "SKIPPED [1] tests\\test_update_script.py:396: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh",
         "SKIPPED [1] tests\\test_update_version_authority.py:110: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh",
         "SKIPPED [1] tests\\test_update_version_authority.py:127: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh",
         "SKIPPED [1] tests\\test_update_version_authority.py:137: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh"
       ]
     }
   },
-  "failed_tests": [],
+  "failed_tests": [
+    "pytest-log-py3.14: FAILED tests/test_update_handoff.py::test_an_unexpected_error_also_ends_with_a_message - FileNotFoundError: [Errno 2] No such file or directory: 'C:\\\\Users\\\\runneradmin\\\\AppData\\\\Local\\\\Temp\\\\pytest-of-runneradmin\\\\pytest-0\\\\test_an_unexpected_error_also_0\\\\message.txt'"
+  ],
   "exe_smoke": null
 }
