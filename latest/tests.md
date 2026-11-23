@@ -1,8 +1,8 @@
 # tests — FAILURE
 
-- commit: `1e79dab` on `main` — chore(release): bump version to 1.3.6
-- run: https://github.com/bibo-crypto/Planning/actions/runs/45083171035
-- event: push   |   report written: 2026-11-22 23:31 UTC
+- commit: `1e79dab` on `v1.3.8` — chore(release): bump version to 1.3.6
+- run: https://github.com/bibo-crypto/Planning/actions/runs/45211961986
+- event: push   |   report written: 2026-11-23 16:08 UTC
 
 ## Jobs
 
@@ -13,7 +13,7 @@
 
 ## pytest — pytest-log-py3.12
 
-`9 failed, 1063 passed, 10 skipped in 241.58s (0:04:01)`
+`9 failed, 1064 passed, 9 skipped in 274.36s (0:04:34)`
 
 Failed / errored:
 
@@ -34,7 +34,6 @@ Skipped (reason):
 - `SKIPPED [1] tests\test_ci_report.py:149: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)`
 - `SKIPPED [1] tests\test_ci_report.py:160: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)`
 - `SKIPPED [1] tests\test_ci_report.py:171: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)`
-- `SKIPPED [1] tests\test_master_data_pages.py:59: no display available`
 - `SKIPPED [1] tests\test_regressions.py:1452: win32com is available in this environment`
 - `SKIPPED [1] tests\test_update_script.py:120: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh`
 - `SKIPPED [1] tests\test_update_script.py:149: needs an unprivileged user: permissions do not bind root (verified by hand with runuser)`
@@ -42,7 +41,7 @@ Skipped (reason):
 
 ## pytest — pytest-log-py3.14
 
-`9 failed, 1064 passed, 9 skipped in 294.64s (0:04:54)`
+`9 failed, 1064 passed, 9 skipped in 227.41s (0:03:47)`
 
 Failed / errored:
 
