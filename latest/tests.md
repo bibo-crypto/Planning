@@ -1,23 +1,30 @@
 # tests — FAILURE
 
-- commit: `fccdfb1` on `v1.3.10` — update(updater, docs, gui): 1 added, 7 modified (+338/-12)
-- run: https://github.com/bibo-crypto/Planning/actions/runs/45490971847
-- event: push   |   report written: 2026-11-24 21:31 UTC
+- commit: `ec5a269` on `v1.3.11` — fix(updater): publish complete installer release
+- run: https://github.com/bibo-crypto/Planning/actions/runs/45495194840
+- event: push   |   report written: 2026-11-24 21:55 UTC
 
 ## Jobs
 
 | job | result | failed steps |
 |---|---|---|
-| pytest (3.14) | failure | Run the test suite |
 | pytest (3.12) | failure | Run the test suite |
+| pytest (3.14) | failure | Run the test suite |
 
 ## pytest — pytest-log-py3.12
 
-`1 failed, 1119 passed, 13 skipped in 231.34s (0:03:51)`
+`8 failed, 1065 passed, 6 skipped in 212.50s (0:03:32)`
 
 Failed / errored:
 
-- `FAILED tests/test_update_handoff.py::test_an_unexpected_error_also_ends_with_a_message - FileNotFoundError: [Errno 2] No such file or directory: 'C:\\Users\\runneradmin\\AppData\\Local\\Temp\\pytest-of-runneradmin\\pytest-0\\test_an_unexpected_error_also_0\\message.txt'`
+- `FAILED tests/test_regressions.py::PlanningRegressionTests::test_download_installer_rejects_corrupt_zip - AssertionError: 'corrupt' not found in 'the release does not contain a planning_setup windows installer.'`
+- `FAILED tests/test_regressions.py::PlanningRegressionTests::test_download_installer_rejects_truncated_download - AssertionError: 'incomplete' not found in 'the release does not contain a planning_setup windows installer.'`
+- `FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_detaches_helper_from_any_job_object - AttributeError: module 'utility.updater' has no attribute 'install_update'`
+- `FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_elevates_when_install_dir_unwritable - AttributeError: module 'utility.updater' has no attribute 'install_update'`
+- `FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_generates_backup_and_rollback_script - AttributeError: module 'utility.updater' has no attribute 'install_update'`
+- `FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_relaunches_de_elevated - AttributeError: module 'utility.updater' has no attribute 'install_update'`
+- `FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_requires_frozen_app - ImportError: cannot import name 'install_update' from 'utility.updater' (D:\a\Planning\Planning\utility\updater.py)`
+- `FAILED tests/test_regressions.py::PlanningRegressionTests::test_safe_extract_blocks_zip_slip - ImportError: cannot import name '_safe_extract' from 'utility.updater' (D:\a\Planning\Planning\utility\updater.py)`
 
 Skipped (reason):
 
@@ -27,21 +34,21 @@ Skipped (reason):
 - `SKIPPED [1] tests\test_ci_report.py:160: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)`
 - `SKIPPED [1] tests\test_ci_report.py:171: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)`
 - `SKIPPED [1] tests\test_regressions.py:1452: win32com is available in this environment`
-- `SKIPPED [1] tests\test_update_handoff.py:99: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh`
-- `SKIPPED [1] tests\test_update_script.py:127: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh`
-- `SKIPPED [1] tests\test_update_script.py:156: needs an unprivileged user: permissions do not bind root (verified by hand with runuser)`
-- `SKIPPED [1] tests\test_update_script.py:396: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh`
-- `SKIPPED [1] tests\test_update_version_authority.py:110: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh`
-- `SKIPPED [1] tests\test_update_version_authority.py:127: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh`
-- `SKIPPED [1] tests\test_update_version_authority.py:137: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh`
 
 ## pytest — pytest-log-py3.14
 
-`1 failed, 1119 passed, 13 skipped in 265.72s (0:04:25)`
+`8 failed, 1065 passed, 6 skipped in 173.83s (0:02:53)`
 
 Failed / errored:
 
-- `FAILED tests/test_update_handoff.py::test_an_unexpected_error_also_ends_with_a_message - FileNotFoundError: [Errno 2] No such file or directory: 'C:\\Users\\runneradmin\\AppData\\Local\\Temp\\pytest-of-runneradmin\\pytest-0\\test_an_unexpected_error_also_0\\message.txt'`
+- `FAILED tests/test_regressions.py::PlanningRegressionTests::test_download_installer_rejects_corrupt_zip - AssertionError: 'corrupt' not found in 'the release does not contain a planning_setup windows installer.'`
+- `FAILED tests/test_regressions.py::PlanningRegressionTests::test_download_installer_rejects_truncated_download - AssertionError: 'incomplete' not found in 'the release does not contain a planning_setup windows installer.'`
+- `FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_detaches_helper_from_any_job_object - AttributeError: module 'utility.updater' has no attribute 'install_update'`
+- `FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_elevates_when_install_dir_unwritable - AttributeError: module 'utility.updater' has no attribute 'install_update'`
+- `FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_generates_backup_and_rollback_script - AttributeError: module 'utility.updater' has no attribute 'install_update'`
+- `FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_relaunches_de_elevated - AttributeError: module 'utility.updater' has no attribute 'install_update'`
+- `FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_requires_frozen_app - ImportError: cannot import name 'install_update' from 'utility.updater' (D:\a\Planning\Planning\utility\updater.py)`
+- `FAILED tests/test_regressions.py::PlanningRegressionTests::test_safe_extract_blocks_zip_slip - ImportError: cannot import name '_safe_extract' from 'utility.updater' (D:\a\Planning\Planning\utility\updater.py)`
 
 Skipped (reason):
 
@@ -51,10 +58,3 @@ Skipped (reason):
 - `SKIPPED [1] tests\test_ci_report.py:160: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)`
 - `SKIPPED [1] tests\test_ci_report.py:171: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)`
 - `SKIPPED [1] tests\test_regressions.py:1452: win32com is available in this environment`
-- `SKIPPED [1] tests\test_update_handoff.py:99: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh`
-- `SKIPPED [1] tests\test_update_script.py:127: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh`
-- `SKIPPED [1] tests\test_update_script.py:156: needs an unprivileged user: permissions do not bind root (verified by hand with runuser)`
-- `SKIPPED [1] tests\test_update_script.py:396: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh`
-- `SKIPPED [1] tests\test_update_version_authority.py:110: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh`
-- `SKIPPED [1] tests\test_update_version_authority.py:127: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh`
-- `SKIPPED [1] tests\test_update_version_authority.py:137: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh`
