@@ -2,8 +2,8 @@
   "workflow": "windows-exe",
   "conclusion": "success",
   "sha": "ec5a269",
-  "branch": "v1.3.11",
-  "url": "https://github.com/bibo-crypto/Planning/actions/runs/45495194932",
+  "branch": "main",
+  "url": "https://github.com/bibo-crypto/Planning/actions/runs/45495195053",
   "written": "2026-11-24 21:53 UTC",
   "jobs": [
     {
