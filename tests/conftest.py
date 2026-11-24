@@ -6,6 +6,39 @@ from tests.git_helpers import git, write
 
 
 @pytest.fixture(autouse=True, scope="session")
+def tk_objects_are_never_freed_by_a_worker_thread():
+    """Keep every Tk root and Tk variable alive until the interpreter exits.
+
+    A background thread of the application keeps a reference to widgets through its closure.  When a test is over and
+    the thread is the LAST one to let go of the root (or of a Tk variable), CPython frees the Tcl interpreter in the
+    wrong thread and the whole test run dies with "Fatal Python error: Aborted" ("Tcl_AsyncDelete: async handler deleted by
+    the wrong thread"; on Windows "Windows fatal exception: code 0x80000003").  It showed up as a crash in post_to_ui ->
+    after() -> _register (CI log of Python 3.12).  Several test modules already kept their objects by hand (``KEEP``); this does it
+    for every test, so the end of a test can never decide which thread frees the interpreter.
+    """
+    import tkinter
+
+    alive = []
+    originals = {}
+    for cls in (tkinter.Tk, tkinter.Variable):
+        originals[cls] = cls.__init__
+
+        def make(original):
+            def init(self, *args, **kwargs):
+                alive.append(self)
+                original(self, *args, **kwargs)
+            init.__wrapped__ = original
+            return init
+
+        cls.__init__ = make(cls.__init__)
+    try:
+        yield alive
+    finally:
+        for cls, original in originals.items():
+            cls.__init__ = original
+
+
+@pytest.fixture(autouse=True, scope="session")
 def git_never_looks_above_the_pytest_basetemp(tmp_path_factory):
     """Stop git from searching for a repository above pytest's base temp folder.
 

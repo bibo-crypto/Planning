@@ -1,6 +1,11 @@
-ADDED /tests/test_update_handoff.py
+ADDED /tests/test_update_system.py
+ADDED /tests/test_update_window.py
 CHANGED REVIEW_REPORT.md
+CHANGED build.bat
 CHANGED docs/RELEASE_STEPS.md
-CHANGED gui/gui.py
-CHANGED tests/test_update_script.py
+CHANGED tests/conftest.py
+CHANGED tools/check_release_zip.py
 CHANGED utility/updater.py
+REMOVED /tests/test_update_handoff.py
+REMOVED /tests/test_update_script.py
+REMOVED /tests/test_update_version_authority.py

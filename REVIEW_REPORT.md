@@ -3,6 +3,38 @@
 Review date: 2026-11-16. Basis: the project as pushed in commit `8cb47a1` (main) plus the changes listed in section 3.
 Nothing in this review was pushed or merged: the result is a complete project folder for testing on a Windows machine first.
 
+## Update system restored from the release in which it worked (2026-11-24)
+
+**Evidence from the owner's machine:** the hand-over message appeared, and the antivirus alert (RAV Endpoint Protection) names
+`Planning_UpdateBootstrap_*.ps1` as "Suspicious PowerShell script activity - Risk.Powershell.Script.Gen.DIYST: small PowerShell script that uses
+common techniques like hidden execution, downloading files, or launching other programs" and removes it in real time, so the helper never ran.
+The helper had grown from ~91 lines of code (6.7 KB, the release `v1.0.2` that the owner tested himself) to ~250 (hashing, .NET calls, `Add-Type`
+message boxes, manifests). Which construct RAV objects to cannot be known from here; the sure way is to go back to the proven script.
+**What was done (only the update system, the dist ZIP and version.txt handling were taken from the old release, as asked):**
+* `utility/updater.py`: the update part is the old script again (backup, copy, write the tag into `version.txt`, start, roll back), with four small
+  additions: a start marker written first and a cancel check (the program must know the helper runs), a note for the next start when an update fails,
+  a backup that must be complete before any rollback may delete anything, and `version.txt` written as ASCII (Windows PowerShell's "UTF8" adds a byte
+  order mark - the logs show `v<U+FEFF>1.2.7`). The script file gets a byte order mark so a path with Arabic characters is read correctly.
+  Kept from the later work (unrelated to the script): the check that a package is a whole program (`Planning.exe` + `_internal\python3*.dll`),
+  reading `version.txt` with a BOM tolerated, the hand-over wait in the window. Launch arguments are unchanged (identical to the old release).
+  The script is now 126 lines of code / 9 KB; the tests fail above 130 lines.
+* `build.bat`: the old on-request `build.bat zip` -> `dist\Planning_v<version>.zip` (the whole `dist\Planning` folder), plus the content check
+  (`tools\check_release_zip.py`) so an incomplete ZIP can never be uploaded. The updater takes any `.zip` asset, preferring `Planning*.zip`.
+* The version is the GitHub release tag (as in the old release): the helper writes it to `version.txt`, which is read first.
+* Tests: `tests/test_update_system.py` (56) replaces `test_update_script.py`, `test_update_version_authority.py`, `test_update_handoff.py` (they tested the removed
+  script); `tests/test_update_window.py` keeps the window hand-over tests. They pin: script size and structure; 20 constructs an antivirus treats as suspicious
+  must not appear; the real script run with PowerShell (good update; backup that cannot be made / is incomplete; copy that never succeeds; new version that never
+  starts; unexpected error; cancelled helper); the tag as version; every ZIP layout; incomplete packages refused; the installer-asset choice; the start marker and
+  timeouts; `build.bat` (zip on request, versioned name, check, CRLF); docs; version files. Deliberately adding `Add-Type` to the script or removing the backup guard makes them fail.
+* **Crash found in the CI logs (Python 3.12, Windows: `Windows fatal exception: code 0x80000003` in `post_to_ui -> after -> _register`) and reproduced here as
+  `Fatal Python error: Aborted`:** a worker thread can be the last owner of a Tk root/variable and then frees the Tcl interpreter in the wrong thread. `tests/conftest.py`
+  now keeps every Tk root and variable alive until the interpreter exits (the existing `KEEP` lists did this by hand). The crash is nondeterministic, so one clean run is
+  not proof; it is not verified on Windows CI.
+* CI log of Python 3.14: the one failure was `test_an_unexpected_error_also_ends_with_a_message` (my test, `FileNotFoundError` on Windows) - removed with its file.
+
+**Tests (executed, Linux, PowerShell 7.4.6):** Python 3.12.3 **1114 passed**; Python 3.14.10 **1114 passed**. **Not verified:** a real update on Windows PowerShell 5.1, and whether
+RAV accepts the short script (the alert is by content heuristics; if it still objects, `docs/RELEASE_STEPS.md` lists what to allow).
+
 ## Update stopped silently by antivirus / rollback with nothing said (2026-11-23)
 
 Owner's report: (1) an antivirus stops the update; (2) with it switched off the update seemed to roll back, with no message and the program not reopening.
