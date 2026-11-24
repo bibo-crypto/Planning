@@ -9,7 +9,7 @@
 ; ============================================================
 
 #define AppName      "Planning"
-#define AppVersion   "1.3.6"
+#define AppVersion   "1.3.11"
 #define AppPublisher "Delta Dyeing S.A.E."
 #define AppExeName   "Planning.exe"
 #define SourceDir    "dist\Planning"
@@ -46,6 +46,7 @@ DisableProgramGroupPage=yes
 ; Privileges — installs per-user (no admin required)
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
+CloseApplications=yes
 
 ; Architecture
 ArchitecturesInstallIn64BitMode=x64compatible

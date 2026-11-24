@@ -1,6 +1,26 @@
 @echo off
 setlocal enabledelayedexpansion
 cd /d "%~dp0"
+if not exist "version.txt" (
+    echo  [ERROR] version.txt was not found.
+    if not defined PLANNING_NO_PAUSE pause
+    exit /b 1
+)
+for /f "usebackq tokens=*" %%V in ("version.txt") do set "PLANNING_VERSION=%%V"
+if not defined PLANNING_VERSION (
+    echo  [ERROR] version.txt is empty.
+    if not defined PLANNING_NO_PAUSE pause
+    exit /b 1
+)
+set "ISCC_PATH=%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe"
+if not exist "%ISCC_PATH%" set "ISCC_PATH=%ProgramFiles%\Inno Setup 6\ISCC.exe"
+if not exist "%ISCC_PATH%" (
+    echo  [ERROR] Inno Setup 6 compiler not found.
+    echo          Install it from https://jrsoftware.org/isdl.php and run build.bat again.
+    if not defined PLANNING_NO_PAUSE pause
+    exit /b 1
+)
+if exist "installer_output\Planning_Setup_v%PLANNING_VERSION%.exe" del /q "installer_output\Planning_Setup_v%PLANNING_VERSION%.exe"
 
 echo.
 echo  ================================================
@@ -126,11 +146,10 @@ for %%D in (cache settings logs backups situazione) do (
 for /r "dist\Planning" %%F in (*.db *.sqlite *.sqlite3 *.pkl) do del /q "%%F"
 for /r "dist\Planning" %%F in (*.db-* *.sqlite-* *.sqlite3-*) do del /q "%%F"
 
-:: -- Release ZIP ---------------------------------------------------------------
-:: Always create the exact file that must be uploaded to GitHub.  It lives next
-:: to (not inside) dist\Planning, so it cannot accidentally be included in the
-:: next ZIP.  The file name is deliberately stable: its installed version comes
-:: from the GitHub release tag, not from the archive name.
+:: -- Build release packages ---------------------------------------------------
+:: Planning.exe is a PyInstaller onedir launcher: its _internal folder is
+:: required. Archive the entire folder as the fixed-name Planning.zip and
+:: compile the normal Setup installer used by the in-app updater.
 echo         Creating release ZIP...
 powershell -NoProfile -ExecutionPolicy Bypass -Command "Compress-Archive -Path 'dist\Planning\*' -DestinationPath 'dist\Planning.zip' -Force"
 if errorlevel 1 (
@@ -138,24 +157,33 @@ if errorlevel 1 (
     if not defined PLANNING_NO_PAUSE pause
     exit /b 1
 )
-"%VENV_PY%" -c "import sys, zipfile; p=r'dist\Planning.zip'; z=zipfile.ZipFile(p); names=set(z.namelist()); dll=any(n.replace('\\','/').lower().startswith('_internal/python3') and n.lower().endswith('.dll') for n in names); ok='Planning.exe' in names and dll; print('Release ZIP contents: ' + ('OK' if ok else 'INCOMPLETE')); sys.exit(0 if ok else 1)"
+"%VENV_PY%" tools\check_release_zip.py "dist\Planning.zip"
 if errorlevel 1 (
-    echo  [ERROR] Release ZIP must contain Planning.exe and _internal\python3*.dll.
+    echo  [ERROR] The release ZIP is not complete - see above. Do not upload it.
     if not defined PLANNING_NO_PAUSE pause
     exit /b 1
 )
-set "ZIP_NOTE=   Release ZIP:   dist\Planning.zip"
+echo         Building the standard Setup installer...
+"%ISCC_PATH%" installer.iss
+if errorlevel 1 (
+    echo  [ERROR] Could not build the Setup installer.
+    if not defined PLANNING_NO_PAUSE pause
+    exit /b 1
+)
+if not exist "installer_output\Planning_Setup_v%PLANNING_VERSION%.exe" (
+    echo  [ERROR] The Setup installer was not created.
+    if not defined PLANNING_NO_PAUSE pause
+    exit /b 1
+)
 echo.
 echo  ================================================
 echo    Build Complete!
 echo    Output folder: dist\Planning\
-if defined ZIP_NOTE echo  !ZIP_NOTE!
+echo    Release ZIP:   dist\Planning.zip
+echo    Setup installer: installer_output\Planning_Setup_v%PLANNING_VERSION%.exe
 echo  ================================================
 echo.
-echo  Next step - create the installer:
-echo    1. Install Inno Setup 6 from: https://jrsoftware.org/isdl.php
-echo    2. Open installer.iss with Inno Setup Compiler
-echo    3. Press Ctrl+F9 to compile
-echo    4. The setup file will appear in: installer_output\
+echo  Upload Planning_Setup_v%PLANNING_VERSION%.exe to GitHub for in-app updates.
+echo  Upload Planning.zip as the full-folder backup package.
 echo.
 if not defined PLANNING_NO_PAUSE pause
