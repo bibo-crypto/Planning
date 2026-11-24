@@ -1,8 +1,8 @@
 # tests — FAILURE
 
-- commit: `fccdfb1` on `v1.3.9` — update(updater, docs, gui): 1 added, 7 modified (+338/-12)
-- run: https://github.com/bibo-crypto/Planning/actions/runs/45482207465
-- event: push   |   report written: 2026-11-24 20:41 UTC
+- commit: `fccdfb1` on `v1.4.0` — update(updater, docs, gui): 1 added, 7 modified (+338/-12)
+- run: https://github.com/bibo-crypto/Planning/actions/runs/45490530300
+- event: push   |   report written: 2026-11-24 21:28 UTC
 
 ## Jobs
 
@@ -13,7 +13,7 @@
 
 ## pytest — pytest-log-py3.12
 
-`1 failed, 1119 passed, 13 skipped in 335.62s (0:05:35)`
+`1 failed, 1119 passed, 13 skipped in 264.56s (0:04:24)`
 
 Failed / errored:
 
@@ -37,7 +37,7 @@ Skipped (reason):
 
 ## pytest — pytest-log-py3.14
 
-`1 failed, 1119 passed, 13 skipped, 4 warnings in 280.39s (0:04:40)`
+`1 failed, 1119 passed, 13 skipped, 5 warnings in 197.47s (0:03:17)`
 
 Failed / errored:
 
