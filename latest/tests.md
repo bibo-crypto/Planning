@@ -1,19 +1,19 @@
 # tests — SUCCESS
 
-- commit: `b169750` on `main` — update(docs, CHANGED-FILES-vs-repository): 5 modified (+88/-15)
-- run: https://github.com/bibo-crypto/Planning/actions/runs/45499922149
-- event: push   |   report written: 2026-11-24 22:25 UTC
+- commit: `b169750` on `v1.3.12` — update(docs, CHANGED-FILES-vs-repository): 5 modified (+88/-15)
+- run: https://github.com/bibo-crypto/Planning/actions/runs/45501686521
+- event: push   |   report written: 2026-11-24 22:36 UTC
 
 ## Jobs
 
 | job | result | failed steps |
 |---|---|---|
-| pytest (3.14) | success | - |
 | pytest (3.12) | success | - |
+| pytest (3.14) | success | - |
 
 ## pytest — pytest-log-py3.12
 
-`1067 passed, 12 skipped in 242.01s (0:04:02)`
+`1067 passed, 12 skipped in 243.94s (0:04:03)`
 
 Skipped (reason):
 
@@ -32,7 +32,7 @@ Skipped (reason):
 
 ## pytest — pytest-log-py3.14
 
-`1067 passed, 12 skipped in 197.72s (0:03:17)`
+`1067 passed, 12 skipped in 214.52s (0:03:34)`
 
 Skipped (reason):
 
