@@ -1,30 +1,19 @@
-# tests — FAILURE
+# tests — SUCCESS
 
-- commit: `ec5a269` on `main` — fix(updater): publish complete installer release
-- run: https://github.com/bibo-crypto/Planning/actions/runs/45495194854
-- event: push   |   report written: 2026-11-24 21:56 UTC
+- commit: `b169750` on `main` — update(docs, CHANGED-FILES-vs-repository): 5 modified (+88/-15)
+- run: https://github.com/bibo-crypto/Planning/actions/runs/45499922149
+- event: push   |   report written: 2026-11-24 22:25 UTC
 
 ## Jobs
 
 | job | result | failed steps |
 |---|---|---|
-| pytest (3.12) | failure | Run the test suite |
-| pytest (3.14) | failure | Run the test suite |
+| pytest (3.14) | success | - |
+| pytest (3.12) | success | - |
 
 ## pytest — pytest-log-py3.12
 
-`8 failed, 1065 passed, 6 skipped in 234.66s (0:03:54)`
-
-Failed / errored:
-
-- `FAILED tests/test_regressions.py::PlanningRegressionTests::test_download_installer_rejects_corrupt_zip - AssertionError: 'corrupt' not found in 'the release does not contain a planning_setup windows installer.'`
-- `FAILED tests/test_regressions.py::PlanningRegressionTests::test_download_installer_rejects_truncated_download - AssertionError: 'incomplete' not found in 'the release does not contain a planning_setup windows installer.'`
-- `FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_detaches_helper_from_any_job_object - AttributeError: module 'utility.updater' has no attribute 'install_update'`
-- `FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_elevates_when_install_dir_unwritable - AttributeError: module 'utility.updater' has no attribute 'install_update'`
-- `FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_generates_backup_and_rollback_script - AttributeError: module 'utility.updater' has no attribute 'install_update'`
-- `FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_relaunches_de_elevated - AttributeError: module 'utility.updater' has no attribute 'install_update'`
-- `FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_requires_frozen_app - ImportError: cannot import name 'install_update' from 'utility.updater' (D:\a\Planning\Planning\utility\updater.py)`
-- `FAILED tests/test_regressions.py::PlanningRegressionTests::test_safe_extract_blocks_zip_slip - ImportError: cannot import name '_safe_extract' from 'utility.updater' (D:\a\Planning\Planning\utility\updater.py)`
+`1067 passed, 12 skipped in 242.01s (0:04:02)`
 
 Skipped (reason):
 
@@ -33,22 +22,17 @@ Skipped (reason):
 - `SKIPPED [1] tests\test_ci_report.py:149: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)`
 - `SKIPPED [1] tests\test_ci_report.py:160: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)`
 - `SKIPPED [1] tests\test_ci_report.py:171: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)`
+- `SKIPPED [1] tests\test_regressions.py:1683: The updater no longer spawns a PowerShell helper.`
+- `SKIPPED [1] tests\test_regressions.py:1754: UAC elevation is now requested for the Setup installer.`
+- `SKIPPED [1] tests\test_regressions.py:1584: The updater no longer generates PowerShell update scripts.`
+- `SKIPPED [1] tests\test_regressions.py:1629: The Setup installer handles application replacement and restart.`
+- `SKIPPED [1] tests\test_regressions.py:1575: The updater now launches the standard Setup installer.`
 - `SKIPPED [1] tests\test_regressions.py:1452: win32com is available in this environment`
+- `SKIPPED [1] tests\test_regressions.py:1561: ZIP extraction was replaced by the standard Setup installer.`
 
 ## pytest — pytest-log-py3.14
 
-`8 failed, 1065 passed, 6 skipped in 221.72s (0:03:41)`
-
-Failed / errored:
-
-- `FAILED tests/test_regressions.py::PlanningRegressionTests::test_download_installer_rejects_corrupt_zip - AssertionError: 'corrupt' not found in 'the release does not contain a planning_setup windows installer.'`
-- `FAILED tests/test_regressions.py::PlanningRegressionTests::test_download_installer_rejects_truncated_download - AssertionError: 'incomplete' not found in 'the release does not contain a planning_setup windows installer.'`
-- `FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_detaches_helper_from_any_job_object - AttributeError: module 'utility.updater' has no attribute 'install_update'`
-- `FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_elevates_when_install_dir_unwritable - AttributeError: module 'utility.updater' has no attribute 'install_update'`
-- `FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_generates_backup_and_rollback_script - AttributeError: module 'utility.updater' has no attribute 'install_update'`
-- `FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_relaunches_de_elevated - AttributeError: module 'utility.updater' has no attribute 'install_update'`
-- `FAILED tests/test_regressions.py::PlanningRegressionTests::test_install_update_requires_frozen_app - ImportError: cannot import name 'install_update' from 'utility.updater' (D:\a\Planning\Planning\utility\updater.py)`
-- `FAILED tests/test_regressions.py::PlanningRegressionTests::test_safe_extract_blocks_zip_slip - ImportError: cannot import name '_safe_extract' from 'utility.updater' (D:\a\Planning\Planning\utility\updater.py)`
+`1067 passed, 12 skipped in 197.72s (0:03:17)`
 
 Skipped (reason):
 
@@ -57,4 +41,10 @@ Skipped (reason):
 - `SKIPPED [1] tests\test_ci_report.py:149: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)`
 - `SKIPPED [1] tests\test_ci_report.py:160: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)`
 - `SKIPPED [1] tests\test_ci_report.py:171: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)`
+- `SKIPPED [1] tests\test_regressions.py:1683: The updater no longer spawns a PowerShell helper.`
+- `SKIPPED [1] tests\test_regressions.py:1754: UAC elevation is now requested for the Setup installer.`
+- `SKIPPED [1] tests\test_regressions.py:1584: The updater no longer generates PowerShell update scripts.`
+- `SKIPPED [1] tests\test_regressions.py:1629: The Setup installer handles application replacement and restart.`
+- `SKIPPED [1] tests\test_regressions.py:1575: The updater now launches the standard Setup installer.`
 - `SKIPPED [1] tests\test_regressions.py:1452: win32com is available in this environment`
+- `SKIPPED [1] tests\test_regressions.py:1561: ZIP extraction was replaced by the standard Setup installer.`
