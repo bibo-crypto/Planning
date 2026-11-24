@@ -2,9 +2,9 @@
   "workflow": "tests",
   "conclusion": "failure",
   "sha": "fccdfb1",
-  "branch": "v1.4.0",
-  "url": "https://github.com/bibo-crypto/Planning/actions/runs/45490530300",
-  "written": "2026-11-24 21:28 UTC",
+  "branch": "v1.3.10",
+  "url": "https://github.com/bibo-crypto/Planning/actions/runs/45490971847",
+  "written": "2026-11-24 21:31 UTC",
   "jobs": [
     {
       "name": "pytest (3.14)",
@@ -23,7 +23,7 @@
   ],
   "pytest": {
     "pytest-log-py3.12": {
-      "summary": "1 failed, 1119 passed, 13 skipped in 264.56s (0:04:24)",
+      "summary": "1 failed, 1119 passed, 13 skipped in 231.34s (0:03:51)",
       "counts": {
         "failed": 1,
         "passed": 1119,
@@ -49,12 +49,11 @@
       ]
     },
     "pytest-log-py3.14": {
-      "summary": "1 failed, 1119 passed, 13 skipped, 5 warnings in 197.47s (0:03:17)",
+      "summary": "1 failed, 1119 passed, 13 skipped in 265.72s (0:04:25)",
       "counts": {
         "failed": 1,
         "passed": 1119,
-        "skipped": 13,
-        "warning": 5
+        "skipped": 13
       },
       "failed": [
         "FAILED tests/test_update_handoff.py::test_an_unexpected_error_also_ends_with_a_message - FileNotFoundError: [Errno 2] No such file or directory: 'C:\\\\Users\\\\runneradmin\\\\AppData\\\\Local\\\\Temp\\\\pytest-of-runneradmin\\\\pytest-0\\\\test_an_unexpected_error_also_0\\\\message.txt'"
