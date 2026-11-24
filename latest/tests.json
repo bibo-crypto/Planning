@@ -2,9 +2,9 @@
   "workflow": "tests",
   "conclusion": "failure",
   "sha": "ec5a269",
-  "branch": "v1.3.11",
-  "url": "https://github.com/bibo-crypto/Planning/actions/runs/45495194840",
-  "written": "2026-11-24 21:55 UTC",
+  "branch": "main",
+  "url": "https://github.com/bibo-crypto/Planning/actions/runs/45495194854",
+  "written": "2026-11-24 21:56 UTC",
   "jobs": [
     {
       "name": "pytest (3.12)",
@@ -23,7 +23,7 @@
   ],
   "pytest": {
     "pytest-log-py3.12": {
-      "summary": "8 failed, 1065 passed, 6 skipped in 212.50s (0:03:32)",
+      "summary": "8 failed, 1065 passed, 6 skipped in 234.66s (0:03:54)",
       "counts": {
         "failed": 8,
         "passed": 1065,
@@ -49,7 +49,7 @@
       ]
     },
     "pytest-log-py3.14": {
-      "summary": "8 failed, 1065 passed, 6 skipped in 173.83s (0:02:53)",
+      "summary": "8 failed, 1065 passed, 6 skipped in 221.72s (0:03:41)",
       "counts": {
         "failed": 8,
         "passed": 1065,

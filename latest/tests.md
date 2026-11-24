@@ -1,8 +1,8 @@
 # tests — FAILURE
 
-- commit: `ec5a269` on `v1.3.11` — fix(updater): publish complete installer release
-- run: https://github.com/bibo-crypto/Planning/actions/runs/45495194840
-- event: push   |   report written: 2026-11-24 21:55 UTC
+- commit: `ec5a269` on `main` — fix(updater): publish complete installer release
+- run: https://github.com/bibo-crypto/Planning/actions/runs/45495194854
+- event: push   |   report written: 2026-11-24 21:56 UTC
 
 ## Jobs
 
@@ -13,7 +13,7 @@
 
 ## pytest — pytest-log-py3.12
 
-`8 failed, 1065 passed, 6 skipped in 212.50s (0:03:32)`
+`8 failed, 1065 passed, 6 skipped in 234.66s (0:03:54)`
 
 Failed / errored:
 
@@ -37,7 +37,7 @@ Skipped (reason):
 
 ## pytest — pytest-log-py3.14
 
-`8 failed, 1065 passed, 6 skipped in 173.83s (0:02:53)`
+`8 failed, 1065 passed, 6 skipped in 221.72s (0:03:41)`
 
 Failed / errored:
 
