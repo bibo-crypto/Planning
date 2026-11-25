@@ -42,7 +42,7 @@ from utility.magazino_cache import load_magazino_cache
 from utility.utils import APP_DATA_DIR, load_settings, logger, save_settings
 from utility.updater import (
     APP_VERSION, ReleaseInfo, check_for_updates_async, consume_update_failure_notice, download_installer,
-    launch_installer,
+    helper_not_started_message, install_update,
 )
 from utility import notifications
 from utility.backup import BACKUP_DIR, create_backup, daily_backup, restore_backup
@@ -441,15 +441,36 @@ class ConverterApp(PurchaseOrderWorkflowMixin, BollaWorkflowMixin, ElvyInvoiceWo
         messagebox.showerror("Planning update", error, parent=self)
 
     def _finish_update(self, installer: Path) -> None:
-        """Open the downloaded Setup wizard; Inno Setup closes Planning when it is ready to replace the files."""
+        """After the download: run the installer into the application folder (install_update) and close the app so the update can replace it; shows an error if it fails."""
         try:
-            self._update_status.config(text="Opening the installer…")
+            self._update_status.config(text="Installing update…")
             self._update_progress_bar["value"] = 100
             self.update_idletasks()
-            launch_installer(installer, Path(sys.executable).resolve().parent)
-            logger.info("Update to %s: opened the official Setup installer", self._pending_update_version)
-            if getattr(self, "_update_window", None) and self._update_window.winfo_exists():
-                self._update_window.destroy()
+            launch = install_update(
+                installer,
+                Path(sys.executable).resolve().parent,
+                self._pending_update_version,
+            )
+            # Do not close until the helper has proved it is running: if antivirus or a Windows policy stops PowerShell or
+            # the script, closing now would make the program simply disappear with nothing changed and nothing said.
+            self._update_status.config(text="Starting the update… approve the Windows prompt if one appears.")
+            self.update_idletasks()
+            if not launch.wait_until_started(pump=self.update):
+                launch.cancel()
+                logger.error("Update: the helper did not start within %s s; the update was withdrawn (%s)", launch.timeout, launch.script_path)
+                if getattr(self, "_update_window", None) and self._update_window.winfo_exists():
+                    self._update_window.destroy()
+                messagebox.showerror("Planning update", helper_not_started_message(launch), parent=self)
+                return
+            # self.destroy() alone stops mainloop() but does not guarantee
+            # the OS process actually terminates -- if anything is still
+            # holding a reference (a lingering thread, a live COM object
+            # from the Outlook integration, etc.), Windows can leave this
+            # process running in the background, still holding the exe/DLL
+            # file locks the update script needs released. Force the process
+            # to end so the helper can replace the executable immediately.
+            self.destroy()
+            os._exit(0)
         except Exception as exc:  # noqa: BLE001
             if getattr(self, "_update_window", None) and self._update_window.winfo_exists():
                 self._update_window.destroy()

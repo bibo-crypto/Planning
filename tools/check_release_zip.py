@@ -1,13 +1,13 @@
 """Check a release ZIP BEFORE (or after) it is uploaded to GitHub, the way the in-app updater will check it.
 
-    python tools/check_release_zip.py dist\\Planning.zip
-    python tools/check_release_zip.py https://github.com/bibo-crypto/Planning/releases/download/v1.3.8/Planning.zip --tag v1.3.8
+    python tools/check_release_zip.py dist\\Planning_v1.3.8.zip
+    python tools/check_release_zip.py https://github.com/bibo-crypto/Planning/releases/download/v1.3.8/Planning_v1.3.8.zip --tag v1.3.8
 
 Exit code 0 = the updater will accept it, 1 = it will refuse it (the reasons are printed).  Standard library only.
 
 The updater refuses, and this tool reports: no Planning.exe; no ``_internal\\python3*.dll`` (an update made of Planning.exe
 alone would leave the program unable to start). The installed version comes from the GitHub release tag, so the ZIP itself
-is independent of the number in its name. ``build.bat`` creates the accepted, version-independent ``dist\\Planning.zip``.
+is independent of the number in its name. ``build.bat zip`` creates the accepted ``dist\\Planning_v<version>.zip``.
 """
 from __future__ import annotations
 

@@ -1,47 +1,54 @@
-"""The update window opens the standard Setup installer and reports launch errors."""
-from pathlib import Path
+"""The window side of an update: the program closes only after the update helper confirmed it is running; otherwise it stays
+open, withdraws the update and says why (the incident: antivirus removed the helper and the program just disappeared)."""
 from tkinter import messagebox, ttk
 
-from tests.test_startup_pages import start_app
+import pytest
+
+from tests.test_startup_pages import start_app                      # noqa: F401,F811  (fixture)
+from tests.test_update_system import _launch
+from utility import updater
 
 
-def _prepare_window(app):
+class Exit(BaseException):
+    pass
+
+
+def _prepare_window(app, monkeypatch, launch):
     app._update_status = ttk.Label(app)
     app._update_progress_bar = ttk.Progressbar(app)
     app._update_window = None
-    app._pending_update_version = "1.3.9"
-
-
-def test_update_window_opens_setup_without_exiting_the_old_app(start_app, monkeypatch, tmp_path):
-    app, _errors, _shown = start_app()
-    _prepare_window(app)
+    app._pending_update_version = "7.8.9"
     from gui import gui as gui_module
+    monkeypatch.setattr(gui_module, "install_update", lambda *args: launch)
+    monkeypatch.setattr(updater, "HELPER_START_TIMEOUT_SECONDS", 0.4)
+    monkeypatch.setattr(updater, "HELPER_POLL_SECONDS", 0.02)
+    errors, exits = [], []
+    monkeypatch.setattr(messagebox, "showerror", lambda *a, **k: errors.append(a))
 
-    calls = []
-    monkeypatch.setattr(gui_module, "launch_installer", lambda *args: calls.append(args))
-    errors = []
-    monkeypatch.setattr(messagebox, "showerror", lambda *args, **kwargs: errors.append(args))
-    installer = tmp_path / "Planning_Setup_v1.3.9.exe"
+    def fake_exit(code):
+        exits.append(code)
+        raise Exit
 
-    app._finish_update(installer)
-
-    assert calls == [(installer, Path(gui_module.sys.executable).resolve().parent)]
-    assert errors == []
+    monkeypatch.setattr(gui_module.os, "_exit", fake_exit)
+    monkeypatch.setattr(app, "destroy", lambda: None)            # the fixture owns the window
+    return errors, exits
 
 
-def test_update_window_reports_when_windows_rejects_setup(start_app, monkeypatch, tmp_path):
+def test_the_program_stays_open_and_explains_when_the_helper_never_starts(start_app, monkeypatch, tmp_path):
     app, _errors, _shown = start_app()
-    _prepare_window(app)
-    from gui import gui as gui_module
+    launch = _launch(tmp_path)
+    errors, exits = _prepare_window(app, monkeypatch, launch)
+    app._finish_update(tmp_path / "Planning.zip")
+    assert exits == []                                           # it did NOT close itself
+    assert len(errors) == 1 and "stays open" in errors[0][1] and "nothing was changed" in errors[0][1]
+    assert launch.cancel_marker.exists()                         # a late helper is told to do nothing
 
-    def reject_setup(*args):
-        raise RuntimeError("Windows did not approve the installer.")
 
-    monkeypatch.setattr(gui_module, "launch_installer", reject_setup)
-    errors = []
-    monkeypatch.setattr(messagebox, "showerror", lambda *args, **kwargs: errors.append(args))
-
-    app._finish_update(tmp_path / "Planning_Setup_v1.3.9.exe")
-
-    assert len(errors) == 1
-    assert "Windows did not approve" in errors[0][1]
+def test_the_program_closes_only_after_the_helper_has_confirmed(start_app, monkeypatch, tmp_path):
+    app, _errors, _shown = start_app()
+    launch = _launch(tmp_path)
+    launch.started_marker.write_text("started")
+    errors, exits = _prepare_window(app, monkeypatch, launch)
+    with pytest.raises(Exit):
+        app._finish_update(tmp_path / "Planning.zip")
+    assert exits == [0] and errors == [] and not launch.cancel_marker.exists()

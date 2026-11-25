@@ -1,26 +1,6 @@
 @echo off
 setlocal enabledelayedexpansion
 cd /d "%~dp0"
-if not exist "version.txt" (
-    echo  [ERROR] version.txt was not found.
-    if not defined PLANNING_NO_PAUSE pause
-    exit /b 1
-)
-for /f "usebackq tokens=*" %%V in ("version.txt") do set "PLANNING_VERSION=%%V"
-if not defined PLANNING_VERSION (
-    echo  [ERROR] version.txt is empty.
-    if not defined PLANNING_NO_PAUSE pause
-    exit /b 1
-)
-set "ISCC_PATH=%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe"
-if not exist "%ISCC_PATH%" set "ISCC_PATH=%ProgramFiles%\Inno Setup 6\ISCC.exe"
-if not exist "%ISCC_PATH%" (
-    echo  [ERROR] Inno Setup 6 compiler not found.
-    echo          Install it from https://jrsoftware.org/isdl.php and run build.bat again.
-    if not defined PLANNING_NO_PAUSE pause
-    exit /b 1
-)
-if exist "installer_output\Planning_Setup_v%PLANNING_VERSION%.exe" del /q "installer_output\Planning_Setup_v%PLANNING_VERSION%.exe"
 
 echo.
 echo  ================================================
@@ -146,44 +126,42 @@ for %%D in (cache settings logs backups situazione) do (
 for /r "dist\Planning" %%F in (*.db *.sqlite *.sqlite3 *.pkl) do del /q "%%F"
 for /r "dist\Planning" %%F in (*.db-* *.sqlite-* *.sqlite3-*) do del /q "%%F"
 
-:: -- Build release packages ---------------------------------------------------
-:: Planning.exe is a PyInstaller onedir launcher: its _internal folder is
-:: required. Archive the entire folder as the fixed-name Planning.zip and
-:: compile the normal Setup installer used by the in-app updater.
-echo         Creating release ZIP...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Compress-Archive -Path 'dist\Planning\*' -DestinationPath 'dist\Planning.zip' -Force"
-if errorlevel 1 (
-    echo  [ERROR] Could not create the release ZIP.
-    if not defined PLANNING_NO_PAUSE pause
-    exit /b 1
-)
-"%VENV_PY%" tools\check_release_zip.py "dist\Planning.zip"
-if errorlevel 1 (
-    echo  [ERROR] The release ZIP is not complete - see above. Do not upload it.
-    if not defined PLANNING_NO_PAUSE pause
-    exit /b 1
-)
-echo         Building the standard Setup installer...
-"%ISCC_PATH%" installer.iss
-if errorlevel 1 (
-    echo  [ERROR] Could not build the Setup installer.
-    if not defined PLANNING_NO_PAUSE pause
-    exit /b 1
-)
-if not exist "installer_output\Planning_Setup_v%PLANNING_VERSION%.exe" (
-    echo  [ERROR] The Setup installer was not created.
-    if not defined PLANNING_NO_PAUSE pause
-    exit /b 1
+:: -- Release ZIP: only on request  (build.bat zip) -------------------------------
+:: The in-app updater downloads a release ZIP from GitHub, so one is needed when a
+:: release is published -- but not for everyday builds, and Compress-Archive is slow.
+:: The ZIP holds the WHOLE program folder (the contents of dist\Planning), named
+:: Planning_v<version>.zip.  Upload exactly this file to the GitHub release; the
+:: version the program has afterwards is the release TAG (the updater writes it
+:: into version.txt), not the number in the file name.
+set "ZIP_NOTE="
+if /i "%~1"=="zip" (
+    for /f "usebackq tokens=*" %%V in ("version.txt") do set "PLANNING_VERSION=%%V"
+    echo         Creating release ZIP ^(only because "zip" was requested^)...
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "Compress-Archive -Path 'dist\Planning\*' -DestinationPath 'dist\Planning_v!PLANNING_VERSION!.zip' -Force"
+    if errorlevel 1 (
+        echo  [ERROR] Could not create the release ZIP.
+        if not defined PLANNING_NO_PAUSE pause
+        exit /b 1
+    )
+    "%VENV_PY%" tools\check_release_zip.py "dist\Planning_v!PLANNING_VERSION!.zip"
+    if errorlevel 1 (
+        echo  [ERROR] The release ZIP is not complete - see above. Do not upload it.
+        if not defined PLANNING_NO_PAUSE pause
+        exit /b 1
+    )
+    set "ZIP_NOTE=   Release ZIP:   dist\Planning_v!PLANNING_VERSION!.zip"
 )
 echo.
 echo  ================================================
 echo    Build Complete!
 echo    Output folder: dist\Planning\
-echo    Release ZIP:   dist\Planning.zip
-echo    Setup installer: installer_output\Planning_Setup_v%PLANNING_VERSION%.exe
+if defined ZIP_NOTE echo  !ZIP_NOTE!
 echo  ================================================
 echo.
-echo  Upload Planning_Setup_v%PLANNING_VERSION%.exe to GitHub for in-app updates.
-echo  Upload Planning.zip as the full-folder backup package.
+echo  Next step - create the installer:
+echo    1. Install Inno Setup 6 from: https://jrsoftware.org/isdl.php
+echo    2. Open installer.iss with Inno Setup Compiler
+echo    3. Press Ctrl+F9 to compile
+echo    4. The setup file will appear in: installer_output\
 echo.
 if not defined PLANNING_NO_PAUSE pause

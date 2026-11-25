@@ -1558,7 +1558,6 @@ class PlanningRegressionTests(unittest.TestCase):
         self.assertFalse(is_newer_version("1.1.0", "1.2.0"))
         self.assertFalse(is_newer_version("1.2.0", "1.2.0"))  # equal -- not "newer"
 
-    @unittest.skip("ZIP extraction was replaced by the standard Setup installer.")
     def test_safe_extract_blocks_zip_slip(self):
         import zipfile
         from utility.updater import _safe_extract
@@ -1572,7 +1571,6 @@ class PlanningRegressionTests(unittest.TestCase):
                 _safe_extract(zip_path, destination)
             self.assertFalse((Path(temp_dir) / "evil.txt").exists())
 
-    @unittest.skip("The updater now launches the standard Setup installer.")
     def test_install_update_requires_frozen_app(self):
         from utility.updater import install_update
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1581,7 +1579,6 @@ class PlanningRegressionTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 install_update(zip_path, Path(temp_dir) / "install", "2.0.0")
 
-    @unittest.skip("The updater no longer generates PowerShell update scripts.")
     def test_install_update_generates_backup_and_rollback_script(self):
         # Regression guard for "what happens if the update fails": the
         # generated PowerShell must back up the current install before
@@ -1626,7 +1623,6 @@ class PlanningRegressionTests(unittest.TestCase):
             # = 'Stop' must not skip relaunching something entirely).
             self.assertEqual(script.count("Restore-Backup"), 4)  # 1 definition + 3 call sites
 
-    @unittest.skip("The Setup installer handles application replacement and restart.")
     def test_install_update_relaunches_de_elevated(self):
         # Regression guard for the real-world symptom this was built to
         # catch: after the elevation fix made updates actually succeed
@@ -1680,7 +1676,6 @@ class PlanningRegressionTests(unittest.TestCase):
                     self.assertGreater(script.index(needle), wrapper_start)
                     self.assertLess(script.index(needle), wrapper_end)
 
-    @unittest.skip("The updater no longer spawns a PowerShell helper.")
     def test_install_update_detaches_helper_from_any_job_object(self):
         # Regression guard: if Planning.exe runs inside a Windows Job Object
         # (some launchers/security software do this), closing the parent
@@ -1751,7 +1746,6 @@ class PlanningRegressionTests(unittest.TestCase):
                 finally:
                     readonly_dir.chmod(stat.S_IRWXU)  # let TemporaryDirectory clean up
 
-    @unittest.skip("UAC elevation is now requested for the Setup installer.")
     def test_install_update_elevates_when_install_dir_unwritable(self):
         import sys
         import zipfile
@@ -1788,13 +1782,16 @@ class PlanningRegressionTests(unittest.TestCase):
             self.assertEqual(shell_execute_calls[0][1], "runas")
 
     def test_download_installer_rejects_truncated_download(self):
-        # A short response must fail before Windows is asked to launch Setup.
+        # A network hiccup mid-download must be caught here, with a clear
+        # message -- not silently produce a corrupt ZIP that only fails
+        # much later, deep inside the PowerShell install script, as
+        # "not a valid application for this OS platform".
         from unittest.mock import patch, MagicMock
         from utility.updater import download_installer, ReleaseInfo
 
         release = ReleaseInfo(
             version="2.0.0", tag_name="v2.0.0", title="v2.0.0", notes="", page_url="",
-            installer_url="https://example.com/Planning_Setup_v2.0.0.exe", installer_name="Planning_Setup_v2.0.0.exe",
+            installer_url="https://example.com/Planning.zip", installer_name="Planning.zip",
         )
         fake_response = MagicMock()
         fake_response.headers = {"Content-Length": "1000"}
@@ -1807,24 +1804,24 @@ class PlanningRegressionTests(unittest.TestCase):
                 download_installer(release)
         self.assertIn("incomplete", str(ctx.exception).lower())
 
-    def test_download_installer_rejects_invalid_executable(self):
+    def test_download_installer_rejects_corrupt_zip(self):
         from unittest.mock import patch, MagicMock
         from utility.updater import download_installer, ReleaseInfo
 
         release = ReleaseInfo(
             version="2.0.0", tag_name="v2.0.0", title="v2.0.0", notes="", page_url="",
-            installer_url="https://example.com/Planning_Setup_v2.0.0.exe", installer_name="Planning_Setup_v2.0.0.exe",
+            installer_url="https://example.com/Planning.zip", installer_name="Planning.zip",
         )
         fake_response = MagicMock()
         fake_response.headers = {}
-        fake_response.read.side_effect = [b"this is not a Windows executable", b""]
+        fake_response.read.side_effect = [b"this is not a zip file at all", b""]
         fake_response.__enter__ = lambda self: fake_response
         fake_response.__exit__ = lambda self, *a: False
 
         with patch("utility.updater.urlopen", return_value=fake_response):
             with self.assertRaises(RuntimeError) as ctx:
                 download_installer(release)
-        self.assertIn("valid windows executable", str(ctx.exception).lower())
+        self.assertIn("corrupt", str(ctx.exception).lower())
 
 
 # ----------------------------------------------- Prezzo Ord. without a Listini price
