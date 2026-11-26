@@ -1,15 +1,15 @@
-# tests — SUCCESS
+# tests — FAILURE
 
-- commit: `2815fdc` on `main` — feat(updater, updater-main, ci): 26 added, 11 modified, 14 deleted (+…
-- run: https://github.com/bibo-crypto/Planning/actions/runs/45909233197
-- event: push   |   report written: 2026-11-26 23:15 UTC
+- commit: `0802012` on `main` — update(release, icon, python314): 45 added (+240/-0)
+- run: https://github.com/bibo-crypto/Planning/actions/runs/45909979386
+- event: push   |   report written: 2026-11-26 23:21 UTC
 
 ## Jobs
 
 | job | result | failed steps |
 |---|---|---|
-| pytest (3.12) | success | - |
-| pytest (3.14) | success | - |
+| pytest (3.14) | failure | Run pytest and write JUnit XML |
+| pytest (3.12) | failure | Run pytest and write JUnit XML |
 
 ## pytest
 
