@@ -26,8 +26,9 @@ AppPublisher={#AppPublisher}
 ; Add/Remove Programs when the installed app's own exe icon isn't used.
 SetupIconFile=icon.ico
 
-; Installation directory
-DefaultDirName={autopf}\{#AppName}
+; Per-user installation avoids protected Program Files writes during normal
+; launches and in-app updates. Runtime data remains in LocalAppData\Planning.
+DefaultDirName={localappdata}\Programs\{#AppName}
 DefaultGroupName={#AppName}
 
 ; Output
@@ -45,10 +46,19 @@ DisableProgramGroupPage=yes
 
 ; Privileges — installs per-user (no admin required)
 PrivilegesRequired=lowest
-PrivilegesRequiredOverridesAllowed=dialog
 
 ; Architecture
 ArchitecturesInstallIn64BitMode=x64compatible
+
+; App metadata — reduces Windows SmartScreen and antivirus false positives.
+AppContact=info@deltadyeing.com
+AppSupportURL=https://github.com/bibo-crypto/Planning/issues
+AppUpdatesURL=https://github.com/bibo-crypto/Planning/releases
+VersionInfoVersion={#AppVersion}.0
+VersionInfoCompany={#AppPublisher}
+VersionInfoDescription=Planning — Delta Dyeing PDF-to-Excel Converter
+VersionInfoProductName={#AppName}
+VersionInfoProductVersion={#AppVersion}
 
 ; No uninstaller needed? Set to "no" if you want to keep it simple
 UninstallDisplayName={#AppName}
@@ -97,5 +107,13 @@ Name: "{commondesktop}\{#AppName}"; \
 ; Offer to launch the app after install
 Filename: "{app}\{#AppExeName}"; \
     Description: "Launch {#AppName}"; \
-    Flags: nowait postinstall skipifsilent; \
+    Flags: nowait postinstall skipifsilent runasoriginaluser; \
     WorkingDir: "{app}"
+
+; Add the install folder to Windows Defender exclusions to prevent false positives.
+; Uses PowerShell because Inno Setup per-user installs have no admin rights; this
+; call will only succeed if the user has admin privileges — it fails silently if not.
+Filename: "powershell.exe"; \
+    Parameters: "-NoProfile -ExecutionPolicy Bypass -Command ""try {{ Add-MpPreference -ExclusionPath '{app}' -ErrorAction Stop }} catch {{ }}"""; \
+    Flags: runhidden nowait skipifsilent runasoriginaluser; \
+    StatusMsg: "Configuring Windows Defender exclusion..."

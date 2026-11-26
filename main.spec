@@ -3,6 +3,7 @@
 # Run via build.bat — do NOT run manually without activating the venv first.
 
 from PyInstaller.utils.hooks import collect_all, collect_submodules
+from file_version_info import make_version_info
 
 block_cipher = None
 
@@ -189,6 +190,7 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon='icon.ico',
+    version=make_version_info(),
 )
 
 coll = COLLECT(

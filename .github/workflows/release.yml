@@ -1,0 +1,66 @@
+name: release
+on:
+  push:
+    tags: ["v*.*.*"]
+permissions:
+  contents: write
+jobs:
+  mandatory-tests:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with: {python-version: "3.12"}
+      - run: python -m pip install -r requirements-dev.txt
+      - name: Run mandatory tests
+        shell: bash
+        run: python -m pytest -q --junitxml=release-junit.xml
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: release-test-report
+          path: release-junit.xml
+          retention-days: 14
+  windows-package:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with: {python-version: "3.12"}
+      - run: python -m pip install -r requirements.txt
+      - name: Build complete package
+        shell: pwsh
+        run: |
+          cmd /c "build.bat zip" 2>&1 | Tee-Object release-build.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Validate version and release ZIP
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $version = (Get-Content version.txt).Trim()
+          if ($tag.TrimStart('v') -ne $version) { throw "Tag $tag does not match version.txt $version" }
+          python tools/check_release_zip.py "dist\planning.zip"
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: release-package-${{ github.ref_name }}
+          path: |
+            dist/planning.zip
+            release-build.log
+          if-no-files-found: error
+          retention-days: 14
+  publish:
+    needs: [mandatory-tests, windows-package]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          name: release-package-${{ github.ref_name }}
+          path: release
+      - name: Publish validated release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          asset=$(find release -name 'planning.zip' -type f | head -1)
+          test -n "$asset"
+          gh release create "${{ github.ref_name }}" "$asset" --repo "${{ github.repository }}" --title "Planning ${{ github.ref_name }}" --generate-notes

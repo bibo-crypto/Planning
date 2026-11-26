@@ -96,7 +96,7 @@ echo         Done.
 echo.
 
 :: -- Build with PyInstaller ---------------------------------------------------
-echo  [5/6]  Building executable with PyInstaller...
+echo  [5/6]  Building Planning.exe and PlanningUpdater.exe with PyInstaller...
 echo.
 "%VENV_PY%" -m PyInstaller main.spec --noconfirm
 if errorlevel 1 (
@@ -106,6 +106,21 @@ if errorlevel 1 (
     if not defined PLANNING_NO_PAUSE pause
     exit /b 1
 )
+"%VENV_PY%" -m PyInstaller updater.spec --noconfirm
+if errorlevel 1 (
+    echo.
+    echo  [ERROR] PlanningUpdater.exe build FAILED.
+    if not defined PLANNING_NO_PAUSE pause
+    exit /b 1
+)
+if not exist "dist\PlanningUpdater.exe" (
+    echo [ERROR] PlanningUpdater.exe was not produced.
+    if not defined PLANNING_NO_PAUSE pause
+    exit /b 1
+)
+copy /y "dist\PlanningUpdater.exe" "dist\Planning\PlanningUpdater.exe" >nul
+copy /y "version.txt" "dist\Planning\version.txt" >nul
+copy /y "icon.ico" "dist\Planning\icon.ico" >nul
 
 
 :: -- Legacy launcher (self-update bridge) -------------------------------------
@@ -134,22 +149,21 @@ for /r "dist\Planning" %%F in (*.db-* *.sqlite-* *.sqlite3-*) do del /q "%%F"
 :: version the program has afterwards is the release TAG (the updater writes it
 :: into version.txt), not the number in the file name.
 set "ZIP_NOTE="
-if /i "%~1"=="zip" (
-    for /f "usebackq tokens=*" %%V in ("version.txt") do set "PLANNING_VERSION=%%V"
-    echo         Creating release ZIP ^(only because "zip" was requested^)...
-    powershell -NoProfile -ExecutionPolicy Bypass -Command "Compress-Archive -Path 'dist\Planning\*' -DestinationPath 'dist\Planning_v!PLANNING_VERSION!.zip' -Force"
+if /i not "%~1"=="nozip" (
+    echo         Creating GitHub release ZIP ^(dist\planning.zip^)...
+    "%VENV_PY%" -c "import zipfile, pathlib; root = pathlib.Path(r'dist\Planning'); out = pathlib.Path(r'dist\planning.zip'); z = zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED, compresslevel=6); [z.write(p, p.relative_to(root).as_posix()) for p in sorted(root.rglob('*')) if p.is_file()]; z.close(); print(f'        ZIP size: {out.stat().st_size / (1024 * 1024):.1f} MB')"
     if errorlevel 1 (
         echo  [ERROR] Could not create the release ZIP.
         if not defined PLANNING_NO_PAUSE pause
         exit /b 1
     )
-    "%VENV_PY%" tools\check_release_zip.py "dist\Planning_v!PLANNING_VERSION!.zip"
+    "%VENV_PY%" tools\check_release_zip.py "dist\planning.zip"
     if errorlevel 1 (
         echo  [ERROR] The release ZIP is not complete - see above. Do not upload it.
         if not defined PLANNING_NO_PAUSE pause
         exit /b 1
     )
-    set "ZIP_NOTE=   Release ZIP:   dist\Planning_v!PLANNING_VERSION!.zip"
+    set "ZIP_NOTE=   Release ZIP:   dist\planning.zip  ^(ready for GitHub Release^)"
 )
 echo.
 echo  ================================================
