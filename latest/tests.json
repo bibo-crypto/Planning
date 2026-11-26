@@ -1,76 +1,27 @@
 {
   "workflow": "tests",
-  "conclusion": "failure",
-  "sha": "7e7ba55",
+  "conclusion": "success",
+  "sha": "2815fdc",
   "branch": "main",
-  "url": "https://github.com/bibo-crypto/Planning/actions/runs/45707894490",
-  "written": "2026-11-25 21:54 UTC",
+  "url": "https://github.com/bibo-crypto/Planning/actions/runs/45909233197",
+  "written": "2026-11-26 23:15 UTC",
   "jobs": [
     {
       "name": "pytest (3.12)",
-      "conclusion": "failure",
-      "failed_steps": [
-        "Run the test suite"
-      ]
+      "conclusion": "success",
+      "failed_steps": []
     },
     {
       "name": "pytest (3.14)",
-      "conclusion": "failure",
-      "failed_steps": [
-        "Run the test suite"
-      ]
+      "conclusion": "success",
+      "failed_steps": []
     }
   ],
-  "pytest": {
-    "pytest-log-py3.12": {
-      "summary": "1 failed, 1103 passed, 10 skipped in 226.79s (0:03:46)",
-      "counts": {
-        "failed": 1,
-        "passed": 1103,
-        "skipped": 10
-      },
-      "failed": [
-        "FAILED tests/test_update_system.py::test_write_version_file_writes_the_plain_version_and_verifies_it - AssertionError: assert b'1.4.2\\r\\n' == b'1.4.2\\n'"
-      ],
-      "skipped": [
-        "SKIPPED [1] tests\\test_ci_report.py:131: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)",
-        "SKIPPED [1] tests\\test_ci_report.py:138: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)",
-        "SKIPPED [1] tests\\test_ci_report.py:149: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)",
-        "SKIPPED [1] tests\\test_ci_report.py:160: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)",
-        "SKIPPED [1] tests\\test_ci_report.py:171: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)",
-        "SKIPPED [1] tests\\test_elvy_lot.py:135: no display",
-        "SKIPPED [1] tests\\test_regressions.py:1452: win32com is available in this environment",
-        "SKIPPED [1] tests\\test_update_system.py:193: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh",
-        "SKIPPED [1] tests\\test_update_system.py:210: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh",
-        "SKIPPED [1] tests\\test_update_system.py:218: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh"
-      ]
-    },
-    "pytest-log-py3.14": {
-      "summary": "1 failed, 1104 passed, 9 skipped in 198.45s (0:03:18)",
-      "counts": {
-        "failed": 1,
-        "passed": 1104,
-        "skipped": 9
-      },
-      "failed": [
-        "FAILED tests/test_update_system.py::test_write_version_file_writes_the_plain_version_and_verifies_it - AssertionError: assert b'1.4.2\\r\\n' == b'1.4.2\\n'"
-      ],
-      "skipped": [
-        "SKIPPED [1] tests\\test_ci_report.py:131: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)",
-        "SKIPPED [1] tests\\test_ci_report.py:138: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)",
-        "SKIPPED [1] tests\\test_ci_report.py:149: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)",
-        "SKIPPED [1] tests\\test_ci_report.py:160: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)",
-        "SKIPPED [1] tests\\test_ci_report.py:171: ci/publish_report.sh runs on the Ubuntu runner (needs bash and git)",
-        "SKIPPED [1] tests\\test_regressions.py:1452: win32com is available in this environment",
-        "SKIPPED [1] tests\\test_update_system.py:193: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh",
-        "SKIPPED [1] tests\\test_update_system.py:210: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh",
-        "SKIPPED [1] tests\\test_update_system.py:218: starts a real helper process (a renamed `sleep`): runs on Linux/macOS with pwsh"
-      ]
-    }
-  },
-  "failed_tests": [
-    "pytest-log-py3.12: FAILED tests/test_update_system.py::test_write_version_file_writes_the_plain_version_and_verifies_it - AssertionError: assert b'1.4.2\\r\\n' == b'1.4.2\\n'",
-    "pytest-log-py3.14: FAILED tests/test_update_system.py::test_write_version_file_writes_the_plain_version_and_verifies_it - AssertionError: assert b'1.4.2\\r\\n' == b'1.4.2\\n'"
-  ],
-  "exe_smoke": null
+  "pytest": {},
+  "failed_tests": [],
+  "exe_smoke": {
+    "ok": false,
+    "started_count": 0,
+    "hang_files": []
+  }
 }
