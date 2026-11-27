@@ -1,8 +1,8 @@
 # tests — SUCCESS
 
-- commit: `a45889c` on `v.1.3.11` — chore(release): bump version to 1.3.9
-- run: https://github.com/bibo-crypto/Planning/actions/runs/46027958748
-- event: push   |   report written: 2026-11-27 15:52 UTC
+- commit: `68a25d8` on `main` — chore(release): bump version to 1.3.10
+- run: https://github.com/bibo-crypto/Planning/actions/runs/46029090142
+- event: push   |   report written: 2026-11-27 16:00 UTC
 
 ## Jobs
 
