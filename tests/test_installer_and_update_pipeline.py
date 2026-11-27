@@ -6,7 +6,6 @@ import sys
 import zipfile
 from pathlib import Path
 
-import pytest
 
 import updater_main
 from file_version_info import make_updater_version_info, make_version_info
@@ -71,14 +70,17 @@ def test_specs_and_version_info_embed_publisher_metadata():
     assert "version=make_updater_version_info()" in (ROOT / "updater.spec").read_text(encoding="utf-8")
 
 
-def test_installer_iss_preserves_per_user_install_metadata_and_exclusion():
+def test_installer_iss_preserves_per_user_install_metadata_and_never_changes_antivirus():
     content = (ROOT / "installer.iss").read_text(encoding="utf-8")
     assert "PrivilegesRequired=lowest" in content
     assert "DefaultDirName={localappdata}\\Programs\\{#AppName}" in content
     assert 'Source: "{#SourceDir}\\*"' in content
     assert "VersionInfoCompany={#AppPublisher}" in content
     assert "VersionInfoProductName={#AppName}" in content
-    assert "Add-MpPreference -ExclusionPath" in content
+    assert "Add-MpPreference" not in content
+    assert "powershell.exe" not in content
+    assert "VersionInfoDescription=Planning application" in content
+    assert '#define AppVersion   "1.3.9"' in content
 
 
 # ── Updater handoff (utility/updater.py) ─────────────────────────────────────
@@ -204,3 +206,52 @@ def test_updater_run_rolls_back_and_writes_failure_notice_on_health_failure(tmp_
     notice = tmp_path / "localappdata" / "Planning" / "update_failed.txt"
     assert notice.is_file()
     assert "1.3.8" in notice.read_text(encoding="utf-8")
+
+
+def test_update_preserves_user_data_and_sqlite_files(tmp_path, monkeypatch):
+    install_dir = _make_complete_package(tmp_path / "current", marker_bytes=b"old-exe")
+    data = install_dir / "settings"; data.mkdir()
+    (data / "prefs.json").write_text("keep", encoding="utf-8")
+    (install_dir / "planning.sqlite3").write_bytes(b"database")
+    new_pkg = _make_complete_package(tmp_path / "new", marker_bytes=b"new-exe")
+    zip_path = _zip_dir(new_pkg, tmp_path / "planning.zip")
+    monkeypatch.setattr(updater_main, "launch_and_check", lambda exe, cwd, health, log: True)
+    args = argparse.Namespace(zip=str(zip_path), install_dir=str(install_dir), backup_dir=str(tmp_path / "backup"),
+                              version="1.3.8", parent_pid=0, log=str(tmp_path / "updater.log"), started_marker=None)
+    assert updater_main.run(args) == 0
+    assert (install_dir / "settings" / "prefs.json").read_text(encoding="utf-8") == "keep"
+    assert (install_dir / "planning.sqlite3").read_bytes() == b"database"
+
+
+def test_stale_health_marker_is_removed_before_new_launch(tmp_path, monkeypatch):
+    health = tmp_path / "started.ok"
+    health.write_text("stale", encoding="utf-8")
+    class FakeProcess:
+        pid = 123
+        returncode = None
+        def poll(self): return None
+        def terminate(self): pass
+    monkeypatch.setattr(updater_main.subprocess, "Popen", lambda *a, **kw: FakeProcess())
+    monkeypatch.setattr(updater_main.time, "sleep", lambda _: None)
+    assert not updater_main.launch_and_check(tmp_path / "Planning.exe", tmp_path, health, updater_main.logging.getLogger("test"))
+    assert not health.exists()
+
+
+def test_rollback_failure_is_reported_in_failure_notice(tmp_path, monkeypatch):
+    install_dir = _make_complete_package(tmp_path / "current", marker_bytes=b"old-exe")
+    new_pkg = _make_complete_package(tmp_path / "new", marker_bytes=b"broken-exe")
+    zip_path = _zip_dir(new_pkg, tmp_path / "planning.zip")
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "localappdata"))
+    monkeypatch.setattr(updater_main, "launch_and_check", lambda exe, cwd, health, log: False)
+    real_copy = updater_main.copy_package
+    calls = {"n": 0}
+    def fail_rollback(source, target):
+        calls["n"] += 1
+        if calls["n"] == 2: raise OSError("simulated rollback lock")
+        return real_copy(source, target)
+    monkeypatch.setattr(updater_main, "copy_package", fail_rollback)
+    args = argparse.Namespace(zip=str(zip_path), install_dir=str(install_dir), backup_dir=str(tmp_path / "backup"),
+                              version="1.3.8", parent_pid=0, log=str(tmp_path / "updater.log"), started_marker=None)
+    assert updater_main.run(args) == 1
+    note = tmp_path / "localappdata" / "Planning" / "update_failed.txt"
+    assert "rollback failed" in note.read_text(encoding="utf-8")

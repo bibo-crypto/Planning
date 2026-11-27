@@ -9,7 +9,7 @@
 ; ============================================================
 
 #define AppName      "Planning"
-#define AppVersion   "1.3.6"
+#define AppVersion   "1.3.9"
 #define AppPublisher "Delta Dyeing S.A.E."
 #define AppExeName   "Planning.exe"
 #define SourceDir    "dist\Planning"
@@ -56,7 +56,7 @@ AppSupportURL=https://github.com/bibo-crypto/Planning/issues
 AppUpdatesURL=https://github.com/bibo-crypto/Planning/releases
 VersionInfoVersion={#AppVersion}.0
 VersionInfoCompany={#AppPublisher}
-VersionInfoDescription=Planning — Delta Dyeing PDF-to-Excel Converter
+VersionInfoDescription=Planning application
 VersionInfoProductName={#AppName}
 VersionInfoProductVersion={#AppVersion}
 
@@ -109,11 +109,3 @@ Filename: "{app}\{#AppExeName}"; \
     Description: "Launch {#AppName}"; \
     Flags: nowait postinstall skipifsilent runasoriginaluser; \
     WorkingDir: "{app}"
-
-; Add the install folder to Windows Defender exclusions to prevent false positives.
-; Uses PowerShell because Inno Setup per-user installs have no admin rights; this
-; call will only succeed if the user has admin privileges — it fails silently if not.
-Filename: "powershell.exe"; \
-    Parameters: "-NoProfile -ExecutionPolicy Bypass -Command ""try {{ Add-MpPreference -ExclusionPath '{app}' -ErrorAction Stop }} catch {{ }}"""; \
-    Flags: runhidden nowait skipifsilent runasoriginaluser; \
-    StatusMsg: "Configuring Windows Defender exclusion..."

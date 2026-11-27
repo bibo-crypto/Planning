@@ -440,10 +440,11 @@ def test_no_misspelt_name_left_in_source_except_deliberate_compat():
     from pathlib import Path
     root = Path(__file__).resolve().parent.parent
     allowed = {"utility/utils.py", "utility/updater.py", "installer.iss", "build.bat",
-               "tests/test_first_bagno_elvy_kamal.py"}
+               "tests/test_first_bagno_elvy_kamal.py",
+               "tests/test_installer_and_update_pipeline.py"}
     offenders = []
     for path in root.rglob("*"):
-        if path.suffix not in {".py", ".bat", ".spec", ".iss", ".md"} or ".git" in path.parts:
+        if path.suffix not in {".py", ".bat", ".spec", ".iss", ".md"} or ".git" in path.parts or ".pytest_tmp" in path.parts:
             continue
         rel = path.relative_to(root).as_posix()
         if rel not in allowed and "Planing" in path.read_text(encoding="utf-8", errors="ignore"):

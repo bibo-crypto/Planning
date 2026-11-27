@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 from utility import updater
+import updater_main
 from updater_main import safe_extract, snapshot, write_version
 
 
@@ -85,3 +86,41 @@ def test_missing_updater_is_reported_before_any_change(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError, match="updater is missing"):
         updater.install_update(archive, install, "2.0.0")
     assert archive.exists()
+
+
+def test_updater_launch_failure_cleans_staging_and_download(monkeypatch, tmp_path):
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    install = tmp_path / "install"; install.mkdir()
+    (install / "PlanningUpdater.exe").write_bytes(b"updater")
+    archive = tmp_path / "update.zip"; archive.write_bytes(b"zip")
+    def reject(*args, **kwargs): raise OSError("blocked by security software")
+    monkeypatch.setattr(updater, "_start_updater", reject)
+    with pytest.raises(OSError, match="blocked"):
+        updater.install_update(archive, install, "2.0.0")
+    assert not archive.exists()
+    assert not list(tmp_path.glob("Planning_Update_*"))
+
+
+def test_uac_rejection_is_reported_without_running_update(monkeypatch, tmp_path):
+    monkeypatch.setattr(updater.sys, "platform", "win32")
+    class Shell32:
+        @staticmethod
+        def ShellExecuteW(*args): return 32
+    class Windll: shell32 = Shell32()
+    monkeypatch.setattr(updater.ctypes, "windll", Windll(), raising=False)
+    with pytest.raises(RuntimeError, match="approval was not granted"):
+        updater._start_updater(tmp_path / "PlanningUpdater.exe", ["--zip", "x"], True)
+
+
+def test_parent_timeout_logs_warning(monkeypatch, tmp_path):
+    events = []
+    logger = __import__("logging").getLogger("parent-timeout")
+    logger.warning = lambda *args, **kwargs: events.append(args)
+    class Kernel:
+        def OpenProcess(self, *args): return 1
+        def CloseHandle(self, *args): pass
+    class Windll: kernel32 = Kernel()
+    monkeypatch.setattr(updater_main.ctypes, "windll", Windll(), raising=False)
+    monkeypatch.setattr(updater_main.time, "sleep", lambda _: None)
+    updater_main.wait_for_parent(123, logger)
+    assert any("did not exit" in str(args[0]) for args in events)

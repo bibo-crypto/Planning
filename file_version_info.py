@@ -12,15 +12,32 @@ This embeds proper Windows VERSIONINFO metadata into the .exe so that:
 from __future__ import annotations
 
 from pathlib import Path
-from PyInstaller.utils.win32.versioninfo import (
-    FixedFileInfo,
-    StringFileInfo,
-    StringStruct,
-    StringTable,
-    VarFileInfo,
-    VarStruct,
-    VSVersionInfo,
-)
+try:
+    from PyInstaller.utils.win32.versioninfo import (
+        FixedFileInfo,
+        StringFileInfo,
+        StringStruct,
+        StringTable,
+        VarFileInfo,
+        VarStruct,
+        VSVersionInfo,
+    )
+except (ImportError, ModuleNotFoundError):  # Linux CI can inspect metadata without building PE resources.
+    class _Info:
+        def __init__(self, *args, **kwargs):
+            if args and isinstance(args[0], list):
+                self.kids = args[0]
+            self.__dict__.update(kwargs)
+
+    class StringStruct(_Info):
+        def __init__(self, name, val): self.name, self.val = name, val
+    class StringTable(_Info):
+        def __init__(self, _language, kids): self.kids = kids
+    class StringFileInfo(_Info): pass
+    class VarStruct(_Info): pass
+    class VarFileInfo(_Info): pass
+    class FixedFileInfo(_Info): pass
+    class VSVersionInfo(_Info): pass
 
 
 def _read_version() -> tuple[str, tuple[int, int, int, int]]:
@@ -50,7 +67,7 @@ def make_version_info() -> VSVersionInfo:
                     "040904B0",    # lang=US-English, charset=Unicode
                     [
                         StringStruct("CompanyName", "Delta Dyeing S.A.E."),
-                        StringStruct("FileDescription", "Planning — Delta Dyeing PDF-to-Excel Converter"),
+                        StringStruct("FileDescription", "Planning application"),
                         StringStruct("FileVersion", version_str),
                         StringStruct("InternalName", "Planning"),
                         StringStruct("LegalCopyright", "© Delta Dyeing S.A.E."),

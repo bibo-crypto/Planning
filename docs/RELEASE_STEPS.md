@@ -43,3 +43,14 @@ launches Planning with a startup health marker, and restores the backup if start
 Upload `dist\Planning_v<version>.zip` produced by `build.bat zip` for the in-app updater. It must contain the contents of
 `dist\Planning`, including `Planning.exe`, `PlanningUpdater.exe`, `_internal\python3*.dll`, and runtime files. The installer EXE is a
 separate user-facing download and is not the in-app updater asset.
+
+## Upgrade from the old Program Files installation
+
+The current installer intentionally installs per-user at `%LOCALAPPDATA%\Programs\Planning`; it does not silently delete an older `C:\Program Files\Planning` installation. This avoids destroying user data or SQLite files before the new copy is verified. On a real Windows test machine:
+
+1. Keep the old installation and its data intact, install the new setup, and confirm that the new Start Menu/Desktop shortcut points to `%LOCALAPPDATA%\Programs\Planning\Planning.exe`.
+2. Start the new copy and verify the existing settings, workbooks, backups, and SQLite databases. The installer excludes runtime data from its payload and the updater copies only program files, so user data remains in `%LOCALAPPDATA%\Planning`.
+3. Confirm there is no duplicate active shortcut. The installer removes the historical misspelled launcher shortcut and creates the correctly-spelled `Planning` shortcut.
+4. Only after the new copy starts successfully and the data is verified, uninstall the old Program Files copy manually. Do not delete it as part of installation or before verification.
+
+This migration requires a real Windows installation test; Linux tests and mocked tests do not prove UAC, shortcut, file-lock, or installer behavior.

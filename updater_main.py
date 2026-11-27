@@ -182,6 +182,7 @@ def run(args: argparse.Namespace) -> int:
         return 0
     except Exception as exc:  # noqa: BLE001
         logger.exception("Update failed: %s", exc)
+        rollback_error = None
         try:
             if backup.is_dir():
                 if target.exists():
@@ -193,11 +194,15 @@ def run(args: argparse.Namespace) -> int:
                 copy_package(backup, target)
                 logger.info("Restored the verified backup")
                 launch_and_check(target / "Planning.exe", target, health, logger)
-        except Exception:
+        except Exception as rollback_exc:
+            rollback_error = rollback_exc
             logger.exception("Rollback failed")
         notice = Path(os.environ.get("LOCALAPPDATA") or Path.home()) / "Planning" / "update_failed.txt"
         notice.parent.mkdir(parents=True, exist_ok=True)
-        notice.write_text(f"version={args.version}\nreason={exc}\nlog={log_path(args.log)}\n", encoding="utf-8")
+        reason = str(exc)
+        if rollback_error is not None:
+            reason += f"; rollback failed: {rollback_error}"
+        notice.write_text(f"version={args.version}\nreason={reason}\nlog={log_path(args.log)}\n", encoding="utf-8")
         return 1
     finally:
         shutil.rmtree(stage, ignore_errors=True)
