@@ -1,24 +1,20 @@
 {
   "workflow": "tests",
-  "conclusion": "failure",
-  "sha": "0802012",
+  "conclusion": "success",
+  "sha": "a45889c",
   "branch": "main",
-  "url": "https://github.com/bibo-crypto/Planning/actions/runs/45909979386",
-  "written": "2026-11-26 23:21 UTC",
+  "url": "https://github.com/bibo-crypto/Planning/actions/runs/46024950977",
+  "written": "2026-11-27 15:32 UTC",
   "jobs": [
     {
       "name": "pytest (3.14)",
-      "conclusion": "failure",
-      "failed_steps": [
-        "Run pytest and write JUnit XML"
-      ]
+      "conclusion": "success",
+      "failed_steps": []
     },
     {
       "name": "pytest (3.12)",
-      "conclusion": "failure",
-      "failed_steps": [
-        "Run pytest and write JUnit XML"
-      ]
+      "conclusion": "success",
+      "failed_steps": []
     }
   ],
   "pytest": {},

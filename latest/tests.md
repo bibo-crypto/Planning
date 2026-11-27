@@ -1,15 +1,15 @@
-# tests — FAILURE
+# tests — SUCCESS
 
-- commit: `0802012` on `main` — update(release, icon, python314): 45 added (+240/-0)
-- run: https://github.com/bibo-crypto/Planning/actions/runs/45909979386
-- event: push   |   report written: 2026-11-26 23:21 UTC
+- commit: `a45889c` on `main` — chore(release): bump version to 1.3.9
+- run: https://github.com/bibo-crypto/Planning/actions/runs/46024950977
+- event: push   |   report written: 2026-11-27 15:32 UTC
 
 ## Jobs
 
 | job | result | failed steps |
 |---|---|---|
-| pytest (3.14) | failure | Run pytest and write JUnit XML |
-| pytest (3.12) | failure | Run pytest and write JUnit XML |
+| pytest (3.14) | success | - |
+| pytest (3.12) | success | - |
 
 ## pytest
 
