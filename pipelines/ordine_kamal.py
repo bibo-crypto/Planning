@@ -18,7 +18,7 @@ ordini_elvy.match_raw_yarn().
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 import re
 
@@ -35,7 +35,7 @@ from pipelines.ordini_elvy import (
 )
 from utility.utils import clean_text, logger
 
-CLIENTE_CODE = 3017
+CLIENTE_CODE = 3019
 KAMAL_ARTICLE_PREFIX = "C170"
 
 
@@ -63,6 +63,7 @@ class OrdineKamalRow:
                                     # GRUPPO MACCHINA grouping key when COLOREDFM is blank
     titolo: str = ""               # yarn count; grouped by /1 versus /2 class
     order_no: str = ""              # optional operator-supplied order number
+    source_row_index: int = -1       # raw Kamal row that produced this ERP row
 
     @property
     def quantity_cones(self) -> float:
@@ -116,16 +117,34 @@ def _machine_group_key(row: OrdineKamalRow) -> tuple[str, str, str] | None:
 
 def assign_ordine_kamal_machines(rows: list[OrdineKamalRow]) -> None:
     """Assign GRUPPO MACCHINA consistently for workbook and ERP exports."""
-    # Rows of one colour are filled into machine batches in order: a batch never
-    # exceeds the largest machine, so a colour whose total is bigger than that
-    # is split over several machines instead of overfilling one.
-    members: dict[tuple[str, str, str], list[OrdineKamalRow]] = {}
+    # A single PDF line may itself exceed the largest machine.  Expand that
+    # line into the fewest possible machine-sized ERP rows before grouping.
+    # For example, 1056 becomes 672 + 384 (not 672 + 192 + 192).
+    _expand_oversized_rows(rows)
+
+    # Only consecutive rows with the same colour/count class belong to one
+    # group.  A later occurrence of the same colour starts a new group after
+    # any intervening colour, matching the PDF's physical row order.
+    groups: list[list[OrdineKamalRow]] = []
+    current_key: tuple[str, str, str] | None = None
+    current_group: list[OrdineKamalRow] = []
     for row in rows:
         key = _machine_group_key(row)
-        if key is not None:
-            members.setdefault(key, []).append(row)
+        if key is None:
+            if current_group:
+                groups.append(current_group)
+                current_group = []
+            current_key = None
+            continue
+        if current_group and key != current_key:
+            groups.append(current_group)
+            current_group = []
+        current_key = key
+        current_group.append(row)
+    if current_group:
+        groups.append(current_group)
 
-    for group in members.values():
+    for group in groups:
         batch_ids = split_into_batches([r.peso_kg for r in group])
         for batch in sorted(set(batch_ids)):
             batch_rows = [r for r, b in zip(group, batch_ids) if b == batch]
@@ -134,6 +153,33 @@ def assign_ordine_kamal_machines(rows: list[OrdineKamalRow]) -> None:
                 r.macchina = MACHINE_CODES.get(capacity)
                 r.abbina = f"Machine {capacity} Cones"
                 r.batch_no = batch
+
+
+def _expand_oversized_rows(rows: list[OrdineKamalRow]) -> None:
+    """Split an individual oversized row into the minimum number of rows.
+
+    The largest capacity is always used first.  The final remainder may be
+    smaller than the smallest machine; the normal machine selector then picks
+    the smallest capacity that can hold it.  This preserves the requested
+    1056 -> 672 + 384 allocation while keeping all other grouping rules intact.
+    """
+    from calculate.abbina_calculator import MACHINE_CAPACITIES
+
+    largest = MACHINE_CAPACITIES[-1]
+    expanded: list[OrdineKamalRow] = []
+    for row in rows:
+        quantity = float(row.peso_kg or 0.0)
+        if quantity <= largest:
+            expanded.append(row)
+            continue
+
+        remainder = quantity
+        while remainder > largest:
+            expanded.append(replace(row, peso_kg=largest))
+            remainder -= largest
+        if remainder > 0:
+            expanded.append(replace(row, peso_kg=remainder))
+    rows[:] = expanded
 
 
 def assign_bagno_prepostato(rows: list[OrdineKamalRow], first_bagno: str | None) -> None:
@@ -229,6 +275,7 @@ def build_ordine_kamal_rows(
             colore_name=clean_text(r.colore_name),
             titolo=clean_text(r.titolo),
             order_no=supplied_order_no,
+            source_row_index=len(out),
         ))
 
     if unmatched:

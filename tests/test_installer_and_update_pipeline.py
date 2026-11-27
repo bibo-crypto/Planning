@@ -40,6 +40,10 @@ def _zip_dir(source_dir: Path, target_zip: Path) -> Path:
 
 def test_build_bat_builds_and_validates_planning_zip():
     content = (ROOT / "build.bat").read_text(encoding="utf-8")
+    assert 'set "MAIN_SPEC=%~dp0main.spec"' in content
+    assert 'set "UPDATER_SPEC=%~dp0updater.spec"' in content
+    assert '"%VENV_PY%" -m PyInstaller "%MAIN_SPEC%" --noconfirm' in content
+    assert '"%VENV_PY%" -m PyInstaller "%UPDATER_SPEC%" --noconfirm' in content
     assert 'if not exist "dist\\PlanningUpdater.exe"' in content
     assert 'dist\\PlanningUpdater\\PlanningUpdater.exe' not in content
     assert 'copy /y "dist\\PlanningUpdater.exe" "dist\\Planning\\PlanningUpdater.exe"' in content
@@ -81,7 +85,7 @@ def test_installer_iss_preserves_per_user_install_metadata_and_never_changes_ant
     assert "Add-MpPreference" not in content
     assert "powershell.exe" not in content
     assert "VersionInfoDescription=Planning application" in content
-    assert '#define AppVersion   "1.3.10"' in content
+    assert '#define AppVersion   "1.3.11"' in content
 
 
 # ── Updater handoff (utility/updater.py) ─────────────────────────────────────

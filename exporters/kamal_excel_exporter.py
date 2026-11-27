@@ -9,6 +9,7 @@ from __future__ import annotations
 from utility.excel_io import safe_save_workbook
 
 from pathlib import Path
+from dataclasses import replace
 from typing import Collection, Mapping, Sequence
 
 import openpyxl
@@ -124,9 +125,6 @@ class KamalExcelExporter:
         ws.sheet_view.rightToLeft = False
         raw_columns = pick_columns(RAW_KAMAL_COLUMNS, self.hidden_columns.get("Kamal Order"))
         write_header(ws, raw_columns)
-        write_data(ws, raw_columns, self.rows)
-        apply_column_widths(ws, raw_columns)
-        freeze_and_filter(ws, raw_columns)
 
         kamal_rows = build_ordine_kamal_rows(
             list(self.rows), self.dfm_c170_entries, order_no=self.order_no
@@ -156,20 +154,33 @@ class KamalExcelExporter:
             apply_order_consegna(kamal_rows, self.machine_totals)
         assign_bagno_prepostato(kamal_rows, self.first_bagno)
 
-        # Also set Abbina on the original parsed rows (first sheet).  kamal_rows
-        # is built 1:1, in order, from self.rows, so copy position by position:
-        # this also covers rows grouped by Colore (blank COLOREDFM), which a
-        # COLOREDFM lookup used to leave without an Abbina.
-        for parsed_row, derived_row in zip(self.rows, kamal_rows):
-            parsed_row.abbina = derived_row.abbina or ""
+        # Also set Abbina on the original parsed rows (first sheet).  An
+        # oversized source line can expand into multiple ERP rows, so
+        # aggregate its machine labels back onto the one PDF row.
+        derived_by_source: dict[int, list[OrdineKamalRow]] = {}
+        for position, derived_row in enumerate(kamal_rows):
+            source_index = derived_row.source_row_index
+            if source_index < 0:
+                source_index = position if position < len(self.rows) else -1
+            if source_index >= 0:
+                derived_by_source.setdefault(source_index, []).append(derived_row)
+
+        for source_index, parsed_row in enumerate(self.rows):
+            source_rows = derived_by_source.get(source_index, [])
+            labels = []
+            for derived_row in source_rows:
+                if derived_row.abbina and derived_row.abbina not in labels:
+                    labels.append(derived_row.abbina)
+            parsed_row.abbina = " + ".join(labels)
+            derived_row = source_rows[0] if source_rows else None
             # Use ELVY's exact Articolo + COLOREDFM history rule.  Kamal's
             # derived Articolo is finished (C170...), so resolve it to its
             # raw equivalent before passing it to the shared helper.
             parsed_row.check_articolo = (
                 "prima volta tint."
                 if is_first_time_dyeing(
-                    raw_articolo_for(derived_row.articolo_delta),
-                    derived_row.coloredfm,
+                    raw_articolo_for(derived_row.articolo_delta) if derived_row else "",
+                    derived_row.coloredfm if derived_row else parsed_row.coloredfm,
                     self.dfm_c170_entries,
                 )
                 else ""
@@ -197,6 +208,27 @@ class KamalExcelExporter:
                 ws.cell(row=row_index, column=check_articolo_col).value = (
                     getattr(parsed_row, "check_articolo", "") or ""
                 )
+
+        # Write the raw sheet after machine assignment as well.  When one PDF
+        # line is split (e.g. 1056 -> 672 + 384), show both physical machine
+        # rows here too instead of leaving the split visible only in Ordine
+        # Kamal.
+        raw_display_rows: list[KamalOrderRow] = []
+        for source_index, parsed_row in enumerate(self.rows):
+            source_rows = derived_by_source.get(source_index, [])
+            if len(source_rows) <= 1:
+                raw_display_rows.append(parsed_row)
+                continue
+            for derived_row in source_rows:
+                display_row = replace(
+                    parsed_row,
+                    peso_kg=derived_row.peso_kg,
+                )
+                display_row.abbina = derived_row.abbina or ""
+                raw_display_rows.append(display_row)
+        write_data(ws, raw_columns, raw_display_rows)
+        apply_column_widths(ws, raw_columns)
+        freeze_and_filter(ws, raw_columns)
 
         ordine_columns = pick_columns(ORDINE_KAMAL_COLUMNS, self.hidden_columns.get("Ordine Kamal"))
         write_header(ws2, ordine_columns)

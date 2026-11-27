@@ -5,11 +5,44 @@ from pipelines.ordine_kamal import (
     assign_ordine_kamal_machines,
     build_ordine_kamal_rows,
 )
+from calculate.abbina_calculator import MACHINE_CODES
 from parsers.kamal_parser import KamalOrderRow
 
 
 def _row(titolo: str, peso: float, coloredfm: str = "11") -> OrdineKamalRow:
     return OrdineKamalRow(coloredfm=coloredfm, titolo=titolo, peso_kg=peso)
+
+
+def test_kamal_client_code_is_3019():
+    assert OrdineKamalRow().cliente == 3019
+
+
+def test_kamal_oversized_1056_is_split_into_672_and_384():
+    rows = [_row("50/1", 1056)]
+
+    assign_ordine_kamal_machines(rows)
+
+    assert [r.peso_kg for r in rows] == [672, 384]
+    assert [r.abbina for r in rows] == ["Machine 672 Cones", "Machine 384 Cones"]
+    assert len({r.macchina for r in rows}) == 2
+    assert [r.macchina for r in rows] == [MACHINE_CODES[672], MACHINE_CODES[384]]
+
+
+def test_kamal_machine_codes_are_distinct_for_672_384_and_72():
+    rows = [_row("50/1", 672, coloredfm="11"), _row("50/1", 384, coloredfm="22"), _row("50/1", 72, coloredfm="33")]
+
+    assign_ordine_kamal_machines(rows)
+
+    assert [r.macchina for r in rows] == [3309, 3304, 3307]
+
+
+def test_kamal_same_colour_after_another_colour_starts_a_new_group():
+    rows = [_row("50/1", 60), _row("50/1", 20, coloredfm="22"), _row("50/1", 60)]
+
+    assign_ordine_kamal_machines(rows)
+
+    # If the two non-adjacent 60 rows were merged, they would get Machine 128.
+    assert [r.abbina for r in rows] == ["Machine 72 Cones", "Machine 24 Cones", "Machine 72 Cones"]
 
 
 def test_kamal_same_ply_titolo_values_are_combined_even_when_different():
@@ -37,8 +70,8 @@ def test_kamal_non_adjacent_different_titolo_stays_separate():
 
     assign_ordine_kamal_machines(rows)
 
-    # The two /1 rows share their own group, but /2 must not be merged into it.
-    assert rows[0].abbina == rows[2].abbina == "Machine 56 Cones"
+    # Each adjacent run is independent; non-adjacent /1 rows do not merge.
+    assert rows[0].abbina == rows[2].abbina == "Machine 24 Cones"
     assert rows[1].abbina == "Machine 24 Cones"
 
 
@@ -143,6 +176,33 @@ def test_kamal_workbook_raw_sheet_shows_the_dfm_code_and_name(tmp_path):
     assert (raw[2][cf] or "", raw[2][cn]) == ("", "BRAND NEW")
     ordine = [[c.value for c in r] for r in wb["Ordine Kamal"].iter_rows(min_row=1)]
     assert ordine[1][ordine[0].index("COLORE")] in (790351, "790351")
+
+
+def test_kamal_oversized_line_is_split_on_both_workbook_sheets(tmp_path):
+    import openpyxl
+    from exporters.kamal_excel_exporter import KamalExcelExporter
+
+    out = tmp_path / "split.xlsx"
+    rows = [KamalOrderRow(
+        reply_no="110", order_date="2026/10/20", coloredfm="11",
+        titolo="50/1", colore_name="WHITE", peso_kg=1056,
+    )]
+    KamalExcelExporter(rows, out).export()
+    wb = openpyxl.load_workbook(out)
+
+    raw = [[c.value for c in r] for r in wb["Kamal Order"].iter_rows(min_row=1)]
+    raw_headers = raw[0]
+    raw_weight = raw_headers.index("Peso (kg)")
+    raw_abbina = raw_headers.index("Abbina")
+    assert [r[raw_weight] for r in raw[1:]] == [672, 384]
+    assert [r[raw_abbina] for r in raw[1:]] == ["Machine 672 Cones", "Machine 384 Cones"]
+
+    ordine = [[c.value for c in r] for r in wb["Ordine Kamal"].iter_rows(min_row=1)]
+    ordine_headers = ordine[0]
+    ordine_weight = ordine_headers.index("Q.TA")
+    ordine_machine = ordine_headers.index("GRUPPO MACCHINA")
+    assert [r[ordine_weight] for r in ordine[1:]] == [672, 384]
+    assert [r[ordine_machine] for r in ordine[1:]] == [3309, 3304]
 
 
 # --------------------------------------------- Ordine Kamal workbook -> Create (EXCEL+Biglietti)

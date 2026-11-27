@@ -98,7 +98,26 @@ echo.
 :: -- Build with PyInstaller ---------------------------------------------------
 echo  [5/6]  Building Planning.exe and PlanningUpdater.exe with PyInstaller...
 echo.
-"%VENV_PY%" -m PyInstaller main.spec --noconfirm
+:: Always resolve spec files from the folder containing this script.  This keeps
+:: the build working when the project is launched from a shortcut, another cmd
+:: window, or a relocated drive/folder.
+set "MAIN_SPEC=%~dp0main.spec"
+set "UPDATER_SPEC=%~dp0updater.spec"
+if not exist "%MAIN_SPEC%" (
+    echo  [ERROR] Missing main.spec next to build.bat:
+    echo          %MAIN_SPEC%
+    echo          Copy the complete project source before building.
+    if not defined PLANNING_NO_PAUSE pause
+    exit /b 1
+)
+if not exist "%UPDATER_SPEC%" (
+    echo  [ERROR] Missing updater.spec next to build.bat:
+    echo          %UPDATER_SPEC%
+    echo          Copy the complete project source before building.
+    if not defined PLANNING_NO_PAUSE pause
+    exit /b 1
+)
+"%VENV_PY%" -m PyInstaller "%MAIN_SPEC%" --noconfirm
 if errorlevel 1 (
     echo.
     echo  [ERROR] PyInstaller build FAILED.
@@ -106,7 +125,7 @@ if errorlevel 1 (
     if not defined PLANNING_NO_PAUSE pause
     exit /b 1
 )
-"%VENV_PY%" -m PyInstaller updater.spec --noconfirm
+"%VENV_PY%" -m PyInstaller "%UPDATER_SPEC%" --noconfirm
 if errorlevel 1 (
     echo.
     echo  [ERROR] PlanningUpdater.exe build FAILED.
