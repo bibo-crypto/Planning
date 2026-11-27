@@ -1,8 +1,8 @@
 # windows-exe — SUCCESS
 
-- commit: `0802012` on `main` — update(release, icon, python314): 45 added (+240/-0)
-- run: https://github.com/bibo-crypto/Planning/actions/runs/45909979382
-- event: push   |   report written: 2026-11-26 23:19 UTC
+- commit: `a45889c` on `main` — chore(release): bump version to 1.3.9
+- run: https://github.com/bibo-crypto/Planning/actions/runs/46024951113
+- event: push   |   report written: 2026-11-27 15:29 UTC
 
 ## Jobs
 
@@ -19,10 +19,10 @@ No pytest.log artifact for this run.
 - result: **OK** — `Planning started` logged 2× (expected 2: empty profile, then restart)
 
 ```
-2026-11-26 23:19:00  INFO      Planning v1.3.6 starting (data folder: D:\a\_temp\planning-smoke\LocalAppData\Planning)
-2026-11-26 23:19:02  INFO      Startup timing: database 0.02 s | page imports 0.26 s | widgets 2.04 s | total 2.32 s
-2026-11-26 23:19:02  INFO      Planning started: all pages built (v1.3.6)
-2026-11-26 23:19:04  INFO      Planning v1.3.6 starting (data folder: D:\a\_temp\planning-smoke\LocalAppData\Planning)
-2026-11-26 23:19:05  INFO      Startup timing: database 0.02 s | page imports 0.31 s | widgets 0.67 s | total 0.99 s
-2026-11-26 23:19:05  INFO      Planning started: all pages built (v1.3.6)
+2026-11-27 15:29:06  INFO      Planning v1.3.9 starting (data folder: D:\a\_temp\planning-smoke\LocalAppData\Planning)
+2026-11-27 15:29:10  INFO      Startup timing: database 0.04 s | page imports 0.21 s | widgets 3.73 s | total 3.98 s
+2026-11-27 15:29:10  INFO      Planning started: all pages built (v1.3.9)
+2026-11-27 15:29:12  INFO      Planning v1.3.9 starting (data folder: D:\a\_temp\planning-smoke\LocalAppData\Planning)
+2026-11-27 15:29:13  INFO      Startup timing: database 0.02 s | page imports 0.32 s | widgets 0.61 s | total 0.95 s
+2026-11-27 15:29:13  INFO      Planning started: all pages built (v1.3.9)
 ```
