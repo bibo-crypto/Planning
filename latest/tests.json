@@ -1,18 +1,18 @@
 {
   "workflow": "tests",
   "conclusion": "success",
-  "sha": "68a25d8",
+  "sha": "706cfde",
   "branch": "main",
-  "url": "https://github.com/bibo-crypto/Planning/actions/runs/46029090142",
-  "written": "2026-11-27 16:00 UTC",
+  "url": "https://github.com/bibo-crypto/Planning/actions/runs/46038057310",
+  "written": "2026-11-27 17:04 UTC",
   "jobs": [
     {
-      "name": "pytest (3.12)",
+      "name": "pytest (3.14)",
       "conclusion": "success",
       "failed_steps": []
     },
     {
-      "name": "pytest (3.14)",
+      "name": "pytest (3.12)",
       "conclusion": "success",
       "failed_steps": []
     }
