@@ -8,7 +8,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 from utility.utils import APP_DATA_DIR
 
-DEFAULT_APP_VERSION = "1.3.9"
+DEFAULT_APP_VERSION = "1.3.10"
 GITHUB_REPOSITORY = "bibo-crypto/Planning"
 RELEASES_API_URL = f"https://api.github.com/repos/{GITHUB_REPOSITORY}/releases/latest"
 RELEASES_PAGE_URL = f"https://github.com/{GITHUB_REPOSITORY}/releases"
@@ -106,8 +106,11 @@ def download_installer(release: ReleaseInfo, progress: Callable[[int], None] | N
             raise RuntimeError("The downloaded update ZIP is corrupt.") from exc
         with archive:
             if archive.testzip(): raise RuntimeError("The downloaded update ZIP is corrupt.")
-            names = {Path(n.replace("\\", "/")).name.casefold() for n in archive.namelist()}
-            if "planning.exe" not in names or not any(n.startswith("python3") and n.endswith(".dll") for n in names):
+            names = {n.replace("\\", "/").casefold() for n in archive.namelist()}
+            basenames = {Path(n).name for n in names}
+            if ("planning.exe" not in basenames
+                    or not any(Path(n).name.startswith("python3") and n.endswith(".dll") for n in names)
+                    or not any(Path(n).name == "base_library.zip" for n in names)):
                 raise RuntimeError("The downloaded update is incomplete; upload the whole package made by build.bat zip.")
     except Exception:
         destination.unlink(missing_ok=True); raise

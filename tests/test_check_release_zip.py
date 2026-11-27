@@ -39,6 +39,12 @@ def test_the_archive_is_independent_of_the_release_tag(tmp_path):
     assert tool.check_zip(make(tmp_path, GOOD), "v9.9.9") == []
 
 
+def test_a_package_without_base_library_is_refused(tmp_path):
+    incomplete = {"Planning.exe": b"exe", "_internal/python314.dll": b"dll"}
+    problems = tool.check_zip(make(tmp_path, incomplete), "v1.3.9")
+    assert any("base_library.zip" in problem for problem in problems)
+
+
 def test_an_archive_without_a_version_marker_is_accepted(tmp_path):
     assert tool.check_zip(make(tmp_path, GOOD), "1.3.6") == []
 

@@ -71,6 +71,8 @@ def safe_extract(source: Path, destination: Path) -> Path:
     internal = app_root / "_internal"
     if not any(internal.glob("python3*.dll")):
         raise RuntimeError("The update package is incomplete: _internal\\python3*.dll is missing.")
+    if not any(internal.glob("base_library.zip")):
+        raise RuntimeError("The update package is incomplete: _internal\\base_library.zip is missing.")
     return app_root
 
 
@@ -141,6 +143,12 @@ def write_version(target: Path, version: str) -> None:
 def launch_and_check(exe: Path, working_dir: Path, health_file: Path, logger: logging.Logger) -> bool:
     health_file.unlink(missing_ok=True)
     environment = os.environ.copy()
+    # A user's system Python variables can point the embedded interpreter at a
+    # different stdlib and produce "Failed to import encodings module".
+    # PyInstaller supplies its own interpreter and must not inherit them.
+    for name in ("PYTHONHOME", "PYTHONPATH", "PYTHONPLATLIBDIR"):
+        environment.pop(name, None)
+    environment["PYTHONNOUSERSITE"] = "1"
     environment["PLANNING_UPDATE_HEALTH_FILE"] = str(health_file)
     process = subprocess.Popen([str(exe)], cwd=working_dir, env=environment, close_fds=True)
     logger.info("Started %s as PID %s; waiting for health marker %s", exe, process.pid, health_file)

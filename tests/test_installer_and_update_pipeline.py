@@ -23,6 +23,7 @@ def _make_complete_package(root: Path, marker_bytes: bytes = b"new-exe") -> Path
     (package / "icon.ico").write_bytes(b"ico")
     (package / "version.txt").write_text("1.3.8\n", encoding="ascii", newline="\n")
     (package / "_internal" / "python314.dll").write_bytes(b"python-dll")
+    (package / "_internal" / "base_library.zip").write_bytes(b"python-stdlib")
     return package
 
 
@@ -80,7 +81,7 @@ def test_installer_iss_preserves_per_user_install_metadata_and_never_changes_ant
     assert "Add-MpPreference" not in content
     assert "powershell.exe" not in content
     assert "VersionInfoDescription=Planning application" in content
-    assert '#define AppVersion   "1.3.9"' in content
+    assert '#define AppVersion   "1.3.10"' in content
 
 
 # ── Updater handoff (utility/updater.py) ─────────────────────────────────────
@@ -235,6 +236,24 @@ def test_stale_health_marker_is_removed_before_new_launch(tmp_path, monkeypatch)
     monkeypatch.setattr(updater_main.time, "sleep", lambda _: None)
     assert not updater_main.launch_and_check(tmp_path / "Planning.exe", tmp_path, health, updater_main.logging.getLogger("test"))
     assert not health.exists()
+
+
+def test_packaged_launch_clears_external_python_environment(tmp_path, monkeypatch):
+    captured = {}
+    class FakeProcess:
+        pid = 1
+        returncode = 0
+        def poll(self): return self.returncode
+    def fake_popen(args, **kwargs):
+        captured.update(kwargs["env"])
+        return FakeProcess()
+    monkeypatch.setenv("PYTHONHOME", "C:/wrong-python")
+    monkeypatch.setenv("PYTHONPATH", "C:/wrong-python-path")
+    monkeypatch.setattr(updater_main.subprocess, "Popen", fake_popen)
+    assert not updater_main.launch_and_check(tmp_path / "Planning.exe", tmp_path, tmp_path / "health.ok", updater_main.logging.getLogger("test"))
+    assert "PYTHONHOME" not in captured
+    assert "PYTHONPATH" not in captured
+    assert captured["PYTHONNOUSERSITE"] == "1"
 
 
 def test_rollback_failure_is_reported_in_failure_notice(tmp_path, monkeypatch):

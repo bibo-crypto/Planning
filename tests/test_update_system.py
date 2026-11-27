@@ -24,6 +24,7 @@ def make_package(root: Path) -> Path:
     (package / "Planning.exe").write_bytes(b"new executable")
     (package / "PlanningUpdater.exe").write_bytes(b"updater")
     (package / "_internal" / "python312.dll").write_bytes(b"python")
+    (package / "_internal" / "base_library.zip").write_bytes(b"python-stdlib")
     return package
 
 
