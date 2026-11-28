@@ -67,7 +67,9 @@ a = Analysis(
     pathex=['.'],
     binaries=binaries,
     datas=datas,
-    hiddenimports=[
+    hiddenimports=collect_submodules('encodings') + [
+        # The embedded interpreter cannot start without encodings; do not rely
+        # on implicit analysis across Python/PyInstaller versions.
         # pdfplumber / pdfminer
         'pdfplumber',
         'pdfminer',

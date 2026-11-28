@@ -42,6 +42,8 @@ def check_zip(path: Path, tag: str | None = None) -> list[str]:
         if not dlls:
             problems.append("_internal\\python3*.dll is missing: the ZIP holds only %d file(s) (%s), but the whole program folder is needed "
                             "- create it with \"build.bat\"" % (len(names), ", ".join(PurePosixPath(n).name for n in names[:3])))
+        if prefix + "_internal/base_library.zip" not in lowered:
+            problems.append("_internal\\base_library.zip is missing: the embedded Python standard library is incomplete")
         total = sum(i.file_size for i in archive.infolist())
         if total < MIN_PLAUSIBLE_BYTES:
             problems.append(f"the ZIP unpacks to only {total / 1024 / 1024:.1f} MB; a complete program folder is much bigger")

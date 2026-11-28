@@ -26,8 +26,9 @@ AppPublisher={#AppPublisher}
 ; Add/Remove Programs when the installed app's own exe icon isn't used.
 SetupIconFile=icon.ico
 
-; Installation directory
-DefaultDirName={autopf}\{#AppName}
+; Per-user installation avoids protected Program Files writes during normal
+; launches and in-app updates. Runtime data remains in LocalAppData\Planning.
+DefaultDirName={localappdata}\Programs\{#AppName}
 DefaultGroupName={#AppName}
 
 ; Output
@@ -45,7 +46,6 @@ DisableProgramGroupPage=yes
 
 ; Privileges — installs per-user (no admin required)
 PrivilegesRequired=lowest
-PrivilegesRequiredOverridesAllowed=dialog
 
 ; Architecture
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -97,5 +97,5 @@ Name: "{commondesktop}\{#AppName}"; \
 ; Offer to launch the app after install
 Filename: "{app}\{#AppExeName}"; \
     Description: "Launch {#AppName}"; \
-    Flags: nowait postinstall skipifsilent; \
+    Flags: nowait postinstall skipifsilent runasoriginaluser; \
     WorkingDir: "{app}"

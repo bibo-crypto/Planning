@@ -43,6 +43,11 @@ def main() -> None:
     from gui import ConverterApp
 
     app = ConverterApp()
+    health_file = os.environ.get("PLANNING_UPDATE_HEALTH_FILE")
+    if health_file:
+        health_path = Path(health_file)
+        health_path.parent.mkdir(parents=True, exist_ok=True)
+        health_path.write_text("Planning startup completed\n", encoding="utf-8")
     app.mainloop()
 
 

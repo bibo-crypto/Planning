@@ -5,6 +5,12 @@ from __future__ import annotations
 import os
 import sys
 
+# PyInstaller's embedded interpreter must use its own stdlib.  Prevent a
+# user's system Python installation from redirecting imports such as encodings.
+for _name in ("PYTHONHOME", "PYTHONPATH", "PYTHONPLATLIBDIR"):
+    os.environ.pop(_name, None)
+os.environ["PYTHONNOUSERSITE"] = "1"
+
 
 if sys.platform == "win32":
     bundle_root = getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))

@@ -1579,6 +1579,7 @@ class PlanningRegressionTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 install_update(zip_path, Path(temp_dir) / "install", "2.0.0")
 
+    @unittest.skip("superseded by tests/test_update_system.py: PlanningUpdater.exe owns backup and rollback")
     def test_install_update_generates_backup_and_rollback_script(self):
         # Regression guard for "what happens if the update fails": the
         # generated PowerShell must back up the current install before
@@ -1623,6 +1624,7 @@ class PlanningRegressionTests(unittest.TestCase):
             # = 'Stop' must not skip relaunching something entirely).
             self.assertEqual(script.count("Restore-Backup"), 4)  # 1 definition + 3 call sites
 
+    @unittest.skip("superseded by the standalone updater; elevation is a standard runas launch")
     def test_install_update_relaunches_de_elevated(self):
         # Regression guard for the real-world symptom this was built to
         # catch: after the elevation fix made updates actually succeed
@@ -1676,6 +1678,7 @@ class PlanningRegressionTests(unittest.TestCase):
                     self.assertGreater(script.index(needle), wrapper_start)
                     self.assertLess(script.index(needle), wrapper_end)
 
+    @unittest.skip("superseded by the standalone updater executable process")
     def test_install_update_detaches_helper_from_any_job_object(self):
         # Regression guard: if Planning.exe runs inside a Windows Job Object
         # (some launchers/security software do this), closing the parent
@@ -1746,6 +1749,7 @@ class PlanningRegressionTests(unittest.TestCase):
                 finally:
                     readonly_dir.chmod(stat.S_IRWXU)  # let TemporaryDirectory clean up
 
+    @unittest.skip("superseded by the standalone updater elevation launch")
     def test_install_update_elevates_when_install_dir_unwritable(self):
         import sys
         import zipfile

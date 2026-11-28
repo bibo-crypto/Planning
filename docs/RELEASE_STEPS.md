@@ -1,10 +1,10 @@
 # Publishing a release the in-app updater will accept
 
-How updating works (pinned by `tests/test_update_system.py`): the program asks GitHub for the **latest release**, takes its **tag**
-(`v1.3.8`) as the new version, downloads the first `.zip` asset (it prefers one named `Planning...zip`), unpacks it, refuses it if it
-is not a whole program (`Planning.exe` and `_internal\python3*.dll`), and starts a short PowerShell helper that waits for the
-program to close, backs up the installation, copies the new files, writes the **tag** into `version.txt`, starts the new program and
-rolls back if it does not stay running. After an update the program reports the tag, whatever the number in the file name or in the ZIP.
+How updating works: the program asks GitHub for the **latest release**, takes its **tag** (`v1.3.8`) as the new version, downloads the
+whole-folder ZIP, validates it before touching the installation, and starts the clearly named packaged `PlanningUpdater.exe`. The
+updater waits for Planning to exit, makes and verifies a complete backup, copies the new files, writes the tag into `version.txt`,
+launches Planning with a startup health marker, and restores the backup if startup fails. Runtime data remains in
+`%LOCALAPPDATA%\Planning` and is never included in the release package.
 
 ## Steps (from the project folder, on the Windows build machine)
 
@@ -21,20 +21,25 @@ rolls back if it does not stay running. After an update the program reports the 
 
 ## When something stops the update
 
-* The program starts the helper and **waits up to 25 s** (3 minutes behind the Windows permission prompt) for its start marker before it
-  closes. If the marker does not come, the program **stays open**, withdraws the update and says that Windows or an antivirus most likely
-  blocked the helper. A helper that starts later finds the withdrawal and changes nothing.
-* **Antivirus.** RAV Endpoint Protection removed the earlier, long helper (`Planning_UpdateBootstrap_*.ps1`, "Suspicious PowerShell
-  script activity", Risk.Powershell.Script.Gen.DIYST). The helper is now the short script of the first working release and
-  `tests/test_update_system.py` fails if it grows long or contains what antivirus products look for (`Add-Type`, message boxes, hashing,
-  downloads, encoded commands, .NET calls). If an antivirus still blocks it, add an exception for `%TEMP%\Planning_Update_*.ps1`
-  (or the whole `%TEMP%` script folder) and for the install folder.
-* If the helper rolls back or fails, it writes `%LOCALAPPDATA%\Planning\update_failed.txt`; the program shows its content once at the next
-  start. The helper's own log is `%TEMP%\Planning_Update.log`.
+* Planning waits up to 25 seconds for `PlanningUpdater.exe` to write its start marker before it closes. If the marker does not come,
+  Planning stays open, nothing is changed, and the message identifies the updater path and log.
+* The updater is a normal, separately packaged executable. It does not generate or execute PowerShell, add exclusions, disable security
+  controls, hide its behavior, or download anything itself.
+* A per-user install under `%LOCALAPPDATA%\Programs\Planning` normally needs no elevation. A legacy protected installation may show the
+  standard Windows administrator prompt; declining it leaves the installed version intact.
+* If the updater rolls back or fails, it writes `%LOCALAPPDATA%\Planning\update_failed.txt`; Planning shows its content once at the next
+  start. The updater log is `%LOCALAPPDATA%\Planning\logs\updater.log`.
 * A backup that is not complete is never used for a rollback: the installation is left exactly as it was.
 
 ## What to send when an update fails
 
 1. The message the program showed (also in `converter.log`: look for `Update to ...`).
 2. `%TEMP%\Planning_Update.log`, if it exists, and `%LOCALAPPDATA%\Planning\update_failed.txt`, if it exists.
-3. The antivirus alert (name of the program and of the file it names).
+3. The Windows Security or antivirus alert (product name and exact file/path named). Do not disable protection or add an automatic
+   exclusion.
+
+## Release assets
+
+Upload `dist\Planning_v<version>.zip` produced by `build.bat zip` for the in-app updater. It must contain the contents of
+`dist\Planning`, including `Planning.exe`, `PlanningUpdater.exe`, `_internal\python3*.dll`, and runtime files. The installer EXE is a
+separate user-facing download and is not the in-app updater asset.

@@ -35,6 +35,12 @@ def test_the_exe_only_release_zip_of_the_incident_is_refused(tmp_path):
     assert len(problems) >= 1
 
 
+def test_a_package_without_base_library_is_refused(tmp_path):
+    entries = {"Planning.exe": b"x", "_internal/python314.dll": b"dll"}
+    problems = tool.check_zip(make(tmp_path, entries), "v1.3.6")
+    assert any("base_library.zip" in p for p in problems)
+
+
 def test_the_archive_is_independent_of_the_release_tag(tmp_path):
     assert tool.check_zip(make(tmp_path, GOOD), "v9.9.9") == []
 

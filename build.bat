@@ -96,7 +96,7 @@ echo         Done.
 echo.
 
 :: -- Build with PyInstaller ---------------------------------------------------
-echo  [5/6]  Building executable with PyInstaller...
+echo  [5/6]  Building Planning.exe and PlanningUpdater.exe with PyInstaller...
 echo.
 "%VENV_PY%" -m PyInstaller main.spec --noconfirm
 if errorlevel 1 (
@@ -106,6 +106,19 @@ if errorlevel 1 (
     if not defined PLANNING_NO_PAUSE pause
     exit /b 1
 )
+"%VENV_PY%" -m PyInstaller updater.spec --noconfirm
+if errorlevel 1 (
+    echo.
+    echo  [ERROR] PlanningUpdater.exe build FAILED.
+    if not defined PLANNING_NO_PAUSE pause
+    exit /b 1
+)
+if not exist "dist\PlanningUpdater\PlanningUpdater.exe" (
+    echo [ERROR] PlanningUpdater.exe was not produced.
+    if not defined PLANNING_NO_PAUSE pause
+    exit /b 1
+)
+copy /y "dist\PlanningUpdater\PlanningUpdater.exe" "dist\Planning\PlanningUpdater.exe" >nul
 
 
 :: -- Legacy launcher (self-update bridge) -------------------------------------

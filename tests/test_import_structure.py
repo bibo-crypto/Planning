@@ -8,6 +8,7 @@ shrink but never silently grow.
 """
 import ast
 import os
+import site
 import subprocess
 import sys
 from pathlib import Path
@@ -62,7 +63,10 @@ ENTRY_MODULES = [
 
 @pytest.mark.parametrize("module", ENTRY_MODULES)
 def test_module_imports_cleanly_when_it_is_the_first_one_imported(module):
-    env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
+    user_site = site.getusersitepackages()
+    existing_pythonpath = os.environ.get("PYTHONPATH", "")
+    pythonpath = os.pathsep.join(part for part in (str(ROOT), user_site, existing_pythonpath) if part)
+    env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1", PYTHONPATH=pythonpath)
     result = subprocess.run([sys.executable, "-c", f"import {module}"], cwd=ROOT, env=env,
                             capture_output=True, text=True, timeout=120)
     assert result.returncode == 0, result.stderr[-800:]
