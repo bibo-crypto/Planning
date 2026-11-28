@@ -1,14 +1,14 @@
 # windows-exe — FAILURE
 
-- commit: `b8a712f` on `fix/embedded-python-encodings` — fix(windows): harden embedded Python updater runtime
-- run: https://github.com/bibo-crypto/Planning/actions/runs/46111505178
-- event: push   |   report written: 2026-11-28 05:20 UTC
+- commit: `5e312dd` on `fix/embedded-python-encodings` — fix(windows): accept updater build output layout
+- run: https://github.com/bibo-crypto/Planning/actions/runs/46111715982
+- event: push   |   report written: 2026-11-28 05:24 UTC
 
 ## Jobs
 
 | job | result | failed steps |
 |---|---|---|
-| build-and-smoke-test | failure | Build executables |
+| build-and-smoke-test | failure | Validate packaged files |
 
 ## pytest
 
