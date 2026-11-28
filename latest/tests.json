@@ -1,20 +1,20 @@
 {
   "workflow": "tests",
   "conclusion": "failure",
-  "sha": "b8a712f",
+  "sha": "5e312dd",
   "branch": "fix/embedded-python-encodings",
-  "url": "https://github.com/bibo-crypto/Planning/actions/runs/46111505188",
-  "written": "2026-11-28 05:23 UTC",
+  "url": "https://github.com/bibo-crypto/Planning/actions/runs/46111716333",
+  "written": "2026-11-28 05:26 UTC",
   "jobs": [
     {
-      "name": "pytest (3.12)",
+      "name": "pytest (3.14)",
       "conclusion": "failure",
       "failed_steps": [
         "Run pytest and write JUnit XML"
       ]
     },
     {
-      "name": "pytest (3.14)",
+      "name": "pytest (3.12)",
       "conclusion": "failure",
       "failed_steps": [
         "Run pytest and write JUnit XML"
