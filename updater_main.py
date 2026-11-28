@@ -89,13 +89,50 @@ def snapshot(source: Path, destination: Path) -> None:
             raise RuntimeError(f"The backup failed verification for {relative}")
 
 
-def copy_package(source: Path, target: Path) -> None:
+def _is_persistent_user_data(relative: Path) -> bool:
+    """Keep operator data if it happens to live beside the installed EXE."""
+    if any(part.casefold() in {"settings", "user_data", "userdata", "logs", "backups"}
+           for part in relative.parts):
+        return True
+    return relative.suffix.casefold() in {".db", ".sqlite", ".sqlite3"}
+
+
+def _remove_path(path: Path) -> None:
+    if path.is_dir() and not path.is_symlink():
+        shutil.rmtree(path)
+    else:
+        path.unlink(missing_ok=True)
+
+
+def _sync_package_tree(source: Path, target: Path, relative: Path = Path()) -> None:
+    """Mirror packaged application files while retaining user data and SQLite files.
+
+    Stale application files are removed so an upgrade cannot leave modules/DLLs
+    from an older release. Persistent user data is deliberately excluded.
+    """
+    target.mkdir(parents=True, exist_ok=True)
+    source_names = {item.name for item in source.iterdir()}
+    for existing in list(target.iterdir()):
+        rel = relative / existing.name
+        if existing.name not in source_names and not _is_persistent_user_data(rel):
+            _remove_path(existing)
+
     for item in source.iterdir():
         destination = target / item.name
+        rel = relative / item.name
         if item.is_dir():
-            _copy_tree_with_retry(item, destination)
+            if destination.exists() and not destination.is_dir():
+                _remove_path(destination)
+            destination.mkdir(parents=True, exist_ok=True)
+            _sync_package_tree(item, destination, rel)
         else:
+            if destination.exists() and destination.is_dir():
+                _remove_path(destination)
             _copy_file_with_retry(item, destination)
+
+
+def copy_package(source: Path, target: Path) -> None:
+    _sync_package_tree(source, target)
 
 
 def _copy_file_with_retry(src: Path, dst: Path, retries: int = 5, delay: float = 2.0) -> None:
