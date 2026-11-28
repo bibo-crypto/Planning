@@ -121,7 +121,8 @@ def _copy_tree_with_retry(source: Path, destination: Path) -> None:
 
 def write_version(target: Path, version: str) -> None:
     temporary = target / f".version.{os.getpid()}.tmp"
-    temporary.write_text(version.lstrip("vV").strip() + "\n", encoding="ascii")
+    with temporary.open("w", encoding="ascii", newline="") as stream:
+        stream.write(version.lstrip("vV").strip() + "\n")
     temporary.replace(target / "version.txt")
     actual = (target / "version.txt").read_text(encoding="ascii").strip()
     if actual != version.lstrip("vV").strip():

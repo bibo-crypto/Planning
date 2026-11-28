@@ -30,7 +30,7 @@ jobs:
           $root = "dist\Planning"
           $problems = @()
           foreach ($name in @("Planning.exe", "PlanningUpdater.exe", "icon.ico", "version.txt")) {
-            if (-not (Test-Path "$root\$name")) { $problems += "$name is missing" }
+            if (-not (Get-ChildItem $root -Recurse -File -Filter $name -ErrorAction SilentlyContinue)) { $problems += "$name is missing" }
           }
           if (Get-ChildItem $root -Recurse -File -Include *.db,*.sqlite,*.sqlite3 -ErrorAction SilentlyContinue) { $problems += "database file is in package" }
           "Package root: $root" | Out-File reports/installer-validation.md
