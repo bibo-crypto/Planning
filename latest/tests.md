@@ -1,15 +1,15 @@
-# tests — SUCCESS
+# tests — FAILURE
 
-- commit: `706cfde` on `v1.3.13` — chore(release): bump version to 1.3.11
-- run: https://github.com/bibo-crypto/Planning/actions/runs/46038242663
-- event: push   |   report written: 2026-11-27 17:05 UTC
+- commit: `b8a712f` on `fix/embedded-python-encodings` — fix(windows): harden embedded Python updater runtime
+- run: https://github.com/bibo-crypto/Planning/actions/runs/46111505188
+- event: push   |   report written: 2026-11-28 05:23 UTC
 
 ## Jobs
 
 | job | result | failed steps |
 |---|---|---|
-| pytest (3.14) | success | - |
-| pytest (3.12) | success | - |
+| pytest (3.12) | failure | Run pytest and write JUnit XML |
+| pytest (3.14) | failure | Run pytest and write JUnit XML |
 
 ## pytest
 
