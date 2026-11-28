@@ -278,3 +278,35 @@ def test_rollback_failure_is_reported_in_failure_notice(tmp_path, monkeypatch):
     assert updater_main.run(args) == 1
     note = tmp_path / "localappdata" / "Planning" / "update_failed.txt"
     assert "rollback failed" in note.read_text(encoding="utf-8")
+
+
+def test_package_sync_removes_stale_app_files_but_preserves_user_data(tmp_path):
+    source = _make_complete_package(tmp_path / "new", marker_bytes=b"new-exe")
+    target = _make_complete_package(tmp_path / "installed", marker_bytes=b"old-exe")
+    (target / "obsolete_module.py").write_text("old code", encoding="utf-8")
+    (target / "_internal" / "obsolete_runtime.dll").write_bytes(b"old dll")
+    (target / "settings").mkdir()
+    (target / "settings" / "prefs.json").write_text("keep settings", encoding="utf-8")
+    (target / "planning.sqlite3").write_bytes(b"keep database")
+    (target / "logs").mkdir()
+    (target / "logs" / "previous.log").write_text("keep log", encoding="utf-8")
+
+    updater_main.copy_package(source, target)
+
+    assert (target / "Planning.exe").read_bytes() == b"new-exe"
+    assert not (target / "obsolete_module.py").exists()
+    assert not (target / "_internal" / "obsolete_runtime.dll").exists()
+    assert (target / "settings" / "prefs.json").read_text(encoding="utf-8") == "keep settings"
+    assert (target / "planning.sqlite3").read_bytes() == b"keep database"
+    assert (target / "logs" / "previous.log").read_text(encoding="utf-8") == "keep log"
+
+
+def test_rollback_sync_removes_new_version_only_files(tmp_path):
+    backup = _make_complete_package(tmp_path / "backup", marker_bytes=b"old-exe")
+    installed = _make_complete_package(tmp_path / "installed", marker_bytes=b"new-exe")
+    (installed / "new_only_module.py").write_text("new code", encoding="utf-8")
+
+    updater_main.copy_package(backup, installed)
+
+    assert (installed / "Planning.exe").read_bytes() == b"old-exe"
+    assert not (installed / "new_only_module.py").exists()
