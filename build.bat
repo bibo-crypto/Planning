@@ -113,12 +113,19 @@ if errorlevel 1 (
     if not defined PLANNING_NO_PAUSE pause
     exit /b 1
 )
-if not exist "dist\PlanningUpdater\PlanningUpdater.exe" (
+set "UPDATER_EXE=dist\PlanningUpdater\PlanningUpdater.exe"
+if not exist "!UPDATER_EXE!" set "UPDATER_EXE=dist\PlanningUpdater.exe"
+if not exist "!UPDATER_EXE!" (
     echo [ERROR] PlanningUpdater.exe was not produced.
     if not defined PLANNING_NO_PAUSE pause
     exit /b 1
 )
-copy /y "dist\PlanningUpdater\PlanningUpdater.exe" "dist\Planning\PlanningUpdater.exe" >nul
+copy /y "!UPDATER_EXE!" "dist\Planning\PlanningUpdater.exe" >nul
+if errorlevel 1 (
+    echo [ERROR] Could not copy PlanningUpdater.exe into dist\Planning.
+    if not defined PLANNING_NO_PAUSE pause
+    exit /b 1
+)
 
 
 :: -- Legacy launcher (self-update bridge) -------------------------------------
