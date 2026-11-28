@@ -1,18 +1,18 @@
 {
   "workflow": "tests",
   "conclusion": "success",
-  "sha": "0327179",
-  "branch": "fix/embedded-python-encodings",
-  "url": "https://github.com/bibo-crypto/Planning/actions/runs/46112170059",
-  "written": "2026-11-28 05:32 UTC",
+  "sha": "a91a91e",
+  "branch": "main",
+  "url": "https://github.com/bibo-crypto/Planning/actions/runs/46138174321",
+  "written": "2026-11-28 11:10 UTC",
   "jobs": [
     {
-      "name": "pytest (3.12)",
+      "name": "pytest (3.14)",
       "conclusion": "success",
       "failed_steps": []
     },
     {
-      "name": "pytest (3.14)",
+      "name": "pytest (3.12)",
       "conclusion": "success",
       "failed_steps": []
     }
