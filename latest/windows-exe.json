@@ -1,10 +1,10 @@
 {
   "workflow": "windows-exe",
   "conclusion": "success",
-  "sha": "0327179",
-  "branch": "fix/embedded-python-encodings",
-  "url": "https://github.com/bibo-crypto/Planning/actions/runs/46112170092",
-  "written": "2026-11-28 05:30 UTC",
+  "sha": "a91a91e",
+  "branch": "main",
+  "url": "https://github.com/bibo-crypto/Planning/actions/runs/46138174444",
+  "written": "2026-11-28 11:07 UTC",
   "jobs": [
     {
       "name": "build-and-smoke-test",
