@@ -1,24 +1,22 @@
 {
   "workflow": "windows-exe",
-  "conclusion": "failure",
-  "sha": "5e312dd",
+  "conclusion": "success",
+  "sha": "0327179",
   "branch": "fix/embedded-python-encodings",
-  "url": "https://github.com/bibo-crypto/Planning/actions/runs/46111715982",
-  "written": "2026-11-28 05:24 UTC",
+  "url": "https://github.com/bibo-crypto/Planning/actions/runs/46112170092",
+  "written": "2026-11-28 05:30 UTC",
   "jobs": [
     {
       "name": "build-and-smoke-test",
-      "conclusion": "failure",
-      "failed_steps": [
-        "Validate packaged files"
-      ]
+      "conclusion": "success",
+      "failed_steps": []
     }
   ],
   "pytest": {},
   "failed_tests": [],
   "exe_smoke": {
-    "ok": false,
-    "started_count": 0,
+    "ok": true,
+    "started_count": 2,
     "hang_files": []
   }
 }
